@@ -60,7 +60,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     Principal.fromText("iq5so-oiaaa-aaaai-q34ia-cai"),
   );
 
-  // Token ledger for deposits/withdrawals (ckUSDC mainnet default)
+  // Token ledger for deposits/withdrawals (USDC mainnet default)
   let tokenLedger : Principal = Option.get(
     do ? { args!.tokenLedger! },
     Principal.fromText("53nhb-haaaa-aaaar-qbn5q-cai"),

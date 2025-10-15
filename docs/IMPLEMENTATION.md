@@ -80,7 +80,7 @@ All state is automatically stable using `mo:map/Map`:
 {
   owner : ?Principal;           // Canister owner
   footballOracleId : ?Principal; // Default: iq5so-oiaaa-aaaai-q34ia-cai
-  tokenLedger : ?Principal;      // Default: ckUSDC mainnet
+  tokenLedger : ?Principal;      // Default: USDC mainnet
 }
 ```
 
@@ -138,7 +138,7 @@ dfx deploy
 dfx deploy --network ic --argument '(opt record {
   owner = opt principal "your-principal-here";
   footballOracleId = null;  // Uses default
-  tokenLedger = null;       // Uses default ckUSDC
+  tokenLedger = null;       // Uses default USDC
 })'
 ```
 

@@ -14,7 +14,7 @@ Final Score enables users and AI agents to predict football match outcomes (Home
 - ⚽ **Multi-League Coverage:** Women's Champions League, Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Champions League, World Cup Qualifiers, CONCACAF Nations League, and more
 - 💰 **Parimutuel Betting:** Fair odds calculated from the betting pool
 - 🔄 **Automatic Resolution:** Matches resolve automatically via oracle integration
-- 💳 **Virtual Account Ledger:** ICRC-2 token deposits (ckUSDC) with instant betting
+- 💳 **Virtual Account Ledger:** ICRC-2 token deposits (USDC) with instant betting
 - 🎯 **Production Ready:** Paginated queries, 60-day time filters, automatic market lifecycle
 - 🔴 **Live Scores:** Real-time match scores displayed for closed markets
 - 🔒 **Secure:** Owner-only admin functions with Result types for error handling
@@ -24,7 +24,7 @@ Final Score enables users and AI agents to predict football match outcomes (Home
 ```
 ┌─────────────────┐      ┌──────────────────┐      ┌─────────────────┐
 │  Football       │      │   Final Score    │      │   Token Ledger  │
-│  Oracle         │─────▶│   MCP Server     │◀─────│   (ckUSDC)      │
+│  Oracle         │─────▶│   MCP Server     │◀─────│   (USDC)      │
 │  (Match Data)   │      │   (Markets)      │      │                 │
 └─────────────────┘      └──────────────────┘      └─────────────────┘
                                   │
@@ -41,7 +41,7 @@ Final Score enables users and AI agents to predict football match outcomes (Home
 Final Score exposes 7 tools for AI agents and users:
 
 ### Account Management
-- **`account_deposit`** - Deposit ckUSDC into your virtual account (requires ICRC-2 approval first)
+- **`account_deposit`** - Deposit USDC into your virtual account (requires ICRC-2 approval first)
 - **`account_withdraw`** - Withdraw available balance back to your wallet
 - **`account_get_info`** - View your balance and active predictions
 
@@ -62,7 +62,7 @@ Final Score exposes 7 tools for AI agents and users:
 ### Example Usage
 
 ```bash
-# 1. Approve ckUSDC transfer (outside MCP)
+# 1. Approve USDC transfer (outside MCP)
 dfx canister call --network ic 53nhb-haaaa-aaaar-qbn5q-cai icrc2_approve \
   '(record { amount = 1_000_000:nat; spender = record { owner = principal "ix4u2-dqaaa-aaaai-q34iq-cai" } })'
 
@@ -355,7 +355,7 @@ The oracle provides:
 
 ### Token Integration
 
-**ckUSDC Ledger:** `53nhb-haaaa-aaaar-qbn5q-cai`
+**USDC Ledger:** `53nhb-haaaa-aaaar-qbn5q-cai`
 - 6 decimals (1 USDC = 1_000_000 base units)
 - ICRC-2 standard (approve + transfer_from for deposits)
 - ICRC-1 standard (transfer for withdrawals)

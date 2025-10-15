@@ -20,7 +20,7 @@ To create a fully on-chain, AI-agent-operable prediction market for football mat
 
 An AI agent will interact with the system in a logical sequence. The tools must support this journey:
 
-1.  **Fund the Account:** The agent deposits tokens (e.g., ckUSDC) into its virtual account within the canister.
+1.  **Fund the Account:** The agent deposits tokens (e.g., USDC) into its virtual account within the canister.
 2.  **Discover Opportunities:** The agent queries for a list of open markets to see which matches are available for predictions.
 3.  **Place Prediction:** The agent submits a prediction for a specific match outcome, committing funds from its virtual account.
 4.  **Monitor & Claim:** After a match is over, the agent checks the status of its prediction and claims any winnings, which are then credited back to its virtual account.
@@ -185,7 +185,7 @@ The canister must expose the following MCP tools:
 
 #### **6. Scope of Work (MVP)**
 
-*   **Token Support:** The canister will support a single, specified ICRC token (e.g., ckUSDC) for all deposits and predictions.
+*   **Token Support:** The canister will support a single, specified ICRC token (e.g., USDC) for all deposits and predictions.
 *   **Market Types:** Only the simple "Win/Loss/Draw" market type will be supported.
 *   **Fees:** The MVP will not include any revenue-generating fees. 100% of the losing pools will be distributed to the winners.
 *   **Oracle:** The system will rely exclusively on the specified mainnet Football Oracle canister.

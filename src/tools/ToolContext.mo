@@ -59,7 +59,7 @@ module ToolContext {
     owner : Principal;
     /// Football Oracle canister ID
     footballOracleId : Principal;
-    /// ICRC token ledger for payments (e.g., ckUSDC)
+    /// ICRC token ledger for payments (e.g., USDC)
     tokenLedger : Principal;
     /// State references
     markets : Map.Map<Text, Market>;
