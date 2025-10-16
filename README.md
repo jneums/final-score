@@ -1,20 +1,32 @@
-# Final Score - Parimutuel Football Prediction Market
+# Final Score - Parimutuel Football Predic### Account Management
+- **`account_deposit`** - Deposit ckUSDC into your virtual account (requires ICRC-2 approval first)
+- **`account_withdraw`** - Withdraw available balance back to your wallet
+- **`account_get_info`** - View your balance and unclaimed positions
 
-A fully on-chain, AI-agent-operable prediction market for football matches. Built on the Internet Computer as a Motoko MCP server for the [Prometheus Protocol](https://prometheusprotocol.org) ecosystem.
+### Market Discovery
+- **`markets_list`** - Unified market listing with status filters (Open/Closed/Resolved)
+  - Filter by team name, match status, upcoming only
+  - Sort by kickoff time, total pool, or market ID
+  - Returns formatted UTC timestamps
+  - Shows live scores for in-progress matches
+
+### Predictions
+- **`prediction_place`** - Take a position on HomeWin, AwayWin, or Draw
+- **`prediction_claim_winnings`** - Claim payouts after a market resolves (idempotent)ly on-chain, AI-agent-operable prediction market for football matches. Built on the Internet Computer as a Motoko MCP server for the [Prometheus Protocol](https://prometheusprotocol.org) ecosystem.
 
 ## Overview
 
-Final Score enables users and AI agents to predict football match outcomes (HomeWin, AwayWin, Draw) using a parimutuel betting system. Markets are automatically created from a Football Oracle and resolved when matches complete.
+Final Score enables users and AI agents to predict football match outcomes (HomeWin, AwayWin, Draw) using a parimutuel prediction market system. Markets are automatically created from a Football Oracle and resolved when matches complete.
 
 **Live on Mainnet:** `ix4u2-dqaaa-aaaai-q34iq-cai`
 
 ### Key Features
 
-- 🤖 **AI-Agent Ready:** Full MCP (Model Context Protocol) integration with 7 tools
+- 🤖 **AI-Agent Ready:** Full MCP (Model Context Protocol) integration with 6 tools
 - ⚽ **Multi-League Coverage:** Women's Champions League, Premier League, La Liga, Bundesliga, Serie A, Ligue 1, Champions League, World Cup Qualifiers, CONCACAF Nations League, and more
-- 💰 **Parimutuel Betting:** Fair odds calculated from the betting pool
+- 💰 **Parimutuel Markets:** Fair odds calculated from participant pool distribution
 - 🔄 **Automatic Resolution:** Matches resolve automatically via oracle integration
-- 💳 **Virtual Account Ledger:** ICRC-2 token deposits (USDC) with instant betting
+- 💳 **Virtual Account Ledger:** ICRC-2 token deposits (ckUSDC) with instant position taking
 - 🎯 **Production Ready:** Paginated queries, 60-day time filters, automatic market lifecycle
 - 🔴 **Live Scores:** Real-time match scores displayed for closed markets
 - 🔒 **Secure:** Owner-only admin functions with Result types for error handling
@@ -67,9 +79,9 @@ dfx canister call --network ic 53nhb-haaaa-aaaar-qbn5q-cai icrc2_approve \
   '(record { amount = 1_000_000:nat; spender = record { owner = principal "ix4u2-dqaaa-aaaai-q34iq-cai" } })'
 
 # 2. Via MCP tools (using Claude Desktop, Cline, or other MCP client)
-account_deposit(amount: "1000000")  # Deposit $1 USDC
-markets_list_open(limit: 10, upcoming_only: true)  # Find upcoming matches
-prediction_place(marketId: "110", outcome: "HomeWin", amount: "500000")  # Bet $0.50
+account_deposit(amount: "1000000")  # Deposit $1 ckUSDC
+markets_list(status: ["Open"], limit: 10, upcoming_only: true)  # Find upcoming matches
+prediction_place(marketId: "110", outcome: "HomeWin", amount: "500000")  # Predict $0.50
 account_get_info()  # Check balance and positions
 prediction_claim_winnings(marketId: "110")  # Claim after match resolves
 ```
@@ -77,15 +89,15 @@ prediction_claim_winnings(marketId: "110")  # Claim after match resolves
 ## System Design
 
 ### Virtual Account Ledger
-- Users deposit USDC which credits their virtual account balance
-- Instant betting (no waiting for token transfers)
+- Users deposit ckUSDC which credits their virtual account balance
+- Instant position taking (no waiting for token transfers)
 - Funds are escrowed in outcome pools until market resolves
 - Withdrawals require available (non-escrowed) balance
 
 ### Parimutuel System
 Each market has three pools: HomeWin, AwayWin, Draw
-- **Before Deadline:** Users place predictions, funds go into pools
-- **At Deadline:** Market closes, no more bets accepted
+- **Before Deadline:** Users take positions, funds go into pools
+- **At Deadline:** Market closes, no more positions accepted
 - **After Match:** Oracle provides result, market resolves
 - **Payout Formula:** `(your_stake / winning_pool) * total_pool`
 
@@ -365,7 +377,7 @@ The oracle provides:
 ## What's Next?
 
 - **Monitor Your Markets:** Use the MCP tools or debug functions to watch matches resolve
-- **Seed More Markets:** Provide liquidity by betting on multiple outcomes
+- **Seed Markets:** Provide liquidity by taking positions on multiple outcomes
 - **Integrate with AI Agents:** Connect Claude Desktop, Cline, or custom agents
 - **Expand Coverage:** Add more leagues as the oracle adds them
 - **Build a UI:** Create a web interface using the same MCP endpoints

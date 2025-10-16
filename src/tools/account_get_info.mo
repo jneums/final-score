@@ -18,7 +18,7 @@ module {
     title = ?"Get Account Information";
     description = ?(
       "Returns a comprehensive overview of your account including your available balance " #
-      "and a list of all active (unresolved) predictions."
+      "and a list of all unclaimed positions (including resolved markets awaiting claim)."
     );
     payment = null;
     inputSchema = Json.obj([
@@ -28,34 +28,15 @@ module {
     ]);
     outputSchema = ?Json.obj([
       ("type", Json.str("object")),
-      ("properties", Json.obj([
-        ("available_balance", Json.obj([
-          ("type", Json.str("string")),
-          ("description", Json.str("Your available balance in the virtual account"))
-        ])),
-        ("active_predictions", Json.obj([
-          ("type", Json.str("array")),
-          ("description", Json.str("List of your active predictions")),
-          ("items", Json.obj([
-            ("type", Json.str("object")),
-            ("properties", Json.obj([
-              ("positionId", Json.obj([("type", Json.str("string"))])),
-              ("marketId", Json.obj([("type", Json.str("string"))])),
-              ("matchDetails", Json.obj([("type", Json.str("string"))])),
-              ("staked_amount", Json.obj([("type", Json.str("string"))])),
-              ("predicted_outcome", Json.obj([("type", Json.str("string"))])),
-            ]))
-          ]))
-        ])),
-      ])),
-      ("required", Json.arr([Json.str("available_balance"), Json.str("active_predictions")])),
+      ("properties", Json.obj([("available_balance", Json.obj([("type", Json.str("string")), ("description", Json.str("Your available balance in the virtual account"))])), ("unclaimed_positions", Json.obj([("type", Json.str("array")), ("description", Json.str("List of your unclaimed positions (in open, closed, or resolved markets)")), ("items", Json.obj([("type", Json.str("object")), ("properties", Json.obj([("positionId", Json.obj([("type", Json.str("string"))])), ("marketId", Json.obj([("type", Json.str("string"))])), ("matchDetails", Json.obj([("type", Json.str("string"))])), ("staked_amount", Json.obj([("type", Json.str("string"))])), ("predicted_outcome", Json.obj([("type", Json.str("string"))])), ("market_status", Json.obj([("type", Json.str("string"))]))]))]))]))])),
+      ("required", Json.arr([Json.str("available_balance"), Json.str("unclaimed_positions")])),
     ]);
   };
 
   public func handle(context : ToolContext.ToolContext) : (_args : McpTypes.JsonValue, _auth : ?AuthTypes.AuthInfo, cb : (Result.Result<McpTypes.CallToolResult, McpTypes.HandlerError>) -> ()) -> async () {
 
     func(_args : McpTypes.JsonValue, _auth : ?AuthTypes.AuthInfo, cb : (Result.Result<McpTypes.CallToolResult, McpTypes.HandlerError>) -> ()) : async () {
-      
+
       // Check authentication
       let ?auth = _auth else return ToolContext.makeError("Authentication required", cb);
       let userPrincipal = auth.principal;
@@ -66,35 +47,31 @@ module {
       // Get user positions
       let userPositions = ToolContext.getUserPositions(context, userPrincipal);
 
-      // Filter for active (unclaimed) positions in unresolved markets
-      let activePositions = Array.filter<ToolContext.Position>(
+      // Filter for unclaimed positions (in any market state)
+      let unclaimedPositions = Array.filter<ToolContext.Position>(
         userPositions,
         func(pos : ToolContext.Position) : Bool {
-          if (pos.claimed) {
-            return false;
-          };
-          // Check if market is still active (not resolved)
-          switch (Map.get(context.markets, Map.thash, pos.marketId)) {
-            case (?market) {
-              switch (market.status) {
-                case (#Open) { true };
-                case (#Closed) { true };
-                case (#Resolved(_)) { not pos.claimed };
-              };
-            };
-            case (null) { false };
-          };
-        }
+          not pos.claimed;
+        },
       );
 
-      // Convert positions to JSON
+      // Convert positions to JSON with market status
       let predictionsJson = Json.arr(
         Array.map<ToolContext.Position, Json.Json>(
-          activePositions,
+          unclaimedPositions,
           func(pos : ToolContext.Position) : Json.Json {
-            let matchDetails = switch (Map.get(context.markets, Map.thash, pos.marketId)) {
-              case (?market) { market.matchDetails };
-              case (null) { "Unknown match" };
+            let (matchDetails, marketStatus) = switch (Map.get(context.markets, Map.thash, pos.marketId)) {
+              case (?market) {
+                let status = switch (market.status) {
+                  case (#Open) { "Open" };
+                  case (#Closed) { "Closed" };
+                  case (#Resolved(outcome)) {
+                    "Resolved:" # ToolContext.outcomeToText(outcome);
+                  };
+                };
+                (market.matchDetails, status);
+              };
+              case (null) { ("Unknown match", "Unknown") };
             };
 
             Json.obj([
@@ -103,17 +80,18 @@ module {
               ("matchDetails", Json.str(matchDetails)),
               ("staked_amount", Json.str(Nat.toText(pos.amount))),
               ("predicted_outcome", Json.str(ToolContext.outcomeToText(pos.outcome))),
+              ("market_status", Json.str(marketStatus)),
             ]);
-          }
+          },
         )
       );
 
       let output = Json.obj([
         ("available_balance", Json.str(Nat.toText(balance))),
-        ("active_predictions", predictionsJson),
+        ("unclaimed_positions", predictionsJson),
       ]);
 
       ToolContext.makeSuccess(output, cb);
     };
   };
-}
+};

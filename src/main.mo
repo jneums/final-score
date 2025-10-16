@@ -35,8 +35,7 @@ import IC "mo:ic";
 import ToolContext "tools/ToolContext";
 import FootballOracle "tools/FootballOracle";
 import account_deposit "tools/account_deposit";
-import markets_list_open "tools/markets_list_open";
-import markets_list_closed "tools/markets_list_closed";
+import markets_list "tools/markets_list";
 import prediction_place "tools/prediction_place";
 import prediction_claim_winnings "tools/prediction_claim_winnings";
 import account_get_info "tools/account_get_info";
@@ -331,12 +330,11 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
   transient let tools : [McpTypes.Tool] = [
     account_deposit.config(),
-    markets_list_open.config(),
-    markets_list_closed.config(),
+    account_withdraw.config(),
+    account_get_info.config(),
+    markets_list.config(),
     prediction_place.config(),
     prediction_claim_winnings.config(),
-    account_get_info.config(),
-    account_withdraw.config(),
   ];
 
   transient let toolContext : ToolContext.ToolContext = {
@@ -367,12 +365,11 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     tools = tools;
     toolImplementations = [
       ("account_deposit", account_deposit.handle(toolContext)),
-      ("markets_list_open", markets_list_open.handle(toolContext)),
-      ("markets_list_closed", markets_list_closed.handle(toolContext)),
+      ("account_withdraw", account_withdraw.handle(toolContext)),
+      ("account_get_info", account_get_info.handle(toolContext)),
+      ("markets_list", markets_list.handle(toolContext)),
       ("prediction_place", prediction_place.handle(toolContext)),
       ("prediction_claim_winnings", prediction_claim_winnings.handle(toolContext)),
-      ("account_get_info", account_get_info.handle(toolContext)),
-      ("account_withdraw", account_withdraw.handle(toolContext)),
     ];
     beacon = beaconContext;
   };
