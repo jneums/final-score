@@ -19,7 +19,6 @@ submission:
     - Real-time live scores for in-progress matches
     - Virtual account ledger with USDC deposits/withdrawals
     - Trustless automatic resolution when matches complete
-    - AI-agent ready with 6 intuitive MCP tools
   tags:
     - sports
     - prediction-market

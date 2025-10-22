@@ -40,6 +40,7 @@ import prediction_place "tools/prediction_place";
 import prediction_claim_winnings "tools/prediction_claim_winnings";
 import account_get_info "tools/account_get_info";
 import account_withdraw "tools/account_withdraw";
+import odds_fetch "tools/odds_fetch";
 
 shared ({ caller = deployer }) persistent actor class McpServer(
   args : ?{
@@ -164,6 +165,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           league = null; // All leagues
           limit = ?batchSize;
           offset = ?offset;
+          sortBy = null;
+          sortOrder = null;
         };
 
         let scheduledMatches = await oracle.query_scheduled_matches(request);
@@ -335,6 +338,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     markets_list.config(),
     prediction_place.config(),
     prediction_claim_winnings.config(),
+    odds_fetch.config(),
   ];
 
   transient let toolContext : ToolContext.ToolContext = {
@@ -356,7 +360,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     serverInfo = {
       name = "io.github.jneums.final-score";
       title = "Final Score - Football Prediction Markets";
-      version = "0.1.0";
+      version = "0.2.0";
     };
     resources = resources;
     resourceReader = func(uri) {
@@ -370,6 +374,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       ("markets_list", markets_list.handle(toolContext)),
       ("prediction_place", prediction_place.handle(toolContext)),
       ("prediction_claim_winnings", prediction_claim_winnings.handle(toolContext)),
+      ("odds_fetch", odds_fetch.handle(toolContext)),
     ];
     beacon = beaconContext;
   };
