@@ -232,7 +232,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     let now = Time.now();
 
     // Find markets that are open or closed but not yet resolved
-    label marketLoop for ((marketId, market) in Map.entries(markets)) {
+    for ((marketId, market) in Map.entries(markets)) {
       switch (market.status) {
         case (#Open) {
           // Check if betting deadline has passed
@@ -249,7 +249,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
               case (?id) { id };
               case (null) {
                 Debug.print("Invalid oracle ID for market " # marketId);
-                continue marketLoop;
+                return;
               };
             };
 

@@ -32,5 +32,5 @@ submission:
     banner_url: https://github.com/jneums/final-score/releases/download/v1.0.0-assets/banner-final-score.webp
     gallery_images:
       - https://github.com/jneums/final-score/releases/download/v1.0.0-assets/banner-final-score.webp
-  git_commit: '7b1d00152e8f2af91aed6c34fe5e68e2ff7b3245'
+  git_commit: '3d7900d5a55c32ddfd66af25d306b9f7c383d7d7'
   wasm_path: .dfx/local/canisters/my_mcp_server/my_mcp_server.wasm
