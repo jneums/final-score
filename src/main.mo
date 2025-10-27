@@ -232,7 +232,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     let now = Time.now();
 
     // Find markets that are open or closed but not yet resolved
-    for ((marketId, market) in Map.entries(markets)) {
+    label marketLoop for ((marketId, market) in Map.entries(markets)) {
       switch (market.status) {
         case (#Open) {
           // Check if betting deadline has passed
@@ -248,8 +248,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
             let oracleId = switch (Nat.fromText(market.oracleMatchId)) {
               case (?id) { id };
               case (null) {
-                Debug.print("Invalid oracle ID for market " # marketId);
-                return;
+                Debug.print("Invalid oracle ID for market " # marketId # " - skipping");
+                continue marketLoop;
               };
             };
 
@@ -360,7 +360,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     serverInfo = {
       name = "io.github.jneums.final-score";
       title = "Final Score - Football Prediction Markets";
-      version = "0.2.0";
+      version = "0.2.1";
     };
     resources = resources;
     resourceReader = func(uri) {
