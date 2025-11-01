@@ -882,4 +882,70 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       };
     };
   };
+
+  /// Admin: Cancel a stuck market and refund all positions
+  /// OWNER ONLY - Use for markets that cannot resolve (invalid oracle IDs, etc.)
+  /// This refunds all user positions back to their virtual balances and deletes the market
+  public shared ({ caller }) func admin_cancel_and_refund_market(marketId : Text) : async Result.Result<Text, Text> {
+    if (caller != owner) { return #err("Unauthorized: owner only") };
+
+    Debug.print("Admin canceling and refunding market " # marketId # " by " # Principal.toText(caller));
+
+    switch (Map.get(markets, thash, marketId)) {
+      case (?market) {
+        var totalRefunded : Nat = 0;
+        var usersRefunded : Nat = 0;
+
+        // Iterate through all users and refund their positions for this market
+        for ((user, positions) in Map.entries(userPositions)) {
+          var updatedPositions : [ToolContext.Position] = [];
+          var userRefundAmount : Nat = 0;
+
+          // Separate positions for this market from other positions
+          for (position in positions.vals()) {
+            if (position.marketId == marketId) {
+              // Refund this position
+              userRefundAmount += position.amount;
+            } else {
+              // Keep positions for other markets
+              updatedPositions := Array.append(updatedPositions, [position]);
+            };
+          };
+
+          // If user had positions in this market, refund them
+          if (userRefundAmount > 0) {
+            // Add refund to user's balance
+            let currentBalance = switch (Map.get(userBalances, Map.phash, user)) {
+              case (?bal) { bal };
+              case (null) { 0 };
+            };
+            Map.set(userBalances, Map.phash, user, currentBalance + userRefundAmount);
+
+            // Update their positions (remove positions for this market)
+            if (updatedPositions.size() > 0) {
+              Map.set(userPositions, Map.phash, user, updatedPositions);
+            } else {
+              // If no positions left, remove the entry
+              ignore Map.remove(userPositions, Map.phash, user);
+            };
+
+            totalRefunded += userRefundAmount;
+            usersRefunded += 1;
+
+            Debug.print("Refunded " # Nat.toText(userRefundAmount) # " to user " # Principal.toText(user));
+          };
+        };
+
+        // Remove the market
+        ignore Map.remove(markets, thash, marketId);
+
+        let resultMsg = "Market " # marketId # " (" # market.matchDetails # ") canceled. Refunded " # Nat.toText(totalRefunded) # " to " # Nat.toText(usersRefunded) # " users.";
+        Debug.print(resultMsg);
+        return #ok(resultMsg);
+      };
+      case (null) {
+        return #err("Market not found");
+      };
+    };
+  };
 };

@@ -14,9 +14,11 @@ module {
   // Tool schema
   public func config() : McpTypes.Tool = {
     name = "account_withdraw";
-    title = ?"Withdraw from Virtual Account";
+    title = ?"Withdraw USDC from Virtual Account";
     description = ?(
-      "Withdraw your available balance from the virtual account back to your main wallet. " #
+      "Withdraw your available USDC balance from the virtual account back to your main wallet. " #
+      "Currency: USDC with 6 decimals (1 USDC = 1,000,000 base units). " #
+      "Example: To withdraw $10, use amount '10000000'. To withdraw all funds, use 'all'. " #
       "Only non-escrowed funds can be withdrawn."
     );
     payment = null;
@@ -25,7 +27,7 @@ module {
       ("properties", Json.obj([
         ("amount", Json.obj([
           ("type", Json.str("string")),
-          ("description", Json.str("The amount to withdraw in base units. Use 'all' to withdraw entire balance."))
+          ("description", Json.str("Amount in USDC base units (6 decimals), or 'all' to withdraw entire balance. Example: '10000000' = $10 USDC."))
         ])),
       ])),
       ("required", Json.arr([Json.str("amount")])),

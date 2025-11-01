@@ -14,9 +14,11 @@ module {
   // Tool schema
   public func config() : McpTypes.Tool = {
     name = "account_deposit";
-    title = ?"Deposit Tokens to Virtual Account";
+    title = ?"Deposit USDC to Virtual Account";
     description = ?(
-      "Deposit tokens into your virtual account within the prediction market canister. " #
+      "Deposit USDC tokens into your virtual account within the prediction market canister. " #
+      "Currency: USDC with 6 decimals (1 USDC = 1,000,000 base units). " #
+      "Example: To deposit $10 USDC, use amount '10000000'. To deposit $100 USDC, use '100000000'. " #
       "This is a two-step process: first approve the canister to spend your tokens, " #
       "then call this tool to pull the funds into your virtual account."
     );
@@ -26,7 +28,7 @@ module {
       ("properties", Json.obj([
         ("amount", Json.obj([
           ("type", Json.str("string")),
-          ("description", Json.str("The amount of tokens to deposit, in base units (string nat)."))
+          ("description", Json.str("Amount in USDC base units (6 decimals). Example: '10000000' = $10 USDC, '1000000' = $1 USDC."))
         ]))
       ])),
       ("required", Json.arr([Json.str("amount")])),

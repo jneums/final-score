@@ -17,8 +17,9 @@ module {
     name = "account_get_info";
     title = ?"Get Account Information";
     description = ?(
-      "Returns a comprehensive overview of your account including your available balance " #
-      "and a list of all unclaimed positions (including resolved markets awaiting claim)."
+      "Returns a comprehensive overview of your account including your available USDC balance " #
+      "and a list of all unclaimed positions (including resolved markets awaiting claim). " #
+      "Currency: USDC with 6 decimals. Balances shown in base units where 1,000,000 = $1 USDC."
     );
     payment = null;
     inputSchema = Json.obj([
@@ -28,7 +29,7 @@ module {
     ]);
     outputSchema = ?Json.obj([
       ("type", Json.str("object")),
-      ("properties", Json.obj([("available_balance", Json.obj([("type", Json.str("string")), ("description", Json.str("Your available balance in the virtual account"))])), ("unclaimed_positions", Json.obj([("type", Json.str("array")), ("description", Json.str("List of your unclaimed positions (in open, closed, or resolved markets)")), ("items", Json.obj([("type", Json.str("object")), ("properties", Json.obj([("positionId", Json.obj([("type", Json.str("string"))])), ("marketId", Json.obj([("type", Json.str("string"))])), ("matchDetails", Json.obj([("type", Json.str("string"))])), ("staked_amount", Json.obj([("type", Json.str("string"))])), ("predicted_outcome", Json.obj([("type", Json.str("string"))])), ("market_status", Json.obj([("type", Json.str("string"))]))]))]))]))])),
+      ("properties", Json.obj([("available_balance", Json.obj([("type", Json.str("string")), ("description", Json.str("Available USDC balance in base units (6 decimals). Example: '10000000' = $10 USDC."))])), ("unclaimed_positions", Json.obj([("type", Json.str("array")), ("description", Json.str("List of your unclaimed positions (in open, closed, or resolved markets). Amounts in USDC base units."))])), ("items", Json.obj([("type", Json.str("object")), ("properties", Json.obj([("positionId", Json.obj([("type", Json.str("string"))])), ("marketId", Json.obj([("type", Json.str("string"))])), ("matchDetails", Json.obj([("type", Json.str("string"))])), ("staked_amount", Json.obj([("type", Json.str("string")), ("description", Json.str("Amount in USDC base units"))])), ("predicted_outcome", Json.obj([("type", Json.str("string"))])), ("market_status", Json.obj([("type", Json.str("string"))]))]))]))])),
       ("required", Json.arr([Json.str("available_balance"), Json.str("unclaimed_positions")])),
     ]);
   };
