@@ -1,20 +1,27 @@
-# Prometheus Application Manifest
-# This is the permanent, unique identifier for your application.
 namespace: io.github.jneums.final-score
-
-# This section contains all data for a specific version. This entire package will be submitted for review and locked to the audit of this version.
-# deployment_type: 'global' (shared infrastructure, recommended) or 'provisioned' (dedicated resources)
 submission:
   name: Final Score
-  description: A fully on-chain, AI-agent-operable parimutuel prediction market for football match outcomes. Predict HomeWin, AwayWin, or Draw using USDC with automatic market creation and resolution from a decentralized Football Oracle.
+  description: >-
+    A fully on-chain, AI-agent-operable parimutuel prediction market for
+    football match outcomes. Predict HomeWin, AwayWin, or Draw using USDC with
+    automatic market creation and resolution from a decentralized Football
+    Oracle.
   publisher: Atlas Labs
   category: Finance
   deployment_type: global
   repo_url: https://github.com/jneums/final-score
   mcp_path: /mcp
-  why_this_app: Final Score enables transparent, decentralized prediction markets on the Internet Computer. Using parimutuel pools, participants can express opinions on football match outcomes across 10+ leagues worldwide. Automatic market resolution via oracle integration ensures trustless settlement, while full MCP support allows AI agents to seamlessly participate. All positions are recorded on-chain with instant settlement.
+  why_this_app: >-
+    Final Score enables transparent, decentralized prediction markets on the
+    Internet Computer. Using parimutuel pools, participants can express opinions
+    on football match outcomes across 10+ leagues worldwide. Automatic market
+    resolution via oracle integration ensures trustless settlement, while full
+    MCP support allows AI agents to seamlessly participate. All positions are
+    recorded on-chain with instant settlement.
   key_features:
-    - Parimutuel prediction markets for football match outcomes (HomeWin, AwayWin, Draw)
+    - >-
+      Parimutuel prediction markets for football match outcomes (HomeWin,
+      AwayWin, Draw)
     - Automatic market creation from decentralized Football Oracle (10+ leagues)
     - Real-time live scores for in-progress matches
     - Virtual account ledger with USDC deposits/withdrawals
@@ -28,9 +35,12 @@ submission:
     - defi
     - oracle
   visuals:
-    icon_url: https://github.com/jneums/final-score/releases/download/v1.0.0-assets/icon-final-score.webp
-    banner_url: https://github.com/jneums/final-score/releases/download/v1.0.0-assets/banner-final-score.webp
+    icon_url: >-
+      https://github.com/jneums/final-score/releases/download/v1.0.0-assets/icon-final-score.webp
+    banner_url: >-
+      https://github.com/jneums/final-score/releases/download/v1.0.0-assets/banner-final-score.webp
     gallery_images:
-      - https://github.com/jneums/final-score/releases/download/v1.0.0-assets/banner-final-score.webp
-  git_commit: '0ec027519d13b897acbc05eef655b0d0d7173846'
-  wasm_path: .dfx/local/canisters/my_mcp_server/my_mcp_server.wasm
+      - >-
+        https://github.com/jneums/final-score/releases/download/v1.0.0-assets/banner-final-score.webp
+  git_commit: 0345f7f59cb825dd0ef2afbb564568fe05e7ce14
+  wasm_path: ./out/out_Linux_x86_64.wasm
