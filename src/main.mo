@@ -9,6 +9,7 @@ import Time "mo:base/Time";
 import Timer "mo:base/Timer";
 import Nat "mo:base/Nat";
 import Error "mo:base/Error";
+import Array "mo:base/Array";
 
 import HttpTypes "mo:http-types";
 import Map "mo:map/Map";
@@ -39,7 +40,9 @@ import markets_list "tools/markets_list";
 import prediction_place "tools/prediction_place";
 import prediction_claim_winnings "tools/prediction_claim_winnings";
 import account_get_info "tools/account_get_info";
+import account_get_history "tools/account_get_history";
 import account_withdraw "tools/account_withdraw";
+import odds_fetch "tools/odds_fetch";
 
 shared ({ caller = deployer }) persistent actor class McpServer(
   args : ?{
@@ -69,6 +72,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   var markets = Map.new<Text, ToolContext.Market>();
   var userBalances = Map.new<Principal, Nat>();
   var userPositions = Map.new<Principal, [ToolContext.Position]>();
+  var positionHistory = Map.new<Principal, [ToolContext.HistoricalPosition]>();
   var nextMarketId : Nat = 0;
   var nextPositionId : Nat = 0;
   var processedOracleIds = Map.new<Nat, Bool>();
@@ -164,6 +168,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           league = null; // All leagues
           limit = ?batchSize;
           offset = ?offset;
+          sortBy = null;
+          sortOrder = null;
         };
 
         let scheduledMatches = await oracle.query_scheduled_matches(request);
@@ -245,7 +251,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
             let oracleId = switch (Nat.fromText(market.oracleMatchId)) {
               case (?id) { id };
               case (null) {
-                Debug.print("Invalid oracle ID for market " # marketId);
+                Debug.print("Invalid oracle ID for market " # marketId # " - skipping");
                 continue marketLoop;
               };
             };
@@ -332,9 +338,11 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     account_deposit.config(),
     account_withdraw.config(),
     account_get_info.config(),
+    account_get_history.config(),
     markets_list.config(),
     prediction_place.config(),
     prediction_claim_winnings.config(),
+    odds_fetch.config(),
   ];
 
   transient let toolContext : ToolContext.ToolContext = {
@@ -345,6 +353,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     markets = markets;
     userBalances = userBalances;
     userPositions = userPositions;
+    positionHistory = positionHistory;
     var nextMarketId = nextMarketId;
     var nextPositionId = nextPositionId;
   };
@@ -356,7 +365,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     serverInfo = {
       name = "io.github.jneums.final-score";
       title = "Final Score - Football Prediction Markets";
-      version = "0.1.0";
+      version = "0.3.0";
     };
     resources = resources;
     resourceReader = func(uri) {
@@ -367,9 +376,11 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       ("account_deposit", account_deposit.handle(toolContext)),
       ("account_withdraw", account_withdraw.handle(toolContext)),
       ("account_get_info", account_get_info.handle(toolContext)),
+      ("account_get_history", account_get_history.handle(toolContext)),
       ("markets_list", markets_list.handle(toolContext)),
       ("prediction_place", prediction_place.handle(toolContext)),
       ("prediction_claim_winnings", prediction_claim_winnings.handle(toolContext)),
+      ("odds_fetch", odds_fetch.handle(toolContext)),
     ];
     beacon = beaconContext;
   };
@@ -873,6 +884,72 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         return #ok("Market " # marketId # " (" # market.matchDetails # ") deleted successfully");
       };
       case null {
+        return #err("Market not found");
+      };
+    };
+  };
+
+  /// Admin: Cancel a stuck market and refund all positions
+  /// OWNER ONLY - Use for markets that cannot resolve (invalid oracle IDs, etc.)
+  /// This refunds all user positions back to their virtual balances and deletes the market
+  public shared ({ caller }) func admin_cancel_and_refund_market(marketId : Text) : async Result.Result<Text, Text> {
+    if (caller != owner) { return #err("Unauthorized: owner only") };
+
+    Debug.print("Admin canceling and refunding market " # marketId # " by " # Principal.toText(caller));
+
+    switch (Map.get(markets, thash, marketId)) {
+      case (?market) {
+        var totalRefunded : Nat = 0;
+        var usersRefunded : Nat = 0;
+
+        // Iterate through all users and refund their positions for this market
+        for ((user, positions) in Map.entries(userPositions)) {
+          var updatedPositions : [ToolContext.Position] = [];
+          var userRefundAmount : Nat = 0;
+
+          // Separate positions for this market from other positions
+          for (position in positions.vals()) {
+            if (position.marketId == marketId) {
+              // Refund this position
+              userRefundAmount += position.amount;
+            } else {
+              // Keep positions for other markets
+              updatedPositions := Array.append(updatedPositions, [position]);
+            };
+          };
+
+          // If user had positions in this market, refund them
+          if (userRefundAmount > 0) {
+            // Add refund to user's balance
+            let currentBalance = switch (Map.get(userBalances, Map.phash, user)) {
+              case (?bal) { bal };
+              case (null) { 0 };
+            };
+            Map.set(userBalances, Map.phash, user, currentBalance + userRefundAmount);
+
+            // Update their positions (remove positions for this market)
+            if (updatedPositions.size() > 0) {
+              Map.set(userPositions, Map.phash, user, updatedPositions);
+            } else {
+              // If no positions left, remove the entry
+              ignore Map.remove(userPositions, Map.phash, user);
+            };
+
+            totalRefunded += userRefundAmount;
+            usersRefunded += 1;
+
+            Debug.print("Refunded " # Nat.toText(userRefundAmount) # " to user " # Principal.toText(user));
+          };
+        };
+
+        // Remove the market
+        ignore Map.remove(markets, thash, marketId);
+
+        let resultMsg = "Market " # marketId # " (" # market.matchDetails # ") canceled. Refunded " # Nat.toText(totalRefunded) # " to " # Nat.toText(usersRefunded) # " users.";
+        Debug.print(resultMsg);
+        return #ok(resultMsg);
+      };
+      case (null) {
         return #err("Market not found");
       };
     };

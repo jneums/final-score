@@ -73,6 +73,8 @@ module {
     startTime : ?Nat;
     status : ?Text;
     endTime : ?Nat;
+    sortBy : ?Text;
+    sortOrder : ?Text;
     offset : ?Nat;
     limit : ?Nat;
     league : ?Text;
@@ -191,9 +193,16 @@ module {
   public type Self = actor {
     add_league : shared Nat -> async SetLeaguesResult;
     fetch_match_data : shared FetchMatchDataRequest -> async FetchResult;
+    fetch_odds : shared (Nat, ?Nat, ?Nat) -> async Text;
     get_latest_event : shared query Nat -> async ?OracleEvent;
     get_match_events : shared query Nat -> async EventsResult;
     get_match_record : shared query Nat -> async ?MatchRecord;
+    get_memory_info : shared query () -> async {
+      stable_memory_pages : Nat;
+      stable_memory_bytes : Nat;
+      rts_memory_size : Nat;
+      rts_heap_size : Nat;
+    };
     get_monitored_leagues : shared query () -> async [Nat];
     get_scheduled_matches : shared query () -> async [ScheduledMatchInfo];
     get_stats : shared query () -> async Stats;

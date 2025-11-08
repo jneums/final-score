@@ -26,7 +26,7 @@ module {
     description = ?(
       "Returns a paginated, filtered, and sorted list of prediction markets. " #
       "Filter by status (Open, Closed, Resolved), team name, and more. " #
-      "Open markets accept bets. Closed markets show live scores. Resolved markets show final outcomes."
+      "Open markets accept bets. Closed and Resolved markets are informational only."
     );
     payment = null;
     inputSchema = Json.obj([
@@ -112,9 +112,6 @@ module {
         case _ false;
       };
 
-      // Determine if we're showing closed/resolved markets (for live scores)
-      let showLiveScores = Array.find<Text>(statusFilter, func(s) { s == "Closed" or s == "Resolved" }) != null;
-
       // Get all markets matching status filter
       var filteredMarkets : [(Text, ToolContext.Market)] = [];
       for ((id, market) in Map.entries(context.markets)) {
@@ -191,30 +188,6 @@ module {
         Iter.toArray(Array.slice(filteredMarkets, offset, endIndex));
       };
 
-      // Fetch live scores if showing closed/resolved markets
-      var liveScores : [(Text, Text)] = []; // (marketId, matchStatus)
-      if (showLiveScores) {
-        let oracle = actor (Principal.toText(context.footballOracleId)) : FootballOracle.Self;
-
-        for ((_, market) in paginatedMarkets.vals()) {
-          let oracleId = switch (Nat.fromText(market.oracleMatchId)) {
-            case (?id) { id };
-            case (null) { 0 }; // Invalid, will result in "No data"
-          };
-
-          try {
-            let maybeEvent = await oracle.get_latest_event(oracleId);
-            let status = switch (maybeEvent) {
-              case (?event) { formatMatchStatus(event.eventData) };
-              case (null) { "No data" };
-            };
-            liveScores := Array.append(liveScores, [(market.marketId, status)]);
-          } catch (e) {
-            liveScores := Array.append(liveScores, [(market.marketId, "Error fetching")]);
-          };
-        };
-      };
-
       // Convert to JSON
       let marketsJson = Json.arr(
         Array.map<(Text, ToolContext.Market), Json.Json>(
@@ -226,16 +199,6 @@ module {
               case (#Resolved(outcome)) {
                 "Resolved:" # ToolContext.outcomeToText(outcome);
               };
-            };
-
-            // Find live score if available
-            let matchStatus = if (showLiveScores) {
-              switch (Array.find<(Text, Text)>(liveScores, func((id, _)) { id == market.marketId })) {
-                case (?(_, status)) { status };
-                case (null) { "Loading..." };
-              };
-            } else {
-              "N/A";
             };
 
             Json.obj([
@@ -252,7 +215,6 @@ module {
               ("homeWinPool", Json.str(Nat.toText(market.homeWinPool))),
               ("awayWinPool", Json.str(Nat.toText(market.awayWinPool))),
               ("drawPool", Json.str(Nat.toText(market.drawPool))),
-              ("matchStatus", Json.str(matchStatus)),
             ]);
           },
         )

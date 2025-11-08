@@ -14,10 +14,12 @@ module {
   // Tool schema
   public func config() : McpTypes.Tool = {
     name = "prediction_place";
-    title = ?"Place a Prediction";
+    title = ?"Place a Prediction (Bet)";
     description = ?(
       "Submit a prediction for a specific match outcome. " #
-      "This commits funds from your virtual account to the corresponding outcome pool. " #
+      "This commits USDC funds from your virtual account to the corresponding outcome pool. " #
+      "Currency: USDC with 6 decimals (1 USDC = 1,000,000 base units). " #
+      "Example: To bet $10, use amount '10000000'. To bet $50, use '50000000'. " #
       "You can predict HomeWin, AwayWin, or Draw."
     );
     payment = null;
@@ -35,7 +37,7 @@ module {
         ])),
         ("amount", Json.obj([
           ("type", Json.str("string")),
-          ("description", Json.str("The amount to bet from the virtual account, in base units."))
+          ("description", Json.str("Amount in USDC base units (6 decimals). Example: '10000000' = $10 USDC, '1000000' = $1 USDC."))
         ])),
       ])),
       ("required", Json.arr([Json.str("marketId"), Json.str("outcome"), Json.str("amount")])),

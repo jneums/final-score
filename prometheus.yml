@@ -19,7 +19,6 @@ submission:
     - Real-time live scores for in-progress matches
     - Virtual account ledger with USDC deposits/withdrawals
     - Trustless automatic resolution when matches complete
-    - AI-agent ready with 6 intuitive MCP tools
   tags:
     - sports
     - prediction-market
@@ -33,5 +32,5 @@ submission:
     banner_url: https://github.com/jneums/final-score/releases/download/v1.0.0-assets/banner-final-score.webp
     gallery_images:
       - https://github.com/jneums/final-score/releases/download/v1.0.0-assets/banner-final-score.webp
-  git_commit: '7b1d00152e8f2af91aed6c34fe5e68e2ff7b3245'
+  git_commit: '0ec027519d13b897acbc05eef655b0d0d7173846'
   wasm_path: .dfx/local/canisters/my_mcp_server/my_mcp_server.wasm
