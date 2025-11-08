@@ -9,6 +9,7 @@ import Time "mo:base/Time";
 import Timer "mo:base/Timer";
 import Nat "mo:base/Nat";
 import Error "mo:base/Error";
+import Array "mo:base/Array";
 
 import HttpTypes "mo:http-types";
 import Map "mo:map/Map";
@@ -39,6 +40,7 @@ import markets_list "tools/markets_list";
 import prediction_place "tools/prediction_place";
 import prediction_claim_winnings "tools/prediction_claim_winnings";
 import account_get_info "tools/account_get_info";
+import account_get_history "tools/account_get_history";
 import account_withdraw "tools/account_withdraw";
 import odds_fetch "tools/odds_fetch";
 
@@ -70,6 +72,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   var markets = Map.new<Text, ToolContext.Market>();
   var userBalances = Map.new<Principal, Nat>();
   var userPositions = Map.new<Principal, [ToolContext.Position]>();
+  var positionHistory = Map.new<Principal, [ToolContext.HistoricalPosition]>();
   var nextMarketId : Nat = 0;
   var nextPositionId : Nat = 0;
   var processedOracleIds = Map.new<Nat, Bool>();
@@ -335,6 +338,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     account_deposit.config(),
     account_withdraw.config(),
     account_get_info.config(),
+    account_get_history.config(),
     markets_list.config(),
     prediction_place.config(),
     prediction_claim_winnings.config(),
@@ -349,6 +353,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     markets = markets;
     userBalances = userBalances;
     userPositions = userPositions;
+    positionHistory = positionHistory;
     var nextMarketId = nextMarketId;
     var nextPositionId = nextPositionId;
   };
@@ -360,7 +365,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     serverInfo = {
       name = "io.github.jneums.final-score";
       title = "Final Score - Football Prediction Markets";
-      version = "0.2.1";
+      version = "0.2.2";
     };
     resources = resources;
     resourceReader = func(uri) {
@@ -371,6 +376,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       ("account_deposit", account_deposit.handle(toolContext)),
       ("account_withdraw", account_withdraw.handle(toolContext)),
       ("account_get_info", account_get_info.handle(toolContext)),
+      ("account_get_history", account_get_history.handle(toolContext)),
       ("markets_list", markets_list.handle(toolContext)),
       ("prediction_place", prediction_place.handle(toolContext)),
       ("prediction_claim_winnings", prediction_claim_winnings.handle(toolContext)),

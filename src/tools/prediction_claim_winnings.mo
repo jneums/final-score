@@ -8,6 +8,7 @@ import Array "mo:base/Array";
 import Map "mo:map/Map";
 import Float "mo:base/Float";
 import Int "mo:base/Int";
+import Time "mo:base/Time";
 
 import ToolContext "ToolContext";
 
@@ -83,6 +84,9 @@ module {
       // Calculate winnings using parimutuel formula
       var totalClaimed : Nat = 0;
 
+      // Also track individual payouts for history
+      var positionPayouts : [(ToolContext.Position, Nat)] = [];
+
       let winningPool = switch (winningOutcome) {
         case (#HomeWin) { market.homeWinPool };
         case (#AwayWin) { market.awayWinPool };
@@ -93,6 +97,7 @@ module {
       if (winningPool == 0) {
         for (position in marketPositions.vals()) {
           totalClaimed += position.amount;
+          positionPayouts := Array.append(positionPayouts, [(position, position.amount)]);
         };
       } else {
         // Calculate payouts proportionally
@@ -103,9 +108,28 @@ module {
             let payoutFloat = (Float.fromInt(position.amount) / Float.fromInt(winningPool)) * Float.fromInt(market.totalPool);
             let payout = Int.abs(Float.toInt(payoutFloat));
             totalClaimed += payout;
+            positionPayouts := Array.append(positionPayouts, [(position, payout)]);
+          } else {
+            // Losers get nothing
+            positionPayouts := Array.append(positionPayouts, [(position, 0)]);
           };
-          // Losers get nothing
         };
+      };
+
+      // Save positions to history
+      let currentTime = Int.abs(Time.now() / 1_000_000_000); // Convert to seconds
+      for ((position, payout) in positionPayouts.vals()) {
+        let historyEntry : ToolContext.HistoricalPosition = {
+          marketId = marketId;
+          homeTeam = market.homeTeam;
+          awayTeam = market.awayTeam;
+          betOutcome = position.outcome;
+          betAmount = position.amount;
+          actualOutcome = winningOutcome;
+          payout = payout;
+          resolvedAt = Int.abs(currentTime);
+        };
+        ToolContext.addHistoricalPosition(context, userPrincipal, historyEntry);
       };
 
       // Credit the user's account

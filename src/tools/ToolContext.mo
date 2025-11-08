@@ -32,6 +32,18 @@ module ToolContext {
     claimed : Bool;
   };
 
+  /// A historical (settled) position
+  public type HistoricalPosition = {
+    marketId : Text;
+    homeTeam : Text;
+    awayTeam : Text;
+    betOutcome : Outcome;
+    betAmount : Nat;
+    actualOutcome : Outcome;
+    payout : Nat;
+    resolvedAt : Nat;
+  };
+
   /// A prediction market
   public type Market = {
     marketId : Text;
@@ -65,6 +77,7 @@ module ToolContext {
     markets : Map.Map<Text, Market>;
     userBalances : Map.Map<Principal, VirtualBalance>;
     userPositions : Map.Map<Principal, [Position]>;
+    positionHistory : Map.Map<Principal, [HistoricalPosition]>;
     var nextMarketId : Nat;
     var nextPositionId : Nat;
   };
@@ -130,6 +143,16 @@ module ToolContext {
     Map.set(context.userPositions, Map.phash, user, updatedPositions);
   };
 
+  /// Add a historical position
+  public func addHistoricalPosition(context : ToolContext, user : Principal, entry : HistoricalPosition) {
+    let currentHistory = switch (Map.get(context.positionHistory, Map.phash, user)) {
+      case (?history) { history };
+      case (null) { [] };
+    };
+    let newHistory = Array.append(currentHistory, [entry]);
+    Map.set(context.positionHistory, Map.phash, user, newHistory);
+  };
+
   /// Generate next market ID
   public func getNextMarketId(context : ToolContext) : Text {
     let id = Nat.toText(context.nextMarketId);
@@ -151,11 +174,7 @@ module ToolContext {
 
   /// Helper function to create a success response
   public func makeSuccess(structured : Json.Json, cb : (Result.Result<McpTypes.CallToolResult, McpTypes.HandlerError>) -> ()) {
-    cb(#ok({ 
-      content = [#text({ text = Json.stringify(structured, null) })]; 
-      isError = false; 
-      structuredContent = ?structured 
-    }));
+    cb(#ok({ content = [#text({ text = Json.stringify(structured, null) })]; isError = false; structuredContent = ?structured }));
   };
 
   /// Convert Outcome to text
@@ -176,4 +195,4 @@ module ToolContext {
       case (_) { null };
     };
   };
-}
+};
