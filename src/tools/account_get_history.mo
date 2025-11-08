@@ -29,8 +29,8 @@ module {
     ]);
     outputSchema = ?Json.obj([
       ("type", Json.str("object")),
-      ("properties", Json.obj([("history", Json.obj([("type", Json.str("array")), ("description", Json.str("List of settled betting positions")), ("items", Json.obj([("type", Json.str("object")), ("properties", Json.obj([("market_id", Json.obj([("type", Json.str("string")), ("description", Json.str("The market ID"))])), ("home_team", Json.obj([("type", Json.str("string")), ("description", Json.str("Home team name"))])), ("away_team", Json.obj([("type", Json.str("string")), ("description", Json.str("Away team name"))])), ("bet_outcome", Json.obj([("type", Json.str("string")), ("description", Json.str("What you bet on: HomeWin, AwayWin, or Draw"))])), ("bet_amount", Json.obj([("type", Json.str("string")), ("description", Json.str("Amount you bet in USDC base units (6 decimals)"))])), ("actual_outcome", Json.obj([("type", Json.str("string")), ("description", Json.str("Actual match result: HomeWin, AwayWin, or Draw"))])), ("payout", Json.obj([("type", Json.str("string")), ("description", Json.str("Amount you won (0 if you lost) in USDC base units"))])), ("result", Json.obj([("type", Json.str("string")), ("description", Json.str("'won' or 'lost'"))])), ("resolved_at", Json.obj([("type", Json.str("string")), ("description", Json.str("When the market was resolved (Unix timestamp)"))]))]))]))])), ("total_entries", Json.obj([("type", Json.str("number")), ("description", Json.str("Total number of history entries available"))]))])),
-      ("required", Json.arr([Json.str("history"), Json.str("total_entries")])),
+      ("properties", Json.obj([("history", Json.obj([("type", Json.str("array")), ("description", Json.str("List of settled betting positions")), ("items", Json.obj([("type", Json.str("object")), ("properties", Json.obj([("market_id", Json.obj([("type", Json.str("string")), ("description", Json.str("The market ID"))])), ("home_team", Json.obj([("type", Json.str("string")), ("description", Json.str("Home team name"))])), ("away_team", Json.obj([("type", Json.str("string")), ("description", Json.str("Away team name"))])), ("bet_outcome", Json.obj([("type", Json.str("string")), ("description", Json.str("What you bet on: HomeWin, AwayWin, or Draw"))])), ("bet_amount", Json.obj([("type", Json.str("string")), ("description", Json.str("Amount you bet in USDC base units (6 decimals)"))])), ("actual_outcome", Json.obj([("type", Json.str("string")), ("description", Json.str("Actual match result: HomeWin, AwayWin, or Draw"))])), ("payout", Json.obj([("type", Json.str("string")), ("description", Json.str("Amount you won (0 if you lost) in USDC base units"))])), ("result", Json.obj([("type", Json.str("string")), ("description", Json.str("'won' or 'lost'"))])), ("resolved_at", Json.obj([("type", Json.str("string")), ("description", Json.str("When the market was resolved (Unix timestamp)"))]))]))]))])), ("page", Json.obj([("type", Json.str("string")), ("description", Json.str("Current page number"))])), ("page_size", Json.obj([("type", Json.str("string")), ("description", Json.str("Number of entries per page"))])), ("total_entries", Json.obj([("type", Json.str("string")), ("description", Json.str("Total number of history entries available"))])), ("total_pages", Json.obj([("type", Json.str("string")), ("description", Json.str("Total number of pages available"))]))])),
+      ("required", Json.arr([Json.str("history"), Json.str("page"), Json.str("page_size"), Json.str("total_entries"), Json.str("total_pages")])),
     ]);
   };
 
@@ -82,7 +82,9 @@ module {
       };
 
       // Calculate total pages
-      let totalPages = if (totalEntries == 0) { 0 } else { (totalEntries + pageSize - 1) / pageSize };
+      let totalPages = if (totalEntries == 0) { 0 } else {
+        (totalEntries + pageSize - 1) / pageSize;
+      };
 
       // Convert to JSON
       let historyJson = Array.map<ToolContext.HistoricalPosition, Json.Json>(
