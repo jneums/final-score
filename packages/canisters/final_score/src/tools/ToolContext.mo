@@ -256,7 +256,10 @@ module ToolContext {
       case (null) { return }; // Should never happen after init
     };
 
-    let newNetProfit = currentStats.netProfit + (Int.abs(won) - Int.abs(wagered));
+    // Convert Nat to Int before arithmetic to avoid underflow
+    let wonInt : Int = won;
+    let wageredInt : Int = wagered;
+    let newNetProfit = currentStats.netProfit + (wonInt - wageredInt);
 
     let newCurrentStreak = if (wasCorrect) {
       if (currentStats.currentStreak >= 0) {
