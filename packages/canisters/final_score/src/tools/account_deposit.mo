@@ -39,22 +39,18 @@ module {
       ("properties", Json.obj([
         ("transferred_amount", Json.obj([
           ("type", Json.str("string")),
-          ("description", Json.str("The total amount transferred from the user (including fee)."))
+          ("description", Json.str("The net amount transferred to the canister and credited to your virtual account (requested amount minus fee)."))
         ])),
         ("fee", Json.obj([
           ("type", Json.str("string")),
-          ("description", Json.str("The transfer fee deducted."))
-        ])),
-        ("credited_amount", Json.obj([
-          ("type", Json.str("string")),
-          ("description", Json.str("The net amount credited to virtual account (transferred_amount - fee)."))
+          ("description", Json.str("The transfer fee deducted (10,000 base units = $0.01 USDC)."))
         ])),
         ("new_balance", Json.obj([
           ("type", Json.str("string")),
           ("description", Json.str("The user's new total virtual account balance."))
         ]))
       ])),
-      ("required", Json.arr([Json.str("transferred_amount"), Json.str("fee"), Json.str("credited_amount"), Json.str("new_balance")])),
+      ("required", Json.arr([Json.str("transferred_amount"), Json.str("fee"), Json.str("new_balance")])),
     ]);
   };
 
@@ -134,7 +130,6 @@ module {
             let output = Json.obj([
               ("transferred_amount", Json.str(Nat.toText(transferAmount))),
               ("fee", Json.str(Nat.toText(transferFee))),
-              ("credited_amount", Json.str(Nat.toText(transferAmount))),
               ("new_balance", Json.str(Nat.toText(newBalance))),
             ]);
             ToolContext.makeSuccess(output, cb);
