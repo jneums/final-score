@@ -1,18 +1,19 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter, Orbitron } from "next/font/google";
 import Link from "next/link";
 import { Navigation } from "./navigation";
 import { Providers } from "./providers";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const orbitron = Orbitron({
+  variable: "--font-orbitron",
   subsets: ["latin"],
+  weight: ["400", "500", "600", "700", "800", "900"],
 });
 
 export const metadata: Metadata = {
@@ -40,21 +41,26 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${inter.variable} ${orbitron.variable} antialiased flex flex-col min-h-screen`}
       >
         <Providers>
           <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-            <div className="container mx-auto px-6">
-              <div className="flex h-20 items-center justify-between">
-                <Link href="/" className="flex items-center gap-3 font-bold text-2xl text-foreground hover:text-primary transition-colors">
-                  ⚽ Final Score
+            <div className="container mx-auto px-4 sm:px-6">
+              <div className="flex h-16 sm:h-20 items-center justify-between gap-4">
+                <Link href="/" className="flex items-center gap-2 sm:gap-3 hover:opacity-80 transition-opacity shrink-0">
+                  <img 
+                    src="/icon-final-score.webp" 
+                    alt="Final Score Logo" 
+                    className="h-8 sm:h-10 w-auto"
+                  />
+                  <span className="font-bold text-lg sm:text-2xl text-foreground" style={{ fontFamily: 'var(--font-orbitron)' }}>Final Score</span>
                 </Link>
                 <Navigation />
               </div>
             </div>
           </header>
-          <main>{children}</main>
-          <footer className="border-t-2 py-12 mt-20 bg-muted/20">
+          <main className="flex-1">{children}</main>
+          <footer className="border-t-2 border-primary/20 py-12 bg-card/30">
             <div className="container mx-auto px-4 text-center">
               <p className="text-base text-muted-foreground font-medium">
                 Built with ❤️ on the Internet Computer

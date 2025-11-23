@@ -50,13 +50,13 @@ function LeaderboardTable({ entries, type }: { entries: LeaderboardEntry[], type
           : 0;
 
         return (
-          <Card key={entry.rank.toString()} className="border hover:border-primary/50 transition-colors">
-            <CardContent className="p-4">
-              <div className="grid grid-cols-12 gap-4 items-center">
-                {/* Rank */}
-                <div className="col-span-1 text-center">
+          <Card key={entry.rank.toString()} className="border-2 border-primary/20 hover:border-primary/50 transition-colors bg-card/80">
+            <CardContent className="p-5 sm:p-6">
+              <div className="flex items-center gap-4 sm:gap-6">
+                {/* Rank - Desktop only */}
+                <div className="hidden sm:flex flex-shrink-0">
                   {entry.rank <= 3n ? (
-                    <span className="text-3xl">
+                    <span className="text-4xl">
                       {entry.rank === 1n ? '🥇' : entry.rank === 2n ? '🥈' : '🥉'}
                     </span>
                   ) : (
@@ -67,47 +67,64 @@ function LeaderboardTable({ entries, type }: { entries: LeaderboardEntry[], type
                 </div>
 
                 {/* User with Avatar */}
-                <div className="col-span-5 flex items-center gap-3">
-                  <img
-                    src={`https://api.dicebear.com/9.x/adventurer/svg?seed=${entry.stats.userPrincipal.toString()}`}
-                    alt="User avatar"
-                    className="w-10 h-10 rounded-full"
-                  />
-                  <div>
-                    <div className="font-mono text-sm">
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <div className="relative flex-shrink-0">
+                    <img
+                      src={`https://api.dicebear.com/9.x/adventurer/svg?seed=${entry.stats.userPrincipal.toString()}`}
+                      alt="User avatar"
+                      className="w-12 h-12 sm:w-14 sm:h-14 rounded-full"
+                    />
+                    {/* Rank Badge - Mobile only */}
+                    <div className="absolute -top-1 -right-1 flex items-center justify-center sm:hidden">
+                      {entry.rank <= 3n ? (
+                        <span className="text-2xl drop-shadow-lg">
+                          {entry.rank === 1n ? '🥇' : entry.rank === 2n ? '🥈' : '🥉'}
+                        </span>
+                      ) : (
+                        <div className="bg-primary/90 text-primary-foreground text-xs font-bold rounded-full w-6 h-6 flex items-center justify-center border-2 border-background shadow-lg">
+                          {entry.rank.toString()}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-mono text-sm sm:text-base truncate">
                       {formatPrincipal(entry.stats.userPrincipal.toString())}
                     </div>
-                    <div className="text-xs text-muted-foreground mt-1">
+                    <div className="text-xs sm:text-sm text-muted-foreground mt-1">
                       {entry.stats.totalPredictions.toString()} prediction{entry.stats.totalPredictions !== 1n ? 's' : ''}
                     </div>
                   </div>
                 </div>
 
-                {/* Main Stat */}
-                <div className="col-span-3 text-center">
-                  <div className="text-2xl font-bold">
-                    {type === 'profit' && formatUsdc(entry.stats.netProfit)}
-                    {type === 'accuracy' && formatPercentage(accuracyRate)}
-                    {type === 'volume' && formatUsdc(entry.stats.totalWagered)}
-                    {type === 'streak' && entry.stats.longestWinStreak.toString()}
+                {/* Stats Section */}
+                <div className="flex items-center gap-6 sm:gap-10 ml-auto mr-2 sm:mr-4">
+                  {/* Main Stat */}
+                  <div className="text-right">
+                    <div className="text-xl sm:text-2xl font-bold text-primary">
+                      {type === 'profit' && formatUsdc(entry.stats.netProfit)}
+                      {type === 'accuracy' && formatPercentage(accuracyRate)}
+                      {type === 'volume' && formatUsdc(entry.stats.totalWagered)}
+                      {type === 'streak' && entry.stats.longestWinStreak.toString()}
+                    </div>
+                    <div className="text-xs sm:text-sm text-muted-foreground mt-1">
+                      {type === 'profit' && 'Net Profit'}
+                      {type === 'accuracy' && 'Accuracy'}
+                      {type === 'volume' && 'Volume'}
+                      {type === 'streak' && 'Win Streak'}
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {type === 'profit' && 'Net Profit'}
-                    {type === 'accuracy' && 'Accuracy'}
-                    {type === 'volume' && 'Volume'}
-                    {type === 'streak' && 'Win Streak'}
-                  </div>
-                </div>
 
-                {/* Additional Stats */}
-                <div className="col-span-3 text-right space-y-1">
-                  <div className="text-sm">
-                    <span className="text-green-500">{entry.stats.correctPredictions.toString()}W</span>
-                    {' / '}
-                    <span className="text-red-500">{entry.stats.incorrectPredictions.toString()}L</span>
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    Wagered: {formatUsdc(entry.stats.totalWagered)}
+                  {/* Additional Stats */}
+                  <div className="text-right space-y-1 hidden sm:block min-w-[120px]">
+                    <div className="text-sm sm:text-base">
+                      <span className="text-green-500">{entry.stats.correctPredictions.toString()}W</span>
+                      {' / '}
+                      <span className="text-red-500">{entry.stats.incorrectPredictions.toString()}L</span>
+                    </div>
+                    <div className="text-xs sm:text-sm text-muted-foreground">
+                      Wagered: {formatUsdc(entry.stats.totalWagered)}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -141,7 +158,7 @@ export default function LeaderboardPage() {
           {/* Platform Stats */}
           {platformStats && (
             <div className="grid md:grid-cols-4 gap-4 mb-12">
-              <Card className="border-2 bg-card/50 backdrop-blur text-center">
+              <Card className="border-2 border-primary/20 bg-card/50 backdrop-blur text-center">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-3xl font-bold text-primary">
                     {platformStats.totalUsers.toString()}
@@ -150,7 +167,7 @@ export default function LeaderboardPage() {
                 </CardHeader>
               </Card>
 
-              <Card className="border-2 bg-card/50 backdrop-blur text-center">
+              <Card className="border-2 border-primary/20 bg-card/50 backdrop-blur text-center">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-3xl font-bold text-primary">
                     {platformStats.totalPredictions.toString()}
@@ -159,7 +176,7 @@ export default function LeaderboardPage() {
                 </CardHeader>
               </Card>
 
-              <Card className="border-2 bg-card/50 backdrop-blur text-center">
+              <Card className="border-2 border-primary/20 bg-card/50 backdrop-blur text-center">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-3xl font-bold text-primary">
                     {formatUsdc(platformStats.totalVolume)}
@@ -168,7 +185,7 @@ export default function LeaderboardPage() {
                 </CardHeader>
               </Card>
 
-              <Card className="border-2 bg-card/50 backdrop-blur text-center">
+              <Card className="border-2 border-primary/20 bg-card/50 backdrop-blur text-center">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-3xl font-bold text-primary">
                     {platformStats.activeMarkets.toString()}
@@ -181,35 +198,35 @@ export default function LeaderboardPage() {
 
           {/* Leaderboard Tabs */}
           <Tabs defaultValue="profit" className="w-full">
-            <TabsList className="grid w-full grid-cols-4 mb-8 h-14 bg-muted p-1.5 rounded-xl">
+            <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4 mb-8 h-auto sm:h-14 bg-muted p-1.5 rounded-xl gap-1.5 sm:gap-0">
               <TabsTrigger 
                 value="profit" 
-                className="text-base font-semibold data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-lg"
+                className="text-sm sm:text-base font-semibold py-3 sm:py-0 data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-lg"
               >
                 💰 Profit
               </TabsTrigger>
               <TabsTrigger 
                 value="accuracy"
-                className="text-base font-semibold data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-lg"
+                className="text-sm sm:text-base font-semibold py-3 sm:py-0 data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-lg"
               >
                 🎯 Accuracy
               </TabsTrigger>
               <TabsTrigger 
                 value="volume"
-                className="text-base font-semibold data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-lg"
+                className="text-sm sm:text-base font-semibold py-3 sm:py-0 data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-lg"
               >
                 📊 Volume
               </TabsTrigger>
               <TabsTrigger 
                 value="streak"
-                className="text-base font-semibold data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-lg"
+                className="text-sm sm:text-base font-semibold py-3 sm:py-0 data-[state=active]:bg-background data-[state=active]:text-primary data-[state=active]:shadow-lg"
               >
                 🔥 Streak
               </TabsTrigger>
             </TabsList>
 
             <TabsContent value="profit">
-              <Card className="border-2">
+              <Card className="border-2 border-primary/20 bg-card/80">
                 <CardHeader>
                   <CardTitle>Top Earners</CardTitle>
                   <CardDescription>
@@ -229,7 +246,7 @@ export default function LeaderboardPage() {
             </TabsContent>
 
             <TabsContent value="accuracy">
-              <Card className="border-2">
+              <Card className="border-2 border-primary/20 bg-card/80">
                 <CardHeader>
                   <CardTitle>Most Accurate</CardTitle>
                   <CardDescription>
@@ -249,7 +266,7 @@ export default function LeaderboardPage() {
             </TabsContent>
 
             <TabsContent value="volume">
-              <Card className="border-2">
+              <Card className="border-2 border-primary/20 bg-card/80">
                 <CardHeader>
                   <CardTitle>Highest Volume</CardTitle>
                   <CardDescription>
@@ -269,7 +286,7 @@ export default function LeaderboardPage() {
             </TabsContent>
 
             <TabsContent value="streak">
-              <Card className="border-2">
+              <Card className="border-2 border-primary/20 bg-card/80">
                 <CardHeader>
                   <CardTitle>Longest Win Streaks</CardTitle>
                   <CardDescription>

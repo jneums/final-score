@@ -20,12 +20,14 @@ export function Navigation() {
   };
   
   return (
-    <nav className="flex items-center gap-6">
+    <nav className="flex items-center gap-3 sm:gap-6">
       <Link href="/schedule" className={linkClass('/schedule')}>
-        Schedule
+        <span className="hidden sm:inline">Schedule</span>
+        <span className="sm:hidden">📅</span>
       </Link>
       <Link href="/leaderboard" className={linkClass('/leaderboard')}>
-        Leaderboard
+        <span className="hidden sm:inline">Leaderboard</span>
+        <span className="sm:hidden">🏆</span>
       </Link>
       <Link 
         href="https://github.com/jneums/final-score" 
@@ -33,8 +35,9 @@ export function Navigation() {
         rel="noopener noreferrer"
         className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1"
       >
-        GitHub
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <span className="hidden sm:inline">GitHub</span>
+        <span className="sm:hidden">💻</span>
+        <svg className="w-3.5 h-3.5 hidden sm:inline" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
         </svg>
       </Link>
