@@ -2,6 +2,7 @@
   "name": "final-score",
   "version": "0.1.0",
   "description": "A MCP server prediction market for football matches.",
+  "type": "module",
   "scripts": {
     "start": "dfx start --background",
     "stop": "dfx stop",
@@ -9,7 +10,8 @@
     "deploy:ic": "dfx deploy --network ic",
     "mops:install": "mops install",
     "inspector": "mcp-inspector",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "app-store": "app-store-cli",
     "auth": "auth-cli"
   },
@@ -24,5 +26,10 @@
     "internet-computer"
   ],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@dfinity/pic": "^0.16.1",
+    "@icp-sdk/core": "^4.2.3",
+    "vitest": "^2.0.0"
+  }
 }

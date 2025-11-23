@@ -407,11 +407,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   };
 
   /// Get the canister's balance of a specific ICRC-1 token.
-  /// OWNER ONLY - Sensitive treasury information
-  public shared ({ caller }) func get_treasury_balance(ledger_id : Principal) : async Result.Result<Nat, Text> {
-    if (caller != owner) { return #err("Unauthorized: owner only") };
-    let balance = await Payments.get_treasury_balance(Principal.fromActor(self), ledger_id);
-    return #ok(balance);
+  public shared func get_treasury_balance(ledger_id : Principal) : async Nat {
+    return await Payments.get_treasury_balance(Principal.fromActor(self), ledger_id);
   };
 
   /// Withdraw tokens from the canister's treasury to a specified destination.
@@ -1186,8 +1183,14 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     // Sort by kickoff time (ascending - soonest first)
     let sorted = Array.sort(
       openMarkets,
-      func(a : ToolContext.Market, b : ToolContext.Market) : { #less; #equal; #greater } {
-        if (a.kickoffTime < b.kickoffTime) { #less } else if (a.kickoffTime > b.kickoffTime) { #greater } else { #equal };
+      func(a : ToolContext.Market, b : ToolContext.Market) : {
+        #less;
+        #equal;
+        #greater;
+      } {
+        if (a.kickoffTime < b.kickoffTime) { #less } else if (a.kickoffTime > b.kickoffTime) {
+          #greater;
+        } else { #equal };
       },
     );
 
@@ -1376,75 +1379,75 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         var totalOdds : Float = 0.0;
         var oddsCount : Nat = 0;
 
-      // Sort positions by resolvedAt timestamp to process in order
-      let sortedHistory = Array.sort<ToolContext.HistoricalPosition>(
-        history,
-        func(a, b) {
-          if (a.resolvedAt < b.resolvedAt) { #less } else if (a.resolvedAt > b.resolvedAt) {
-            #greater;
-          } else { #equal };
-        },
-      );
+        // Sort positions by resolvedAt timestamp to process in order
+        let sortedHistory = Array.sort<ToolContext.HistoricalPosition>(
+          history,
+          func(a, b) {
+            if (a.resolvedAt < b.resolvedAt) { #less } else if (a.resolvedAt > b.resolvedAt) {
+              #greater;
+            } else { #equal };
+          },
+        );
 
-      // Process each historical position
-      for (position in sortedHistory.vals()) {
-        totalPredictions += 1;
-        totalWagered += position.betAmount;
-        totalWon += position.payout;
+        // Process each historical position
+        for (position in sortedHistory.vals()) {
+          totalPredictions += 1;
+          totalWagered += position.betAmount;
+          totalWon += position.payout;
 
-        // Check if prediction was correct
-        let wasCorrect = position.betOutcome == position.actualOutcome;
+          // Check if prediction was correct
+          let wasCorrect = position.betOutcome == position.actualOutcome;
 
-        if (wasCorrect) {
-          correctPredictions += 1;
-          currentStreak := if (currentStreak >= 0) { currentStreak + 1 } else {
-            1;
-          };
-          currentWinStreak += 1;
-          if (currentWinStreak > longestWinStreak) {
-            longestWinStreak := currentWinStreak;
-          };
+          if (wasCorrect) {
+            correctPredictions += 1;
+            currentStreak := if (currentStreak >= 0) { currentStreak + 1 } else {
+              1;
+            };
+            currentWinStreak += 1;
+            if (currentWinStreak > longestWinStreak) {
+              longestWinStreak := currentWinStreak;
+            };
 
-          // Calculate odds from payout (payout / betAmount)
-          if (position.betAmount > 0 and position.payout > position.betAmount) {
-            let odds = Float.fromInt(position.payout) / Float.fromInt(position.betAmount);
-            totalOdds += odds;
-            oddsCount += 1;
+            // Calculate odds from payout (payout / betAmount)
+            if (position.betAmount > 0 and position.payout > position.betAmount) {
+              let odds = Float.fromInt(position.payout) / Float.fromInt(position.betAmount);
+              totalOdds += odds;
+              oddsCount += 1;
+            };
+          } else {
+            incorrectPredictions += 1;
+            currentStreak := if (currentStreak <= 0) { currentStreak - 1 } else {
+              -1;
+            };
+            currentWinStreak := 0;
           };
-        } else {
-          incorrectPredictions += 1;
-          currentStreak := if (currentStreak <= 0) { currentStreak - 1 } else {
-            -1;
-          };
-          currentWinStreak := 0;
         };
-      };
 
-      totalPositions += history.size();
+        totalPositions += history.size();
 
-      // Calculate average odds
-      let averageOdds = if (oddsCount > 0) {
-        totalOdds / Float.fromInt(oddsCount);
-      } else {
-        0.0;
-      };
+        // Calculate average odds
+        let averageOdds = if (oddsCount > 0) {
+          totalOdds / Float.fromInt(oddsCount);
+        } else {
+          0.0;
+        };
 
-      // Calculate net profit (totalWon - totalWagered)
-      let netProfit : Int = totalWon - totalWagered;
+        // Calculate net profit (totalWon - totalWagered)
+        let netProfit : Int = totalWon - totalWagered;
 
-      // Create or update user stats
-      let stats : ToolContext.UserStats = {
-        userPrincipal = user;
-        totalPredictions = totalPredictions;
-        correctPredictions = correctPredictions;
-        incorrectPredictions = incorrectPredictions;
-        totalWagered = totalWagered;
-        totalWon = totalWon;
-        netProfit = netProfit;
-        currentStreak = currentStreak;
-        longestWinStreak = longestWinStreak;
-        averageOdds = averageOdds;
-      };
+        // Create or update user stats
+        let stats : ToolContext.UserStats = {
+          userPrincipal = user;
+          totalPredictions = totalPredictions;
+          correctPredictions = correctPredictions;
+          incorrectPredictions = incorrectPredictions;
+          totalWagered = totalWagered;
+          totalWon = totalWon;
+          netProfit = netProfit;
+          currentStreak = currentStreak;
+          longestWinStreak = longestWinStreak;
+          averageOdds = averageOdds;
+        };
 
         let _ = Map.put(userStats, Map.phash, user, stats);
         usersProcessed += 1;

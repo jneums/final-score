@@ -122,7 +122,7 @@ export interface McpServer {
       'resolvedMarkets' : bigint,
     }
   >,
-  'get_treasury_balance' : ActorMethod<[Principal], Result_2>,
+  'get_treasury_balance' : ActorMethod<[Principal], bigint>,
   'get_upcoming_matches' : ActorMethod<[[] | [bigint]], Array<Market>>,
   'get_user_stats' : ActorMethod<[Principal], [] | [UserStats]>,
   'http_request' : ActorMethod<[HttpRequest], HttpResponse>,

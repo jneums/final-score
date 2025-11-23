@@ -5,6 +5,8 @@ packages:
   - packages/libs/*
 
 onlyBuiltDependencies:
+  - '@dfinity/pic'
   - core-js
+  - esbuild
   - sharp
   - unrs-resolver

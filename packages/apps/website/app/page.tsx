@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { useGetPlatformStats, useGetUpcomingMatches, type Market } from "@/hooks/useLeaderboard";
+import { useGetPlatformStats, useGetUpcomingMatches, useGetLeaderboardByProfit, type Market, type LeaderboardEntry } from "@/hooks/useLeaderboard";
 import { useState } from "react";
 
 function formatUsdc(amount: bigint): string {
@@ -81,11 +81,17 @@ function FeaturedMatch({ market }: { market: Market }) {
 export default function Home() {
   const { data: stats } = useGetPlatformStats();
   const { data: allMatches } = useGetUpcomingMatches(50);
+  const { data: topPredictors } = useGetLeaderboardByProfit(3);
   
   // Get top 3 matches by pool size
   const topMatches = allMatches
     ?.sort((a, b) => Number(b.totalPool - a.totalPool))
     .slice(0, 3) ?? [];
+
+  const formatPrincipal = (principal: string): string => {
+    if (principal.length <= 12) return principal;
+    return `${principal.slice(0, 6)}...${principal.slice(-4)}`;
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -311,6 +317,78 @@ export default function Home() {
               <Link href="/schedule">
                 <Button size="lg" variant="outline" className="text-lg px-8 py-6 h-auto font-semibold border-2">
                   View All Markets →
+                </Button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Top Predictors Section */}
+      <section className="border-t">
+        <div className="container mx-auto px-4 py-24 sm:py-32">
+          <div className="max-w-7xl mx-auto">
+            <div className="text-center mb-16">
+              <h2 className="text-5xl font-bold mb-5">🏆 Top Predictors</h2>
+              <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
+                Leading competitors on the leaderboard
+              </p>
+            </div>
+            
+            {topPredictors && topPredictors.length > 0 ? (
+              <div className="grid md:grid-cols-3 gap-6">
+                {topPredictors.map((entry, index) => (
+                  <Card key={entry.rank.toString()} className="border-2 border-primary/20 hover:border-primary/50 transition-all hover:shadow-xl hover:shadow-primary/10 bg-card/80">
+                    <CardContent className="p-6 text-center">
+                      <div className="mb-4">
+                        <span className="text-6xl">
+                          {index === 0 ? '🥇' : index === 1 ? '🥈' : '🥉'}
+                        </span>
+                      </div>
+                      <div className="mb-4">
+                        <img
+                          src={`https://api.dicebear.com/9.x/adventurer/svg?seed=${entry.stats.userPrincipal.toString()}`}
+                          alt="User avatar"
+                          className="w-20 h-20 rounded-full mx-auto border-4 border-primary/20"
+                        />
+                      </div>
+                      <div className="mb-4">
+                        <div className="font-mono text-sm text-foreground/90 mb-1">
+                          {formatPrincipal(entry.stats.userPrincipal.toString())}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {entry.stats.totalPredictions.toString()} predictions
+                        </div>
+                      </div>
+                      <div className="mb-3">
+                        <div className="text-3xl font-bold text-primary mb-1">
+                          {formatUsdc(entry.stats.netProfit)}
+                        </div>
+                        <div className="text-sm text-muted-foreground">Net Profit</div>
+                      </div>
+                      <div className="flex justify-center gap-4 text-sm">
+                        <div>
+                          <span className="text-green-500 font-semibold">{entry.stats.correctPredictions.toString()}W</span>
+                        </div>
+                        <div className="text-muted-foreground">/</div>
+                        <div>
+                          <span className="text-red-500 font-semibold">{entry.stats.incorrectPredictions.toString()}L</span>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12">
+                <p className="text-muted-foreground">No leaderboard data available yet</p>
+              </div>
+            )}
+            
+            <div className="text-center mt-12">
+              <Link href="/leaderboard">
+                <Button size="lg" variant="outline" className="text-lg px-8 py-6 h-auto font-semibold border-2">
+                  View Full Leaderboard →
                 </Button>
               </Link>
             </div>

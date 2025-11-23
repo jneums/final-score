@@ -165,8 +165,7 @@ type McpServer =
        totalVolume: nat;
      }) query;
    /// Get the canister's balance of a specific ICRC-1 token.
-   /// OWNER ONLY - Sensitive treasury information
-   get_treasury_balance: (ledger_id: principal) -> (Result_2);
+   get_treasury_balance: (ledger_id: principal) -> (nat);
    /// Get upcoming matches (open markets sorted by kickoff time)
    get_upcoming_matches: (limit: opt nat) -> (vec Market) query;
    /// Get specific user stats

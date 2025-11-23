@@ -17,12 +17,26 @@ const orbitron = Orbitron({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://vn2t6-yiaaa-aaaai-q4b4q-cai.icp0.io"),
   title: "Final Score | Sports Prediction Market",
   description: "Predict football match outcomes and compete on the leaderboard. AI-powered prediction market built on the Internet Computer.",
+  icons: {
+    icon: "/icon-final-score.webp",
+    apple: "/icon-final-score.webp",
+  },
   openGraph: {
     title: "Final Score | Sports Prediction Market",
     description: "Predict football match outcomes and compete on the leaderboard. AI-powered prediction market built on the Internet Computer.",
+    url: "https://vn2t6-yiaaa-aaaai-q4b4q-cai.icp0.io",
     siteName: "Final Score",
+    images: [
+      {
+        url: "/banner-final-score.webp",
+        width: 1200,
+        height: 630,
+        alt: "Final Score - AI-Powered Sports Prediction Market",
+      },
+    ],
     locale: "en_US",
     type: "website",
   },
@@ -30,6 +44,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "Final Score | Sports Prediction Market",
     description: "Predict football match outcomes and compete on the leaderboard. AI-powered prediction market built on the Internet Computer.",
+    images: ["/banner-final-score.webp"],
   },
 };
 
@@ -61,10 +76,47 @@ export default function RootLayout({
           </header>
           <main className="flex-1">{children}</main>
           <footer className="border-t-2 border-primary/20 py-12 bg-card/30">
-            <div className="container mx-auto px-4 text-center">
-              <p className="text-base text-muted-foreground font-medium">
-                Built with ❤️ on the Internet Computer
-              </p>
+            <div className="container mx-auto px-4">
+              <div className="flex flex-col items-start sm:items-center gap-6">
+                <div className="flex flex-col items-start sm:items-center gap-2 text-sm sm:text-base text-muted-foreground font-medium text-left sm:text-center">
+                  <div className="flex items-center gap-1">
+                    <span>Live on</span>
+                    <a 
+                      href="https://prometheusprotocol.org/app/io.github.jneums.final-score" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-primary hover:text-primary/80 transition-colors inline-flex items-center gap-1"
+                    >
+                      Prometheus Protocol
+                      <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <span>Powered by</span>
+                    <a 
+                      href="https://internetcomputer.org" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-primary hover:text-primary/80 transition-colors inline-flex items-center gap-1"
+                    >
+                      Internet Computer
+                      <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
+                  </div>
+                </div>
+                <div className="w-full sm:max-w-xl">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 px-3 sm:px-4 py-3 bg-primary/5 border border-primary/20 rounded-lg">
+                    <span className="text-xs sm:text-sm text-muted-foreground font-medium whitespace-nowrap">MCP URL</span>
+                    <code className="text-xs sm:text-sm font-mono text-foreground break-all">
+                      https://ilyol-uqaaa-aaaai-q34kq-cai.icp0.io/mcp
+                    </code>
+                  </div>
+                </div>
+              </div>
             </div>
           </footer>
         </Providers>
