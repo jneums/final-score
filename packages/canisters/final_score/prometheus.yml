@@ -42,5 +42,5 @@ submission:
     gallery_images:
       - >-
         https://github.com/jneums/final-score/releases/download/v1.0.0-assets/banner-final-score.webp
-  git_commit: e920e231175c13ad9e603f9d8557f2a305e97220
+  git_commit: b6b87d5430023ef5a77c18e120aee65907a97406
   wasm_path: ./out/out_Linux_x86_64.wasm
