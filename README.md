@@ -238,7 +238,7 @@ npm run auth register
 dfx deploy --network ic
 
 # Note your canister ID
-dfx canister --network ic id my_mcp_server
+dfx canister --network ic id final_score
 ```
 
 ### Option B: Publish to Prometheus Protocol (Recommended)

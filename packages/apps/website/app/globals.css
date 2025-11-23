@@ -1,0 +1,247 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+@import "prism-themes/themes/prism-nord.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.12 0.01 250);
+  --foreground: oklch(0.94 0.005 250);
+  --card: oklch(0.18 0.015 250);
+  --card-foreground: oklch(0.94 0.005 250);
+  --popover: oklch(0.18 0.015 250);
+  --popover-foreground: oklch(0.94 0.005 250);
+  --primary: oklch(0.82 0.11 200);
+  --primary-foreground: oklch(0.15 0.02 250);
+  --secondary: oklch(0.25 0.02 250);
+  --secondary-foreground: oklch(0.94 0.005 250);
+  --muted: oklch(0.25 0.02 250);
+  --muted-foreground: oklch(0.65 0.01 250);
+  --accent: oklch(0.30 0.03 260);
+  --accent-foreground: oklch(0.94 0.005 250);
+  --destructive: oklch(0.65 0.20 25);
+  --border: oklch(0.30 0.02 250);
+  --input: oklch(0.30 0.02 250);
+  --ring: oklch(0.82 0.11 200);
+  --chart-1: oklch(0.60 0.22 260);
+  --chart-2: oklch(0.65 0.18 180);
+  --chart-3: oklch(0.70 0.16 120);
+  --chart-4: oklch(0.68 0.20 300);
+  --chart-5: oklch(0.72 0.18 60);
+  --sidebar: oklch(0.18 0.015 250);
+  --sidebar-foreground: oklch(0.94 0.005 250);
+  --sidebar-primary: oklch(0.82 0.11 200);
+  --sidebar-primary-foreground: oklch(0.15 0.02 250);
+  --sidebar-accent: oklch(0.25 0.02 250);
+  --sidebar-accent-foreground: oklch(0.94 0.005 250);
+  --sidebar-border: oklch(0.30 0.02 250);
+  --sidebar-ring: oklch(0.82 0.11 200);
+  --radius: 0.75rem;
+}
+
+@layer base {
+  *, *::before, *::after {
+    box-sizing: border-box;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    min-height: 100vh;
+  }
+  * {
+    border-color: var(--border);
+  }
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    line-height: 1.5;
+  }
+  button, a, [role="button"] {
+    cursor: pointer;
+  }
+}
+
+@layer base {
+  /* Markdown content styling */
+  .markdown-content {
+    line-height: 1.75;
+    color: oklch(0.94 0.005 250);
+  }
+  
+  .markdown-content h1,
+  .markdown-content h2,
+  .markdown-content h3,
+  .markdown-content h4,
+  .markdown-content h5,
+  .markdown-content h6 {
+    color: oklch(0.94 0.005 250);
+  }
+  
+  .markdown-content p,
+  .markdown-content li,
+  .markdown-content td,
+  .markdown-content th {
+    color: oklch(0.94 0.005 250);
+  }
+  
+  .markdown-content code:not(pre code) {
+    background-color: oklch(0.25 0.02 250);
+    border: 1px solid oklch(0.30 0.02 250);
+    border-radius: 0.25rem;
+    padding: 0.125rem 0.375rem;
+    font-size: 0.875em;
+    font-family: var(--font-mono);
+  }
+  
+  .markdown-content pre {
+    background-color: oklch(0.15 0.015 250) !important;
+    border: 1px solid oklch(0.30 0.02 250);
+    border-radius: 0.5rem;
+    padding: 1rem !important;
+    overflow-x: auto;
+    margin: 1.5rem 0;
+  }
+  
+  .markdown-content pre code {
+    background-color: transparent !important;
+    border: none;
+    padding: 0;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    font-family: var(--font-mono);
+  }
+  
+  .markdown-content table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1.5rem 0;
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .markdown-content table th,
+  .markdown-content table td {
+    border: 1px solid oklch(0.30 0.02 250);
+    padding: 0.75rem !important;
+    text-align: left;
+    white-space: nowrap;
+  }
+  
+  @media (min-width: 640px) {
+    .markdown-content table th,
+    .markdown-content table td {
+      padding: 1rem !important;
+    }
+  }
+  
+  .markdown-content table th:first-child,
+  .markdown-content table td:first-child {
+    padding-left: 1rem !important;
+  }
+  
+  .markdown-content table th {
+    background-color: oklch(0.20 0.015 250);
+    font-weight: 600;
+  }
+  
+  .markdown-content table tr:nth-child(even) {
+    background-color: oklch(0.16 0.015 250);
+  }
+  
+  /* Override prose-invert colors */
+  .prose-invert {
+    --tw-prose-body: oklch(0.94 0.005 250) !important;
+    --tw-prose-headings: oklch(0.94 0.005 250) !important;
+    --tw-prose-lead: oklch(0.94 0.005 250) !important;
+    --tw-prose-links: oklch(0.82 0.11 200) !important;
+    --tw-prose-bold: oklch(0.94 0.005 250) !important;
+    --tw-prose-counters: oklch(0.94 0.005 250) !important;
+    --tw-prose-bullets: oklch(0.94 0.005 250) !important;
+    --tw-prose-hr: oklch(0.30 0.02 250) !important;
+    --tw-prose-quotes: oklch(0.94 0.005 250) !important;
+    --tw-prose-quote-borders: oklch(0.30 0.02 250) !important;
+    --tw-prose-captions: oklch(0.94 0.005 250) !important;
+    --tw-prose-code: oklch(0.94 0.005 250) !important;
+    --tw-prose-pre-code: oklch(0.94 0.005 250) !important;
+    --tw-prose-pre-bg: oklch(0.15 0.015 250) !important;
+    --tw-prose-th-borders: oklch(0.30 0.02 250) !important;
+    --tw-prose-td-borders: oklch(0.30 0.02 250) !important;
+  }
+}

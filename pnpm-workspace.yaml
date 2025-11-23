@@ -1,0 +1,10 @@
+packages:
+  - packages/apps/*
+  - packages/canisters/*
+  - packages/declarations
+  - packages/libs/*
+
+onlyBuiltDependencies:
+  - core-js
+  - sharp
+  - unrs-resolver

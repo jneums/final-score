@@ -1,8 +1,19 @@
 {
   "canisters": {
-    "my_mcp_server": {
-      "main": "src/main.mo",
-      "type": "motoko"
+    "final_score": {
+      "main": "packages/canisters/final_score/src/main.mo",
+      "type": "motoko",
+      "declarations": {
+        "output": "packages/declarations/src/generated/final_score",
+        "node_compatibility": true
+      }
+    },
+    "website": {      
+      "build": [
+        "cd packages/apps/website && npm run build"
+      ],
+      "source": ["packages/apps/website/out"],
+      "type": "assets"
     }
   },
   "defaults": {
@@ -10,4 +21,4 @@
       "packtool": "mops sources"
     }
   }
-}
+} 

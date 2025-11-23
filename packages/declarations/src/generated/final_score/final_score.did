@@ -1,0 +1,285 @@
+type UserStats = 
+ record {
+   averageOdds: float64;
+   correctPredictions: nat;
+   currentStreak: int;
+   incorrectPredictions: nat;
+   longestWinStreak: nat;
+   netProfit: int;
+   totalPredictions: nat;
+   totalWagered: nat;
+   totalWon: nat;
+   userPrincipal: principal;
+ };
+type UpgradeFinishedResult = 
+ variant {
+   Failed: record {
+             nat;
+             text;
+           };
+   InProgress: nat;
+   Success: nat;
+ };
+type TreasuryError = 
+ variant {
+   LedgerTrap: text;
+   NotOwner;
+   TransferFailed: TransferError;
+ };
+type TransferError = 
+ variant {
+   BadBurn: record {min_burn_amount: nat;};
+   BadFee: record {expected_fee: nat;};
+   CreatedInFuture: record {ledger_time: Timestamp;};
+   Duplicate: record {duplicate_of: nat;};
+   GenericError: record {
+                   error_code: nat;
+                   message: text;
+                 };
+   InsufficientFunds: record {balance: nat;};
+   TemporarilyUnavailable;
+   TooOld;
+ };
+type Timestamp = nat64;
+type Time = int;
+type Subaccount = blob;
+type StreamingToken = blob;
+type StreamingStrategy = variant {
+                           Callback:
+                            record {
+                              callback: StreamingCallback;
+                              token: StreamingToken;
+                            };};
+type StreamingCallbackResponse = 
+ record {
+   body: blob;
+   token: opt StreamingToken;
+ };
+type StreamingCallback = func (StreamingToken) ->
+                          (opt StreamingCallbackResponse) query;
+type Result_3 = 
+ variant {
+   err: text;
+   ok: text;
+ };
+type Result_2 = 
+ variant {
+   err: text;
+   ok: nat;
+ };
+type Result_1 = 
+ variant {
+   err: TreasuryError;
+   ok;
+ };
+type Result = 
+ variant {
+   err: TreasuryError;
+   ok: nat;
+ };
+type Outcome = 
+ variant {
+   AwayWin;
+   Draw;
+   HomeWin;
+ };
+type McpServer = 
+ service {
+   /// Admin: Cancel a stuck market and refund all positions
+   /// OWNER ONLY - Use for markets that cannot resolve (invalid oracle IDs, etc.)
+   /// This refunds all user positions back to their virtual balances and deletes the market
+   admin_cancel_and_refund_market: (marketId: text) -> (Result_3);
+   /// Admin: Clear processed oracle event to allow re-processing
+   /// OWNER ONLY - Critical admin function
+   admin_clear_processed_event: (eventTimestamp: nat) -> (Result_3);
+   /// Admin: Delete a market (only allowed if total pool is zero)
+   /// OWNER ONLY - Use to clean up orphaned or test markets
+   admin_delete_market: (marketId: text) -> (Result_3);
+   /// Admin-only: Rebuild user stats from position history
+   /// This is useful for populating leaderboards from existing data
+   admin_rebuild_stats_from_history: () -> (Result_3);
+   /// Admin: Revert a market back to Open or Closed status (for incorrect resolutions)
+   /// This allows re-betting and re-resolution with correct data
+   /// OWNER ONLY - Critical admin function
+   admin_revert_market_to_open: (marketId: text) -> (Result_3);
+   /// Admin-only: Seed test data for local development
+   admin_seed_test_data: () -> (Result_3);
+   /// * Creates a new API key. This API key is linked to the caller's principal.
+   ///    * @param name A human-readable name for the key.
+   ///    * @returns The raw, unhashed API key. THIS IS THE ONLY TIME IT WILL BE VISIBLE.
+   create_my_api_key: (name: text, scopes: vec text) -> (text);
+   /// Debug: Check oracle events for a specific match
+   /// OWNER ONLY - Debug function should be restricted
+   debug_check_oracle_events: (oracleMatchIdText: text) -> (Result_3);
+   /// Debug: Get detailed information about a specific market
+   debug_get_market: (marketId: text) ->
+    (opt
+      record {
+        awayTeam: text;
+        awayWinPool: text;
+        bettingDeadline: int;
+        drawPool: text;
+        homeTeam: text;
+        homeWinPool: text;
+        kickoffTime: int;
+        marketId: text;
+        matchDetails: text;
+        oracleMatchId: text;
+        status: text;
+        totalPool: text;
+      }) query;
+   /// Debug: Get last processed oracle event ID
+   debug_get_processed_events: () -> (nat) query;
+   /// Debug: Manually trigger resolution check for a specific market
+   /// OWNER ONLY - Critical function that can resolve markets
+   debug_resolve_market: (marketId: text) -> (Result_3);
+   /// Get the top users by accuracy rate
+   get_leaderboard_by_accuracy: (limit: opt nat, minPredictions: opt nat) ->
+    (vec LeaderboardEntry) query;
+   /// Get the top users by net profit
+   get_leaderboard_by_profit: (limit: opt nat) ->
+    (vec LeaderboardEntry) query;
+   /// Get the top users by longest win streak
+   get_leaderboard_by_streak: (limit: opt nat) ->
+    (vec LeaderboardEntry) query;
+   /// Get the top users by total wagered
+   get_leaderboard_by_volume: (limit: opt nat) ->
+    (vec LeaderboardEntry) query;
+   /// Get the current number of markets
+   get_market_count: () ->
+    (record {
+       closed: nat;
+       open: nat;
+       resolved: nat;
+       total: nat;
+     }) query;
+   /// Get the current owner of the canister.
+   get_owner: () -> (principal) query;
+   /// Get overall platform statistics
+   get_platform_stats: () ->
+    (record {
+       activeMarkets: nat;
+       resolvedMarkets: nat;
+       totalPredictions: nat;
+       totalUsers: nat;
+       totalVolume: nat;
+     }) query;
+   /// Get the canister's balance of a specific ICRC-1 token.
+   /// OWNER ONLY - Sensitive treasury information
+   get_treasury_balance: (ledger_id: principal) -> (Result_2);
+   /// Get upcoming matches (open markets sorted by kickoff time)
+   get_upcoming_matches: (limit: opt nat) -> (vec Market) query;
+   /// Get specific user stats
+   get_user_stats: (user: principal) -> (opt UserStats) query;
+   /// Handle incoming HTTP requests.
+   http_request: (req: HttpRequest) -> (HttpResponse) query;
+   /// Handle streaming callbacks for large HTTP responses.
+   http_request_streaming_callback: (token: StreamingToken) ->
+    (opt StreamingCallbackResponse) query;
+   /// Handle incoming HTTP requests that modify state (e.g., POST).
+   http_request_update: (req: HttpRequest) -> (HttpResponse);
+   icrc120_upgrade_finished: () -> (UpgradeFinishedResult);
+   /// List all API keys owned by the caller.
+   ///    * @returns A list of API key metadata (but not the raw keys).
+   list_my_api_keys: () -> (vec ApiKeyMetadata) query;
+   /// Manually trigger a market sync with the Football Oracle
+   /// Returns the number of new markets created
+   /// OWNER ONLY - Expensive oracle query operation
+   refresh_markets: () -> (Result_2);
+   /// Revoke (delete) an API key owned by the caller.
+   ///    * @param key_id The ID of the key to revoke.
+   ///    * @returns True if the key was found and revoked, false otherwise.
+   revoke_my_api_key: (key_id: text) -> ();
+   /// Set a new owner for the canister. Only the current owner can call this.
+   set_owner: (new_owner: principal) -> (Result_1);
+   transformJwksResponse:
+    (record {
+       context: blob;
+       response: HttpRequestResult;
+     }) -> (HttpRequestResult) query;
+   /// Withdraw tokens from the canister's treasury to a specified destination.
+   withdraw: (ledger_id: principal, amount: nat, destination: Destination) ->
+    (Result);
+ };
+type MarketStatus = 
+ variant {
+   Closed;
+   Open;
+   Resolved: Outcome;
+ };
+type Market = 
+ record {
+   awayTeam: text;
+   awayWinPool: nat;
+   bettingDeadline: int;
+   drawPool: nat;
+   homeTeam: text;
+   homeWinPool: nat;
+   kickoffTime: int;
+   marketId: text;
+   matchDetails: text;
+   oracleMatchId: text;
+   status: MarketStatus;
+   totalPool: nat;
+ };
+type LeaderboardEntry = 
+ record {
+   rank: nat;
+   stats: UserStats;
+ };
+type HttpResponse = 
+ record {
+   body: blob;
+   headers: vec Header;
+   status_code: nat16;
+   streaming_strategy: opt StreamingStrategy;
+   upgrade: opt bool;
+ };
+type HttpRequestResult = 
+ record {
+   body: blob;
+   headers: vec HttpHeader;
+   status: nat;
+ };
+type HttpRequest = 
+ record {
+   body: blob;
+   certificate_version: opt nat16;
+   headers: vec Header;
+   method: text;
+   url: text;
+ };
+type HttpHeader = 
+ record {
+   name: text;
+   value: text;
+ };
+type Header = 
+ record {
+   text;
+   text;
+ };
+type HashedApiKey = text;
+type Destination = 
+ record {
+   owner: principal;
+   subaccount: opt Subaccount;
+ };
+type ApiKeyMetadata = 
+ record {
+   hashed_key: HashedApiKey;
+   info: ApiKeyInfo;
+ };
+type ApiKeyInfo = 
+ record {
+   created: Time;
+   name: text;
+   "principal": principal;
+   scopes: vec text;
+ };
+service : (args: opt
+                  record {
+                    footballOracleId: opt principal;
+                    owner: opt principal;
+                    tokenLedger: opt principal;
+                  }) -> McpServer
