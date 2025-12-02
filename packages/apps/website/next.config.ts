@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     unoptimized: true,
   },
   trailingSlash: true,
+  transpilePackages: ['@final-score/api-football', '@final-score/ic-js', '@final-score/declarations'],
 };
 
 export default nextConfig;

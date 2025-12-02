@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@final-score/api-football": "workspace:*",
     "@final-score/declarations": "workspace:*",
     "@final-score/ic-js": "workspace:*",
     "@radix-ui/react-slot": "^1.2.4",

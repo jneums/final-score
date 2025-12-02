@@ -41,6 +41,7 @@ export interface HttpResponse {
 export interface LeaderboardEntry { 'rank' : bigint, 'stats' : UserStats }
 export interface Market {
   'status' : MarketStatus,
+  'apiFootballId' : [] | [string],
   'homeTeam' : string,
   'matchDetails' : string,
   'drawPool' : bigint,
@@ -70,6 +71,7 @@ export interface McpServer {
     [] | [
       {
         'status' : string,
+        'apiFootballId' : [] | [string],
         'homeTeam' : string,
         'matchDetails' : string,
         'drawPool' : string,

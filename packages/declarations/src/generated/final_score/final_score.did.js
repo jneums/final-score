@@ -28,6 +28,7 @@ export const idlFactory = ({ IDL }) => {
   });
   const Market = IDL.Record({
     'status' : MarketStatus,
+    'apiFootballId' : IDL.Opt(IDL.Text),
     'homeTeam' : IDL.Text,
     'matchDetails' : IDL.Text,
     'drawPool' : IDL.Nat,
@@ -140,6 +141,7 @@ export const idlFactory = ({ IDL }) => {
           IDL.Opt(
             IDL.Record({
               'status' : IDL.Text,
+              'apiFootballId' : IDL.Opt(IDL.Text),
               'homeTeam' : IDL.Text,
               'matchDetails' : IDL.Text,
               'drawPool' : IDL.Text,

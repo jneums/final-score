@@ -80,6 +80,7 @@ module ToolContext {
     drawPool : Nat;
     totalPool : Nat;
     oracleMatchId : Text;
+    apiFootballId : ?Text; // API Football fixture ID for fetching odds and live data (nullable for backward compatibility)
   };
 
   /// Virtual account balance for a user

@@ -41,6 +41,7 @@ export interface HttpResponse {
 export interface LeaderboardEntry { 'rank' : bigint, 'stats' : UserStats }
 export interface Market {
   'status' : MarketStatus,
+  'apiFootballId' : [] | [string],
   'homeTeam' : string,
   'matchDetails' : string,
   'drawPool' : bigint,
@@ -70,6 +71,7 @@ export interface McpServer {
     [] | [
       {
         'status' : string,
+        'apiFootballId' : [] | [string],
         'homeTeam' : string,
         'matchDetails' : string,
         'drawPool' : string,
@@ -122,7 +124,7 @@ export interface McpServer {
       'resolvedMarkets' : bigint,
     }
   >,
-  'get_treasury_balance' : ActorMethod<[Principal], Result_2>,
+  'get_treasury_balance' : ActorMethod<[Principal], bigint>,
   'get_upcoming_matches' : ActorMethod<[[] | [bigint]], Array<Market>>,
   'get_user_stats' : ActorMethod<[Principal], [] | [UserStats]>,
   'http_request' : ActorMethod<[HttpRequest], HttpResponse>,

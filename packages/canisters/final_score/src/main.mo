@@ -45,6 +45,43 @@ import account_get_history "tools/account_get_history";
 import account_withdraw "tools/account_withdraw";
 import odds_fetch "tools/odds_fetch";
 
+// // Migration function to add apiFootballId to existing markets
+// (
+//   with migration = func(
+//     old_state : {
+//       var markets : Map.Map<Text, { marketId : Text; matchDetails : Text; homeTeam : Text; awayTeam : Text; kickoffTime : Int; bettingDeadline : Int; status : ToolContext.MarketStatus; homeWinPool : Nat; awayWinPool : Nat; drawPool : Nat; totalPool : Nat; oracleMatchId : Text }>;
+//     }
+//   ) : {
+//     var markets : Map.Map<Text, ToolContext.Market>;
+//   } {
+//     // Migrate markets: add apiFootballId field (default to null for existing markets)
+//     let new_markets = Map.new<Text, ToolContext.Market>();
+
+//     for ((marketId, oldMarket) in Map.entries(old_state.markets)) {
+//       let newMarket : ToolContext.Market = {
+//         marketId = oldMarket.marketId;
+//         matchDetails = oldMarket.matchDetails;
+//         homeTeam = oldMarket.homeTeam;
+//         awayTeam = oldMarket.awayTeam;
+//         kickoffTime = oldMarket.kickoffTime;
+//         bettingDeadline = oldMarket.bettingDeadline;
+//         status = oldMarket.status;
+//         homeWinPool = oldMarket.homeWinPool;
+//         awayWinPool = oldMarket.awayWinPool;
+//         drawPool = oldMarket.drawPool;
+//         totalPool = oldMarket.totalPool;
+//         oracleMatchId = oldMarket.oracleMatchId;
+//         apiFootballId = null; // NEW FIELD: default to null for existing markets
+//       };
+
+//       Map.set(new_markets, thash, marketId, newMarket);
+//     };
+
+//     {
+//       var markets = new_markets;
+//     };
+//   }
+// )
 shared ({ caller = deployer }) persistent actor class McpServer(
   args : ?{
     owner : ?Principal;
@@ -206,6 +243,9 @@ shared ({ caller = deployer }) persistent actor class McpServer(
               drawPool = 0;
               totalPool = 0;
               oracleMatchId = Nat.toText(matchInfo.oracleId);
+              apiFootballId = if (matchInfo.apiFootballId == "") { null } else {
+                ?matchInfo.apiFootballId;
+              };
             };
 
             Map.set(markets, thash, marketId, market);
@@ -632,6 +672,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     homeTeam : Text;
     awayTeam : Text;
     oracleMatchId : Text;
+    apiFootballId : ?Text;
     kickoffTime : Int;
     bettingDeadline : Int;
     status : Text;
@@ -661,6 +702,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           homeTeam = market.homeTeam;
           awayTeam = market.awayTeam;
           oracleMatchId = market.oracleMatchId;
+          apiFootballId = market.apiFootballId;
           kickoffTime = market.kickoffTime;
           bettingDeadline = market.bettingDeadline;
           status = statusText;
@@ -955,6 +997,112 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
   };
 
+  /// Admin: Backfill API Football IDs for existing markets
+  /// Queries the Football Oracle to get API Football IDs for markets that have null values
+  /// OWNER ONLY - This is an expensive operation that makes many oracle calls
+  public shared ({ caller }) func admin_backfill_api_football_ids() : async Result.Result<Text, Text> {
+    if (caller != owner) { return #err("Unauthorized: owner only") };
+
+    Debug.print("Admin backfilling API Football IDs by " # Principal.toText(caller));
+
+    let oracle = actor (Principal.toText(footballOracleId)) : FootballOracle.Self;
+    var marketsUpdated : Nat = 0;
+    var marketsChecked : Nat = 0;
+    var oracleErrors : Nat = 0;
+
+    // Get all scheduled matches from oracle (with pagination)
+    let batchSize : Nat = 100;
+    var offset : Nat = 0;
+    var oracleMatches : [(Nat, Text)] = []; // (oracleId, apiFootballId)
+
+    label fetchLoop while (true) {
+      try {
+        let request : FootballOracle.GetScheduledMatchesRequest = {
+          startTime = null;
+          endTime = null;
+          status = null; // Get all statuses
+          league = null;
+          limit = ?batchSize;
+          offset = ?offset;
+          sortBy = null;
+          sortOrder = null;
+        };
+
+        let scheduledMatches = await oracle.query_scheduled_matches(request);
+        let batchCount = scheduledMatches.size();
+
+        // Collect oracle ID -> API Football ID mappings
+        for (matchInfo in scheduledMatches.vals()) {
+          if (matchInfo.apiFootballId != "") {
+            oracleMatches := Array.append(oracleMatches, [(matchInfo.oracleId, matchInfo.apiFootballId)]);
+          };
+        };
+
+        if (batchCount < batchSize) {
+          break fetchLoop;
+        };
+        offset += batchSize;
+      } catch (e) {
+        Debug.print("Error fetching oracle matches at offset " # debug_show(offset) # ": " # Error.message(e));
+        break fetchLoop;
+      };
+    };
+
+    Debug.print("Fetched " # debug_show(oracleMatches.size()) # " oracle matches with API Football IDs");
+
+    // Create a lookup map for quick access
+    let oracleIdToApiId = Map.new<Nat, Text>();
+    for ((oracleId, apiFootballId) in oracleMatches.vals()) {
+      Map.set(oracleIdToApiId, Map.nhash, oracleId, apiFootballId);
+    };
+
+    // Update markets that have null apiFootballId
+    label marketLoop for ((marketId, market) in Map.entries(markets)) {
+      marketsChecked += 1;
+      
+      // Only update if apiFootballId is null
+      switch (market.apiFootballId) {
+        case (null) {
+          // Parse oracle match ID
+          let oracleId = switch (Nat.fromText(market.oracleMatchId)) {
+            case (?id) { id };
+            case (null) {
+              Debug.print("Invalid oracle ID for market " # marketId # ": " # market.oracleMatchId);
+              oracleErrors += 1;
+              continue marketLoop;
+            };
+          };
+
+          // Look up API Football ID
+          switch (Map.get(oracleIdToApiId, Map.nhash, oracleId)) {
+            case (?apiFootballId) {
+              let updatedMarket = {
+                market with
+                apiFootballId = ?apiFootballId;
+              };
+              Map.set(markets, thash, marketId, updatedMarket);
+              marketsUpdated += 1;
+              
+              if (marketsUpdated % 10 == 0) {
+                Debug.print("Updated " # debug_show(marketsUpdated) # " markets...");
+              };
+            };
+            case (null) {
+              // Oracle doesn't have this match or it doesn't have an API Football ID
+            };
+          };
+        };
+        case (?_) {
+          // Already has an API Football ID, skip
+        };
+      };
+    };
+
+    let resultMsg = "Backfill complete. Checked " # Nat.toText(marketsChecked) # " markets, updated " # Nat.toText(marketsUpdated) # " with API Football IDs. Errors: " # Nat.toText(oracleErrors);
+    Debug.print(resultMsg);
+    return #ok(resultMsg);
+  };
+
   // =================================================================================
   // --- LEADERBOARD QUERY ENDPOINTS ---
   // =================================================================================
@@ -1242,6 +1390,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         drawPool = drawPool;
         totalPool = totalPool;
         oracleMatchId = "oracle-" # Nat.toText(nextMarketId);
+        apiFootballId = null; // Test markets don't have real API Football IDs
       };
 
       let _ = Map.put(markets, thash, marketId, market);

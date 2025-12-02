@@ -3,6 +3,8 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useGetUpcomingMatches, type Market } from "@/hooks/useLeaderboard";
+import { BookmakerOdds } from "@/components/BookmakerOdds";
+import { LiveScore } from "@/components/LiveScore";
 
 function formatUsdc(amount: bigint): string {
   const dollars = Number(amount) / 1_000_000;
@@ -51,15 +53,36 @@ function calculateOdds(outcomePool: bigint, totalPool: bigint): number {
   return Number(totalPool) / Number(outcomePool);
 }
 
+/**
+ * Extract API Football fixture ID from market data
+ */
+function getFixtureId(market: Market): number | null {
+  // Use the apiFootballId from the market if available
+  if (market.apiFootballId && market.apiFootballId.length > 0) {
+    const apiId = market.apiFootballId[0];
+    if (apiId) {
+      const id = parseInt(apiId);
+      if (!isNaN(id)) return id;
+    }
+  }
+  return null;
+}
+
 function MatchCard({ market }: { market: Market }) {
   const homeOdds = calculateOdds(market.homeWinPool, market.totalPool);
   const awayOdds = calculateOdds(market.awayWinPool, market.totalPool);
   const drawOdds = calculateOdds(market.drawPool, market.totalPool);
+  const fixtureId = getFixtureId(market);
 
   // Check market status - use the canister's status, not client-side time check
   const isOpen = 'Open' in market.status;
   const isClosed = 'Closed' in market.status;
   const isResolved = 'Resolved' in market.status;
+
+  // Enable live score only for open or closed markets (not resolved)
+  const enableLiveScore = (isOpen || isClosed) && fixtureId !== null;
+  // Enable odds for open markets
+  const enableOdds = isOpen && fixtureId !== null;
 
   return (
     <Card className="border-2 border-primary/20 hover:border-primary/50 transition-colors bg-card/80">
@@ -83,6 +106,14 @@ function MatchCard({ market }: { market: Market }) {
         </div>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Live Score (if match is in progress) */}
+        <LiveScore 
+          fixtureId={fixtureId} 
+          enabled={enableLiveScore}
+          homeTeam={market.homeTeam}
+          awayTeam={market.awayTeam}
+        />
+
         {/* Pool Information */}
         <div className="flex items-center justify-between p-4 bg-primary/5 border border-primary/20 rounded-lg">
           <div>
@@ -143,6 +174,9 @@ function MatchCard({ market }: { market: Market }) {
             )}
           </div>
         </div>
+
+        {/* Bookmaker Odds (underneath pool distributions) */}
+        <BookmakerOdds fixtureId={fixtureId} enabled={enableOdds} />
       </CardContent>
     </Card>
   );

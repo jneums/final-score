@@ -16,7 +16,6 @@ export const idlFactory = ({ IDL }) => {
     'rank' : IDL.Nat,
     'stats' : UserStats,
   });
-  const Result_2 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
   const Outcome = IDL.Variant({
     'HomeWin' : IDL.Null,
     'Draw' : IDL.Null,
@@ -29,6 +28,7 @@ export const idlFactory = ({ IDL }) => {
   });
   const Market = IDL.Record({
     'status' : MarketStatus,
+    'apiFootballId' : IDL.Opt(IDL.Text),
     'homeTeam' : IDL.Text,
     'matchDetails' : IDL.Text,
     'drawPool' : IDL.Nat,
@@ -89,6 +89,7 @@ export const idlFactory = ({ IDL }) => {
     'info' : ApiKeyInfo,
     'hashed_key' : HashedApiKey,
   });
+  const Result_2 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
   const Timestamp = IDL.Nat64;
   const TransferError = IDL.Variant({
     'GenericError' : IDL.Record({
@@ -140,6 +141,7 @@ export const idlFactory = ({ IDL }) => {
           IDL.Opt(
             IDL.Record({
               'status' : IDL.Text,
+              'apiFootballId' : IDL.Opt(IDL.Text),
               'homeTeam' : IDL.Text,
               'matchDetails' : IDL.Text,
               'drawPool' : IDL.Text,
@@ -204,7 +206,7 @@ export const idlFactory = ({ IDL }) => {
         ],
         ['query'],
       ),
-    'get_treasury_balance' : IDL.Func([IDL.Principal], [Result_2], []),
+    'get_treasury_balance' : IDL.Func([IDL.Principal], [IDL.Nat], []),
     'get_upcoming_matches' : IDL.Func(
         [IDL.Opt(IDL.Nat)],
         [IDL.Vec(Market)],

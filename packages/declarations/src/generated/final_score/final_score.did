@@ -115,6 +115,7 @@ type McpServer =
    debug_get_market: (marketId: text) ->
     (opt
       record {
+        apiFootballId: opt text;
         awayTeam: text;
         awayWinPool: text;
         bettingDeadline: int;
@@ -208,6 +209,7 @@ type MarketStatus =
  };
 type Market = 
  record {
+   apiFootballId: opt text;
    awayTeam: text;
    awayWinPool: nat;
    bettingDeadline: int;

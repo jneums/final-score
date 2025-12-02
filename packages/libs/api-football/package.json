@@ -1,0 +1,28 @@
+{
+  "name": "@final-score/api-football",
+  "version": "0.0.0-development",
+  "type": "module",
+  "types": "./dist/src/index.d.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "vitest",
+    "build": "tsc"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dependencies": {
+    "cross-fetch": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.15",
+    "typescript": "^5.8.3",
+    "vitest": "^2.1.9"
+  }
+}
