@@ -15,17 +15,21 @@ if (!API_FOOTBALL_KEY) {
   process.exit(1);
 }
 
-// CORS configuration - allow requests from your IC canister
+// CORS configuration - allow all origins for now (tighten in production)
 app.use(cors({
-  origin: [
-    'https://vn2t6-yiaaa-aaaai-q4b4q-cai.icp0.io',
-    'https://vn2t6-yiaaa-aaaai-q4b4q-cai.raw.icp0.io',
-    'http://localhost:3000',
-    'http://localhost:4943'
-  ],
-  methods: ['GET', 'OPTIONS'],
-  credentials: true
+  origin: '*',
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false
 }));
+
+// Additional CORS headers to ensure they're always present
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  next();
+});
 
 app.use(express.json());
 
