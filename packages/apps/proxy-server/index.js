@@ -47,7 +47,7 @@ app.get('/api/odds/:fixtureId', async (req, res) => {
     console.log(`Fetching odds for fixture ${fixtureId}`);
     
     const response = await fetch(
-      `https://v3.football.api-sports.io/odds?fixture=${fixtureId}&bookmaker=8`,
+      `https://v3.football.api-sports.io/odds?fixture=${fixtureId}`,
       {
         method: 'GET',
         headers: {
