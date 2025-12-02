@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import fetch from 'node-fetch';
+import NodeCache from 'node-cache';
 
 // Load environment variables from .env file
 import dotenv from 'dotenv';
@@ -8,6 +9,13 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Initialize cache
+// Odds cache: 3 hours TTL (API updates every 3 hours)
+const oddsCache = new NodeCache({ stdTTL: 3 * 60 * 60, checkperiod: 60 * 60 });
+// Live data cache: 1 minute TTL (API updates every 15 seconds, we call every minute)
+const liveCache = new NodeCache({ stdTTL: 60, checkperiod: 10 });
+
 const API_FOOTBALL_KEY = process.env.API_FOOTBALL_KEY;
 
 if (!API_FOOTBALL_KEY) {
@@ -42,6 +50,14 @@ app.get('/health', (req, res) => {
 app.get('/api/odds/:fixtureId', async (req, res) => {
   const { fixtureId } = req.params;
   const { bookmakers = 3 } = req.query;
+  const cacheKey = `odds:${fixtureId}:${bookmakers}`;
+
+  // Check cache first
+  const cached = oddsCache.get(cacheKey);
+  if (cached) {
+    console.log(`Returning cached odds for fixture ${fixtureId}`);
+    return res.json(cached);
+  }
 
   try {
     console.log(`Fetching odds for fixture ${fixtureId}`);
@@ -92,7 +108,12 @@ app.get('/api/odds/:fixtureId', async (req, res) => {
       }
     }
 
-    res.json({ odds });
+    const result = { odds };
+    
+    // Cache the result (3 hours)
+    oddsCache.set(cacheKey, result);
+    
+    res.json(result);
   } catch (error) {
     console.error('Error fetching odds:', error);
     res.status(500).json({ error: error.message });
@@ -102,6 +123,14 @@ app.get('/api/odds/:fixtureId', async (req, res) => {
 // Proxy endpoint for live match data
 app.get('/api/live/:fixtureId', async (req, res) => {
   const { fixtureId } = req.params;
+  const cacheKey = `live:${fixtureId}`;
+
+  // Check cache first
+  const cached = liveCache.get(cacheKey);
+  if (cached) {
+    console.log(`Returning cached live data for fixture ${fixtureId}`);
+    return res.json(cached);
+  }
 
   try {
     console.log(`Fetching live data for fixture ${fixtureId}`);
@@ -140,6 +169,9 @@ app.get('/api/live/:fixtureId', async (req, res) => {
         }
       };
       
+      // Cache the result (1 minute)
+      liveCache.set(cacheKey, liveData);
+      
       res.json(liveData);
     } else {
       res.status(404).json({ error: 'Fixture not found' });
@@ -158,10 +190,30 @@ app.post('/api/live/batch', async (req, res) => {
     return res.status(400).json({ error: 'fixtureIds array is required' });
   }
 
+  // Check cache for all fixtures
+  const cachedMatches = [];
+  const uncachedIds = [];
+  
+  for (const fixtureId of fixtureIds) {
+    const cacheKey = `live:${fixtureId}`;
+    const cached = liveCache.get(cacheKey);
+    if (cached) {
+      cachedMatches.push(cached);
+    } else {
+      uncachedIds.push(fixtureId);
+    }
+  }
+
+  // If all matches are cached, return them
+  if (uncachedIds.length === 0) {
+    console.log(`Returning all ${cachedMatches.length} matches from cache`);
+    return res.json({ matches: cachedMatches });
+  }
+
   try {
-    console.log(`Fetching live data for ${fixtureIds.length} fixtures`);
+    console.log(`Fetching live data for ${uncachedIds.length} fixtures (${cachedMatches.length} from cache)`);
     
-    const idsParam = fixtureIds.join('-');
+    const idsParam = uncachedIds.join('-');
     const response = await fetch(
       `https://v3.football.api-sports.io/fixtures?ids=${idsParam}`,
       {
@@ -179,21 +231,31 @@ app.post('/api/live/batch', async (req, res) => {
 
     const data = await response.json();
     
-    const matches = (data.response || []).map(fixture => ({
-      fixtureId: fixture.fixture.id,
-      status: fixture.fixture.status.short,
-      elapsed: fixture.fixture.status.elapsed,
-      scores: {
-        home: fixture.goals.home,
-        away: fixture.goals.away
-      },
-      teams: {
-        home: fixture.teams.home.name,
-        away: fixture.teams.away.name
-      }
-    }));
+    const fetchedMatches = (data.response || []).map(fixture => {
+      const match = {
+        fixtureId: fixture.fixture.id,
+        status: fixture.fixture.status.short,
+        elapsed: fixture.fixture.status.elapsed,
+        scores: {
+          home: fixture.goals.home,
+          away: fixture.goals.away
+        },
+        teams: {
+          home: fixture.teams.home.name,
+          away: fixture.teams.away.name
+        }
+      };
+      
+      // Cache each match (1 minute)
+      liveCache.set(`live:${match.fixtureId}`, match);
+      
+      return match;
+    });
     
-    res.json({ matches });
+    // Combine cached and fetched matches
+    const allMatches = [...cachedMatches, ...fetchedMatches];
+    
+    res.json({ matches: allMatches });
   } catch (error) {
     console.error('Error fetching batch live data:', error);
     res.status(500).json({ error: error.message });
