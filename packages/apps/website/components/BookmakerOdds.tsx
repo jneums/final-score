@@ -41,19 +41,19 @@ export function BookmakerOdds({ fixtureId, enabled = true }: BookmakerOddsProps)
                 <div className="text-center">
                   <p className="text-[10px] text-muted-foreground mb-0.5">Home</p>
                   <p className="text-sm font-semibold text-primary">
-                    {odd.home ? odd.home.toFixed(2) : '-'}
+                    {typeof odd.home === 'number' ? odd.home.toFixed(2) : '-'}
                   </p>
                 </div>
                 <div className="text-center">
                   <p className="text-[10px] text-muted-foreground mb-0.5">Draw</p>
                   <p className="text-sm font-semibold text-primary">
-                    {odd.draw ? odd.draw.toFixed(2) : '-'}
+                    {typeof odd.draw === 'number' ? odd.draw.toFixed(2) : '-'}
                   </p>
                 </div>
                 <div className="text-center">
                   <p className="text-[10px] text-muted-foreground mb-0.5">Away</p>
                   <p className="text-sm font-semibold text-primary">
-                    {odd.away ? odd.away.toFixed(2) : '-'}
+                    {typeof odd.away === 'number' ? odd.away.toFixed(2) : '-'}
                   </p>
                 </div>
               </div>

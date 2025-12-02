@@ -76,15 +76,15 @@ app.get('/api/odds/:fixtureId', async (req, res) => {
           const matchWinnerBet = bookmaker.bets.find(bet => bet.name === 'Match Winner');
           
           if (matchWinnerBet && matchWinnerBet.values) {
-            const homeOdds = matchWinnerBet.values.find(v => v.value === 'Home')?.odd || null;
-            const drawOdds = matchWinnerBet.values.find(v => v.value === 'Draw')?.odd || null;
-            const awayOdds = matchWinnerBet.values.find(v => v.value === 'Away')?.odd || null;
+            const homeOdds = matchWinnerBet.values.find(v => v.value === 'Home')?.odd;
+            const drawOdds = matchWinnerBet.values.find(v => v.value === 'Draw')?.odd;
+            const awayOdds = matchWinnerBet.values.find(v => v.value === 'Away')?.odd;
             
             odds.push({
               bookmaker: bookmaker.name,
-              home: homeOdds,
-              draw: drawOdds,
-              away: awayOdds,
+              home: homeOdds ? parseFloat(homeOdds) : null,
+              draw: drawOdds ? parseFloat(drawOdds) : null,
+              away: awayOdds ? parseFloat(awayOdds) : null,
               updatedAt: fixtureOdds.update
             });
           }

@@ -21,7 +21,7 @@ export class ApiFootballClient {
         }
         catch (error) {
             console.error('Error fetching odds:', error);
-            throw error;
+            return []; // Return empty array instead of throwing
         }
     }
     /**
@@ -42,15 +42,15 @@ export class ApiFootballClient {
                 fixtureId: data.fixtureId,
                 status: data.status,
                 elapsed: data.elapsed,
-                homeScore: data.scores.home ?? 0,
-                awayScore: data.scores.away ?? 0,
-                homeTeam: data.teams.home,
-                awayTeam: data.teams.away,
+                homeScore: data.scores?.home ?? 0,
+                awayScore: data.scores?.away ?? 0,
+                homeTeam: data.teams?.home ?? '',
+                awayTeam: data.teams?.away ?? '',
             };
         }
         catch (error) {
             console.error('Error fetching live match:', error);
-            throw error;
+            return null; // Return null instead of throwing
         }
     }
     /**
@@ -77,15 +77,15 @@ export class ApiFootballClient {
                 fixtureId: match.fixtureId,
                 status: match.status,
                 elapsed: match.elapsed,
-                homeScore: match.scores.home ?? 0,
-                awayScore: match.scores.away ?? 0,
-                homeTeam: match.teams.home,
-                awayTeam: match.teams.away,
+                homeScore: match.scores?.home ?? 0,
+                awayScore: match.scores?.away ?? 0,
+                homeTeam: match.teams?.home ?? '',
+                awayTeam: match.teams?.away ?? '',
             }));
         }
         catch (error) {
             console.error('Error fetching live matches:', error);
-            throw error;
+            return []; // Return empty array instead of throwing
         }
     }
 }

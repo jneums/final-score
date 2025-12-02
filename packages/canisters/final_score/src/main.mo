@@ -1043,12 +1043,12 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         };
         offset += batchSize;
       } catch (e) {
-        Debug.print("Error fetching oracle matches at offset " # debug_show(offset) # ": " # Error.message(e));
+        Debug.print("Error fetching oracle matches at offset " # debug_show (offset) # ": " # Error.message(e));
         break fetchLoop;
       };
     };
 
-    Debug.print("Fetched " # debug_show(oracleMatches.size()) # " oracle matches with API Football IDs");
+    Debug.print("Fetched " # debug_show (oracleMatches.size()) # " oracle matches with API Football IDs");
 
     // Create a lookup map for quick access
     let oracleIdToApiId = Map.new<Nat, Text>();
@@ -1059,7 +1059,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     // Update markets that have null apiFootballId
     label marketLoop for ((marketId, market) in Map.entries(markets)) {
       marketsChecked += 1;
-      
+
       // Only update if apiFootballId is null
       switch (market.apiFootballId) {
         case (null) {
@@ -1082,9 +1082,9 @@ shared ({ caller = deployer }) persistent actor class McpServer(
               };
               Map.set(markets, thash, marketId, updatedMarket);
               marketsUpdated += 1;
-              
+
               if (marketsUpdated % 10 == 0) {
-                Debug.print("Updated " # debug_show(marketsUpdated) # " markets...");
+                Debug.print("Updated " # debug_show (marketsUpdated) # " markets...");
               };
             };
             case (null) {
