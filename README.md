@@ -1,4 +1,6 @@
-# Final Score - Parimutuel Football Predic### Account Management
+# Final Score - Parimutuel Football Prediction Market
+
+### Account Management
 - **`account_deposit`** - Deposit ckUSDC into your virtual account (requires ICRC-2 approval first)
 - **`account_withdraw`** - Withdraw available balance back to your wallet
 - **`account_get_info`** - View your balance and unclaimed positions

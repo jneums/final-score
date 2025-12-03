@@ -696,7 +696,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         case (#Open) { openCount += 1 };
         case (#Closed) { closedCount += 1 };
         case (#Resolved(_)) { resolvedCount += 1 };
-        case (#Cancelled) { /* Do not count cancelled markets */};
+        case (#Cancelled) { /* Do not count cancelled markets */ };
       };
     };
 
