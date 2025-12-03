@@ -41,19 +41,24 @@ export function useLiveMatch(fixtureId: number | null, enabled: boolean = true) 
     queryFn: async () => {
       const client = getClient();
       if (!client || !fixtureId) return null;
-      return await client.getLiveMatch(fixtureId);
+      const result = await client.getLiveMatch(fixtureId);
+      console.log(`Live match data for ${fixtureId}:`, result);
+      return result;
     },
     enabled: enabled && fixtureId !== null,
     staleTime: 0, // Always consider data stale so it refetches
     // Only refetch if match is in progress (1H, 2H, HT, ET, P, BT, LIVE)
     refetchInterval: (query) => {
       const data = query.state.data;
-      if (!data) return 60 * 1000; // If no data yet, try again in 1 minute
+      // Always try to refetch if enabled, even if data is null (might be temporary API issue)
+      if (!data) return 60 * 1000; // If no data yet or null, try again in 1 minute
       const liveStatuses = ['1H', 'HT', '2H', 'ET', 'P', 'BT', 'LIVE'];
       return liveStatuses.includes(data.status) ? 60 * 1000 : false; // 1 minute if live, otherwise don't refetch
     },
-    retry: false, // Don't retry on 404s
+    retry: 3, // Retry failed requests 3 times
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000), // Exponential backoff
     refetchOnWindowFocus: false, // Don't refetch when window gains focus
+    refetchOnMount: true, // Always refetch on mount
   });
 }
 

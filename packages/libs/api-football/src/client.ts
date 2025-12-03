@@ -101,11 +101,21 @@ export class ApiFootballClient {
       const response = await fetch(`${this.proxyUrl}/api/live/${fixtureId}`);
 
       if (!response.ok) {
-        if (response.status === 404) return null;
-        throw new Error(`Proxy server returned ${response.status}`);
+        if (response.status === 404) {
+          console.warn(`Fixture ${fixtureId} not found (404)`);
+          return null;
+        }
+        console.error(`Proxy server returned ${response.status} for fixture ${fixtureId}`);
+        return null;
       }
 
       const data = await response.json();
+      
+      // Validate that we have the required data
+      if (!data || !data.fixtureId || !data.status) {
+        console.warn(`Invalid data structure for fixture ${fixtureId}:`, data);
+        return null;
+      }
       
       // Transform proxy response to match our interface
       return {
@@ -118,7 +128,7 @@ export class ApiFootballClient {
         awayTeam: data.teams?.away ?? '',
       };
     } catch (error) {
-      console.error('Error fetching live match:', error);
+      console.error(`Error fetching live match ${fixtureId}:`, error);
       return null; // Return null instead of throwing
     }
   }
