@@ -25,35 +25,12 @@ module {
     payment = null;
     inputSchema = Json.obj([
       ("type", Json.str("object")),
-      ("properties", Json.obj([
-        ("marketId", Json.obj([
-          ("type", Json.str("string")),
-          ("description", Json.str("The ID of the market to bet on."))
-        ])),
-        ("outcome", Json.obj([
-          ("type", Json.str("string")),
-          ("enum", Json.arr([Json.str("HomeWin"), Json.str("AwayWin"), Json.str("Draw")])),
-          ("description", Json.str("The predicted outcome."))
-        ])),
-        ("amount", Json.obj([
-          ("type", Json.str("string")),
-          ("description", Json.str("Amount in USDC base units (6 decimals). Example: '10000000' = $10 USDC, '1000000' = $1 USDC."))
-        ])),
-      ])),
+      ("properties", Json.obj([("marketId", Json.obj([("type", Json.str("string")), ("description", Json.str("The ID of the market to bet on."))])), ("outcome", Json.obj([("type", Json.str("string")), ("enum", Json.arr([Json.str("HomeWin"), Json.str("AwayWin"), Json.str("Draw")])), ("description", Json.str("The predicted outcome."))])), ("amount", Json.obj([("type", Json.str("string")), ("description", Json.str("Amount in USDC base units (6 decimals). Example: '10000000' = $10 USDC, '1000000' = $1 USDC."))]))])),
       ("required", Json.arr([Json.str("marketId"), Json.str("outcome"), Json.str("amount")])),
     ]);
     outputSchema = ?Json.obj([
       ("type", Json.str("object")),
-      ("properties", Json.obj([
-        ("positionId", Json.obj([
-          ("type", Json.str("string")),
-          ("description", Json.str("A unique ID for this specific prediction."))
-        ])),
-        ("status", Json.obj([
-          ("type", Json.str("string")),
-          ("description", Json.str("Confirmation that the prediction was placed."))
-        ])),
-      ])),
+      ("properties", Json.obj([("positionId", Json.obj([("type", Json.str("string")), ("description", Json.str("A unique ID for this specific prediction."))])), ("status", Json.obj([("type", Json.str("string")), ("description", Json.str("Confirmation that the prediction was placed."))]))])),
       ("required", Json.arr([Json.str("positionId"), Json.str("status")])),
     ]);
   };
@@ -61,7 +38,7 @@ module {
   public func handle(context : ToolContext.ToolContext) : (_args : McpTypes.JsonValue, _auth : ?AuthTypes.AuthInfo, cb : (Result.Result<McpTypes.CallToolResult, McpTypes.HandlerError>) -> ()) -> async () {
 
     func(_args : McpTypes.JsonValue, _auth : ?AuthTypes.AuthInfo, cb : (Result.Result<McpTypes.CallToolResult, McpTypes.HandlerError>) -> ()) : async () {
-      
+
       // Check authentication
       let ?auth = _auth else return ToolContext.makeError("Authentication required", cb);
       let userPrincipal = auth.principal;
@@ -69,29 +46,37 @@ module {
       // Parse arguments
       let marketId = switch (Result.toOption(Json.getAsText(_args, "marketId"))) {
         case (?id) { id };
-        case (null) { return ToolContext.makeError("Missing 'marketId' argument", cb); };
+        case (null) {
+          return ToolContext.makeError("Missing 'marketId' argument", cb);
+        };
       };
 
       let outcomeText = switch (Result.toOption(Json.getAsText(_args, "outcome"))) {
         case (?out) { out };
-        case (null) { return ToolContext.makeError("Missing 'outcome' argument", cb); };
+        case (null) {
+          return ToolContext.makeError("Missing 'outcome' argument", cb);
+        };
       };
 
       let outcome = switch (ToolContext.parseOutcome(outcomeText)) {
         case (?out) { out };
-        case (null) { 
-          return ToolContext.makeError("Invalid outcome. Must be 'HomeWin', 'AwayWin', or 'Draw'", cb); 
+        case (null) {
+          return ToolContext.makeError("Invalid outcome. Must be 'HomeWin', 'AwayWin', or 'Draw'", cb);
         };
       };
 
       let amountText = switch (Result.toOption(Json.getAsText(_args, "amount"))) {
         case (?amt) { amt };
-        case (null) { return ToolContext.makeError("Missing 'amount' argument", cb); };
+        case (null) {
+          return ToolContext.makeError("Missing 'amount' argument", cb);
+        };
       };
 
       let amount = switch (Nat.fromText(amountText)) {
         case (?amt) { amt };
-        case (null) { return ToolContext.makeError("Invalid amount format", cb); };
+        case (null) {
+          return ToolContext.makeError("Invalid amount format", cb);
+        };
       };
 
       if (amount == 0) {
@@ -184,4 +169,4 @@ module {
       ToolContext.makeSuccess(output, cb);
     };
   };
-}
+};

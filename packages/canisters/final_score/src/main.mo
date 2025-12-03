@@ -45,43 +45,43 @@ import account_get_history "tools/account_get_history";
 import account_withdraw "tools/account_withdraw";
 import odds_fetch "tools/odds_fetch";
 
-// Migration function to add #Cancelled variant to MarketStatus
-(
-  with migration = func(
-    old_state : {
-      var markets : Map.Map<Text, { marketId : Text; matchDetails : Text; homeTeam : Text; awayTeam : Text; kickoffTime : Int; bettingDeadline : Int; status : { #Open; #Closed; #Resolved : ToolContext.Outcome }; homeWinPool : Nat; awayWinPool : Nat; drawPool : Nat; totalPool : Nat; oracleMatchId : Text; apiFootballId : ?Text }>;
-    }
-  ) : {
-    var markets : Map.Map<Text, ToolContext.Market>;
-  } {
-    // Migrate markets: status type now includes #Cancelled variant
-    let new_markets = Map.new<Text, ToolContext.Market>();
+// // Migration function to add #Cancelled variant to MarketStatus
+// (
+//   with migration = func(
+//     old_state : {
+//       var markets : Map.Map<Text, { marketId : Text; matchDetails : Text; homeTeam : Text; awayTeam : Text; kickoffTime : Int; bettingDeadline : Int; status : { #Open; #Closed; #Resolved : ToolContext.Outcome }; homeWinPool : Nat; awayWinPool : Nat; drawPool : Nat; totalPool : Nat; oracleMatchId : Text; apiFootballId : ?Text }>;
+//     }
+//   ) : {
+//     var markets : Map.Map<Text, ToolContext.Market>;
+//   } {
+//     // Migrate markets: status type now includes #Cancelled variant
+//     let new_markets = Map.new<Text, ToolContext.Market>();
 
-    for ((marketId, oldMarket) in Map.entries(old_state.markets)) {
-      let newMarket : ToolContext.Market = {
-        marketId = oldMarket.marketId;
-        matchDetails = oldMarket.matchDetails;
-        homeTeam = oldMarket.homeTeam;
-        awayTeam = oldMarket.awayTeam;
-        kickoffTime = oldMarket.kickoffTime;
-        bettingDeadline = oldMarket.bettingDeadline;
-        status = oldMarket.status; // Status type is compatible, just has new variant
-        homeWinPool = oldMarket.homeWinPool;
-        awayWinPool = oldMarket.awayWinPool;
-        drawPool = oldMarket.drawPool;
-        totalPool = oldMarket.totalPool;
-        oracleMatchId = oldMarket.oracleMatchId;
-        apiFootballId = oldMarket.apiFootballId;
-      };
+//     for ((marketId, oldMarket) in Map.entries(old_state.markets)) {
+//       let newMarket : ToolContext.Market = {
+//         marketId = oldMarket.marketId;
+//         matchDetails = oldMarket.matchDetails;
+//         homeTeam = oldMarket.homeTeam;
+//         awayTeam = oldMarket.awayTeam;
+//         kickoffTime = oldMarket.kickoffTime;
+//         bettingDeadline = oldMarket.bettingDeadline;
+//         status = oldMarket.status; // Status type is compatible, just has new variant
+//         homeWinPool = oldMarket.homeWinPool;
+//         awayWinPool = oldMarket.awayWinPool;
+//         drawPool = oldMarket.drawPool;
+//         totalPool = oldMarket.totalPool;
+//         oracleMatchId = oldMarket.oracleMatchId;
+//         apiFootballId = oldMarket.apiFootballId;
+//       };
 
-      Map.set(new_markets, thash, marketId, newMarket);
-    };
+//       Map.set(new_markets, thash, marketId, newMarket);
+//     };
 
-    {
-      var markets = new_markets;
-    };
-  }
-)
+//     {
+//       var markets = new_markets;
+//     };
+//   }
+// )
 shared ({ caller = deployer }) persistent actor class McpServer(
   args : ?{
     owner : ?Principal;
@@ -322,40 +322,40 @@ shared ({ caller = deployer }) persistent actor class McpServer(
                   case (#MatchCancelled { homeTeam = _; awayTeam = _; reason }) {
                     // Match was cancelled - refund all bets
                     Debug.print("Market " # marketId # " cancelled: " # reason);
-                    
+
                     // Refund all positions for this market
                     for ((principal, positions) in Map.entries(userPositions)) {
                       let marketPositions = Array.filter<ToolContext.Position>(
                         positions,
                         func(p : ToolContext.Position) : Bool {
-                          p.marketId == marketId
+                          p.marketId == marketId;
                         },
                       );
-                      
+
                       for (position in marketPositions.vals()) {
                         // Refund the amount
                         let currentBalance = Option.get(Map.get(userBalances, Map.phash, principal), 0);
                         Map.set(userBalances, Map.phash, principal, currentBalance + position.amount);
-                        
-                        Debug.print("Refunded " # debug_show(position.amount) # " to " # debug_show(principal));
+
+                        Debug.print("Refunded " # debug_show (position.amount) # " to " # debug_show (principal));
                       };
-                      
+
                       // Remove positions for this market
                       let remainingPositions = Array.filter<ToolContext.Position>(
                         positions,
                         func(p : ToolContext.Position) : Bool {
-                          p.marketId != marketId
+                          p.marketId != marketId;
                         },
                       );
                       Map.set(userPositions, Map.phash, principal, remainingPositions);
                     };
-                    
+
                     // Mark market as cancelled
                     let cancelledMarket = {
                       market with status = #Cancelled
                     };
                     Map.set(markets, thash, marketId, cancelledMarket);
-                    
+
                     Debug.print("Market " # marketId # " cancelled and all bets refunded");
                   };
                   case (_) {
@@ -373,6 +373,9 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         };
         case (#Resolved(_)) {
           // Already resolved, nothing to do
+        };
+        case (#Cancelled) {
+          // Already cancelled, nothing to do
         };
       };
     };
