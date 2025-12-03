@@ -21,6 +21,7 @@ module ToolContext {
     #Open;
     #Closed;
     #Resolved : Outcome;
+    #Cancelled;
   };
 
   /// A user's position in a market

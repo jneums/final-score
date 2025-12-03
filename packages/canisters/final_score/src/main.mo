@@ -45,43 +45,43 @@ import account_get_history "tools/account_get_history";
 import account_withdraw "tools/account_withdraw";
 import odds_fetch "tools/odds_fetch";
 
-// // Migration function to add apiFootballId to existing markets
-// (
-//   with migration = func(
-//     old_state : {
-//       var markets : Map.Map<Text, { marketId : Text; matchDetails : Text; homeTeam : Text; awayTeam : Text; kickoffTime : Int; bettingDeadline : Int; status : ToolContext.MarketStatus; homeWinPool : Nat; awayWinPool : Nat; drawPool : Nat; totalPool : Nat; oracleMatchId : Text }>;
-//     }
-//   ) : {
-//     var markets : Map.Map<Text, ToolContext.Market>;
-//   } {
-//     // Migrate markets: add apiFootballId field (default to null for existing markets)
-//     let new_markets = Map.new<Text, ToolContext.Market>();
+// Migration function to add #Cancelled variant to MarketStatus
+(
+  with migration = func(
+    old_state : {
+      var markets : Map.Map<Text, { marketId : Text; matchDetails : Text; homeTeam : Text; awayTeam : Text; kickoffTime : Int; bettingDeadline : Int; status : { #Open; #Closed; #Resolved : ToolContext.Outcome }; homeWinPool : Nat; awayWinPool : Nat; drawPool : Nat; totalPool : Nat; oracleMatchId : Text; apiFootballId : ?Text }>;
+    }
+  ) : {
+    var markets : Map.Map<Text, ToolContext.Market>;
+  } {
+    // Migrate markets: status type now includes #Cancelled variant
+    let new_markets = Map.new<Text, ToolContext.Market>();
 
-//     for ((marketId, oldMarket) in Map.entries(old_state.markets)) {
-//       let newMarket : ToolContext.Market = {
-//         marketId = oldMarket.marketId;
-//         matchDetails = oldMarket.matchDetails;
-//         homeTeam = oldMarket.homeTeam;
-//         awayTeam = oldMarket.awayTeam;
-//         kickoffTime = oldMarket.kickoffTime;
-//         bettingDeadline = oldMarket.bettingDeadline;
-//         status = oldMarket.status;
-//         homeWinPool = oldMarket.homeWinPool;
-//         awayWinPool = oldMarket.awayWinPool;
-//         drawPool = oldMarket.drawPool;
-//         totalPool = oldMarket.totalPool;
-//         oracleMatchId = oldMarket.oracleMatchId;
-//         apiFootballId = null; // NEW FIELD: default to null for existing markets
-//       };
+    for ((marketId, oldMarket) in Map.entries(old_state.markets)) {
+      let newMarket : ToolContext.Market = {
+        marketId = oldMarket.marketId;
+        matchDetails = oldMarket.matchDetails;
+        homeTeam = oldMarket.homeTeam;
+        awayTeam = oldMarket.awayTeam;
+        kickoffTime = oldMarket.kickoffTime;
+        bettingDeadline = oldMarket.bettingDeadline;
+        status = oldMarket.status; // Status type is compatible, just has new variant
+        homeWinPool = oldMarket.homeWinPool;
+        awayWinPool = oldMarket.awayWinPool;
+        drawPool = oldMarket.drawPool;
+        totalPool = oldMarket.totalPool;
+        oracleMatchId = oldMarket.oracleMatchId;
+        apiFootballId = oldMarket.apiFootballId;
+      };
 
-//       Map.set(new_markets, thash, marketId, newMarket);
-//     };
+      Map.set(new_markets, thash, marketId, newMarket);
+    };
 
-//     {
-//       var markets = new_markets;
-//     };
-//   }
-// )
+    {
+      var markets = new_markets;
+    };
+  }
+)
 shared ({ caller = deployer }) persistent actor class McpServer(
   args : ?{
     owner : ?Principal;
@@ -302,7 +302,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
             switch (maybeEvent) {
               case (?event) {
-                // Check if this is a MatchFinal event
+                // Check event type
                 switch (event.eventData) {
                   case (#MatchFinal { outcome; homeScore = _; awayScore = _; homeTeam = _; awayTeam = _ }) {
                     // Convert oracle outcome to our outcome type
@@ -319,8 +319,47 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
                     Debug.print("Resolved market " # marketId # " with outcome: " # debug_show (finalOutcome));
                   };
+                  case (#MatchCancelled { homeTeam = _; awayTeam = _; reason }) {
+                    // Match was cancelled - refund all bets
+                    Debug.print("Market " # marketId # " cancelled: " # reason);
+                    
+                    // Refund all positions for this market
+                    for ((principal, positions) in Map.entries(userPositions)) {
+                      let marketPositions = Array.filter<ToolContext.Position>(
+                        positions,
+                        func(p : ToolContext.Position) : Bool {
+                          p.marketId == marketId
+                        },
+                      );
+                      
+                      for (position in marketPositions.vals()) {
+                        // Refund the amount
+                        let currentBalance = Option.get(Map.get(userBalances, Map.phash, principal), 0);
+                        Map.set(userBalances, Map.phash, principal, currentBalance + position.amount);
+                        
+                        Debug.print("Refunded " # debug_show(position.amount) # " to " # debug_show(principal));
+                      };
+                      
+                      // Remove positions for this market
+                      let remainingPositions = Array.filter<ToolContext.Position>(
+                        positions,
+                        func(p : ToolContext.Position) : Bool {
+                          p.marketId != marketId
+                        },
+                      );
+                      Map.set(userPositions, Map.phash, principal, remainingPositions);
+                    };
+                    
+                    // Mark market as cancelled
+                    let cancelledMarket = {
+                      market with status = #Cancelled
+                    };
+                    Map.set(markets, thash, marketId, cancelledMarket);
+                    
+                    Debug.print("Market " # marketId # " cancelled and all bets refunded");
+                  };
                   case (_) {
-                    // Not a final event yet
+                    // Not a final or cancelled event yet
                   };
                 };
               };
@@ -695,6 +734,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
               }
             );
           };
+          case (#Cancelled) "Cancelled";
         };
         ?{
           marketId = market.marketId;
@@ -1316,13 +1356,19 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   /// Get upcoming matches (open markets sorted by kickoff time)
   public query func get_upcoming_matches(limit : ?Nat) : async [ToolContext.Market] {
     let maxResults = Option.get(limit, 50);
-    var openMarkets : [ToolContext.Market] = [];
+    var activeMarkets : [ToolContext.Market] = [];
 
-    // Collect all open markets
+    // Collect all open and closed markets (exclude resolved and cancelled)
     for ((_, market) in Map.entries(markets)) {
       switch (market.status) {
         case (#Open) {
-          openMarkets := Array.append(openMarkets, [market]);
+          activeMarkets := Array.append(activeMarkets, [market]);
+        };
+        case (#Closed) {
+          activeMarkets := Array.append(activeMarkets, [market]);
+        };
+        case (#Cancelled) {
+          // Exclude cancelled markets
         };
         case _ {};
       };
@@ -1330,7 +1376,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
     // Sort by kickoff time (ascending - soonest first)
     let sorted = Array.sort(
-      openMarkets,
+      activeMarkets,
       func(a : ToolContext.Market, b : ToolContext.Market) : {
         #less;
         #equal;

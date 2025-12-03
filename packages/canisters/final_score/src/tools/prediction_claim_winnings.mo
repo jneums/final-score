@@ -60,6 +60,9 @@ module {
       // Check if market is resolved
       let winningOutcome = switch (market.status) {
         case (#Resolved(outcome)) { outcome };
+        case (#Cancelled) {
+          return ToolContext.makeError("Market was cancelled - bets have been refunded", cb);
+        };
         case (#Open) {
           return ToolContext.makeError("Market is still open - match has not finished yet", cb);
         };

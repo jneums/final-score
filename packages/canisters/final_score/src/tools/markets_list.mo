@@ -119,6 +119,7 @@ module {
           case (#Open) { "Open" };
           case (#Closed) { "Closed" };
           case (#Resolved(_)) { "Resolved" };
+          case (#Cancelled) { "Cancelled" };
         };
 
         // Check if this market's status is in the filter
@@ -197,8 +198,9 @@ module {
               case (#Open) { "Open" };
               case (#Closed) { "Closed" };
               case (#Resolved(outcome)) {
-                "Resolved:" # ToolContext.outcomeToText(outcome);
+                "Resolved (" # ToolContext.outcomeToText(outcome) # ")";
               };
+              case (#Cancelled) { "Cancelled" };
             };
 
             Json.obj([

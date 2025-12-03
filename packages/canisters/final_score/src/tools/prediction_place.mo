@@ -112,6 +112,9 @@ module {
         case (#Resolved(_)) {
           return ToolContext.makeError("Market has already been resolved", cb);
         };
+        case (#Cancelled) {
+          return ToolContext.makeError("Market has been cancelled", cb);
+        };
       };
 
       // Check if betting deadline has passed

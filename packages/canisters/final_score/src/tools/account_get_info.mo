@@ -69,6 +69,7 @@ module {
                   case (#Resolved(outcome)) {
                     "Resolved:" # ToolContext.outcomeToText(outcome);
                   };
+                  case (#Cancelled) { "Cancelled" };
                 };
                 (market.matchDetails, status);
               };

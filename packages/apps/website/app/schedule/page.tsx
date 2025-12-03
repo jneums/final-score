@@ -92,11 +92,11 @@ function MatchCard({ market }: { market: Market }) {
             <div className="flex items-center gap-3">
               <CardTitle className="text-2xl">{market.homeTeam} vs {market.awayTeam}</CardTitle>
               {isOpen ? (
-                <Badge className="bg-green-500/90 hover:bg-green-500 border-green-400/50">Open</Badge>
+                <Badge className="bg-green-500/90 hover:bg-green-500 border-green-400/50 text-white">Open</Badge>
               ) : isClosed ? (
-                <Badge className="bg-muted border-primary/30">Closed</Badge>
+                <Badge className="bg-muted border-primary/30 text-foreground">Closed</Badge>
               ) : (
-                <Badge className="bg-accent/50 border-accent">Resolved</Badge>
+                <Badge className="bg-accent/50 border-accent text-accent-foreground">Resolved</Badge>
               )}
             </div>
             <CardDescription className="text-base">
