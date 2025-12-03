@@ -696,6 +696,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         case (#Open) { openCount += 1 };
         case (#Closed) { closedCount += 1 };
         case (#Resolved(_)) { resolvedCount += 1 };
+        case (#Cancelled) { /* Do not count cancelled markets */};
       };
     };
 
@@ -1344,6 +1345,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       switch (market.status) {
         case (#Open or #Closed) { activeCount += 1 };
         case (#Resolved(_)) { resolvedCount += 1 };
+        case (#Cancelled) { /* Don't count cancelled markets */ };
       };
     };
 
