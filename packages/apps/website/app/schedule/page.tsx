@@ -2,9 +2,11 @@
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { useGetUpcomingMatches, type Market } from "@/hooks/useLeaderboard";
+import { Button } from "@/components/ui/button";
+import { useGetUpcomingMatchesInfinite, type MarketWithBettors } from "@/hooks/useLeaderboard";
 import { BookmakerOdds } from "@/components/BookmakerOdds";
 import { LiveScore } from "@/components/LiveScore";
+import { MarketBettors } from "@/components/MarketBettors";
 
 function formatUsdc(amount: bigint): string {
   const dollars = Number(amount) / 1_000_000;
@@ -56,7 +58,7 @@ function calculateOdds(outcomePool: bigint, totalPool: bigint): number {
 /**
  * Extract API Football fixture ID from market data
  */
-function getFixtureId(market: Market): number | null {
+function getFixtureId(market: MarketWithBettors): number | null {
   // Use the apiFootballId from the market if available
   if (market.apiFootballId && market.apiFootballId.length > 0) {
     const apiId = market.apiFootballId[0];
@@ -68,19 +70,25 @@ function getFixtureId(market: Market): number | null {
   return null;
 }
 
-function MatchCard({ market }: { market: Market }) {
+function MatchCard({ market }: { market: MarketWithBettors }) {
   const homeOdds = calculateOdds(market.homeWinPool, market.totalPool);
   const awayOdds = calculateOdds(market.awayWinPool, market.totalPool);
   const drawOdds = calculateOdds(market.drawPool, market.totalPool);
   const fixtureId = getFixtureId(market);
 
-  // Check market status - use the canister's status, not client-side time check
-  const isOpen = 'Open' in market.status;
+  // Check market status - combine backend status with client-side time check
+  const backendIsOpen = 'Open' in market.status;
   const isClosed = 'Closed' in market.status;
   const isResolved = 'Resolved' in market.status;
+  
+  // Client-side check: if deadline has passed, treat as closed
+  const now = Date.now() * 1_000_000; // Convert to nanoseconds
+  const deadlinePassed = now > Number(market.bettingDeadline);
+  const isOpen = backendIsOpen && !deadlinePassed;
+  const isEffectivelyClosed = isClosed || (backendIsOpen && deadlinePassed);
 
   // Enable live score only for open or closed markets (not resolved)
-  const enableLiveScore = (isOpen || isClosed) && fixtureId !== null;
+  const enableLiveScore = (isOpen || isEffectivelyClosed) && fixtureId !== null;
   // Enable odds for open markets
   const enableOdds = isOpen && fixtureId !== null;
 
@@ -93,7 +101,7 @@ function MatchCard({ market }: { market: Market }) {
               <CardTitle className="text-2xl">{market.homeTeam} vs {market.awayTeam}</CardTitle>
               {isOpen ? (
                 <Badge className="bg-green-500/90 hover:bg-green-500 border-green-400/50 text-white">Open</Badge>
-              ) : isClosed ? (
+              ) : isEffectivelyClosed ? (
                 <Badge className="bg-muted border-primary/30 text-foreground">Closed</Badge>
               ) : (
                 <Badge className="bg-accent/50 border-accent text-accent-foreground">Resolved</Badge>
@@ -120,12 +128,19 @@ function MatchCard({ market }: { market: Market }) {
             <p className="text-sm text-muted-foreground">Total Pool</p>
             <p className="text-2xl font-bold text-primary">{formatUsdc(market.totalPool)}</p>
           </div>
-          {isOpen && (
-            <div className="text-right">
-              <p className="text-sm text-muted-foreground">Betting closes</p>
-              <p className="text-sm font-medium text-foreground">{formatRelativeTime(market.bettingDeadline)}</p>
-            </div>
-          )}
+          <div className="text-right">
+            {isOpen ? (
+              <>
+                <p className="text-sm text-muted-foreground">Betting closes</p>
+                <p className="text-sm font-medium text-foreground">{formatRelativeTime(market.bettingDeadline)}</p>
+              </>
+            ) : isEffectivelyClosed ? (
+              <>
+                <p className="text-sm text-muted-foreground">Betting closed</p>
+                <p className="text-sm font-medium text-foreground">{formatRelativeTime(market.bettingDeadline)}</p>
+              </>
+            ) : null}
+          </div>
         </div>
 
         {/* Odds Distribution */}
@@ -175,6 +190,11 @@ function MatchCard({ market }: { market: Market }) {
           </div>
         </div>
 
+        {/* Social Proof - Recent Bettors */}
+        <div className="p-3 bg-muted/30 border border-primary/10 rounded-lg">
+          <MarketBettors bettors={market.recentBettors} />
+        </div>
+
         {/* Bookmaker Odds (underneath pool distributions) */}
         <BookmakerOdds fixtureId={fixtureId} enabled={enableOdds} />
       </CardContent>
@@ -183,7 +203,15 @@ function MatchCard({ market }: { market: Market }) {
 }
 
 export default function SchedulePage() {
-  const { data: matches, isLoading } = useGetUpcomingMatches(20);
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+  } = useGetUpcomingMatchesInfinite(5);
+
+  const allMatches = data?.pages.flatMap(page => page) ?? [];
 
   return (
     <div className="min-h-screen bg-background">
@@ -202,17 +230,34 @@ export default function SchedulePage() {
             <div className="text-center py-12">
               <p className="text-muted-foreground">Loading matches...</p>
             </div>
-          ) : !matches || matches.length === 0 ? (
+          ) : !allMatches || allMatches.length === 0 ? (
             <div className="text-center py-12">
               <p className="text-lg text-muted-foreground">No upcoming matches available.</p>
               <p className="text-sm text-muted-foreground mt-2">Check back later for new prediction markets!</p>
             </div>
           ) : (
-            <div className="space-y-6">
-              {matches.map((market) => (
-                <MatchCard key={market.marketId} market={market} />
-              ))}
-            </div>
+            <>
+              <div className="space-y-6">
+                {allMatches.map((market) => (
+                  <MatchCard key={market.marketId} market={market} />
+                ))}
+              </div>
+              
+              {/* Load More Button */}
+              {hasNextPage && (
+                <div className="mt-8 text-center">
+                  <Button
+                    onClick={() => fetchNextPage()}
+                    variant="outline"
+                    size="lg"
+                    className="min-w-[200px]"
+                    disabled={isFetchingNextPage}
+                  >
+                    {isFetchingNextPage ? 'Loading...' : 'Load More Matches'}
+                  </Button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

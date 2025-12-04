@@ -6,7 +6,16 @@ import { FinalScore } from '@final-score/declarations';
 
 export type LeaderboardEntry = FinalScore.LeaderboardEntry;
 export type UserStats = FinalScore.UserStats;
-export type Market = FinalScore.Market;
+export type MarketWithBettors = FinalScore.MarketWithBettors;
+// Market is now an alias for MarketWithBettors (for backward compatibility)
+export type Market = MarketWithBettors;
+
+export interface MarketBettor {
+  principal: string;
+  amount: bigint;
+  outcome: string;
+  timestamp: bigint;
+}
 
 /**
  * Fetches the ranked list of top users by net profit.
@@ -101,16 +110,39 @@ export const getPlatformStats = async (): Promise<{
 };
 
 /**
- * Fetches upcoming matches (open markets sorted by kickoff time).
+ * Fetches upcoming matches (open markets sorted by kickoff time) with recent bettors.
  * @param limit Optional maximum number of results (default 50)
- * @returns An array of Market objects, sorted by kickoff time.
+ * @returns An array of MarketWithBettors objects, sorted by kickoff time.
  */
 export const getUpcomingMatches = async (
   limit?: number
-): Promise<Market[]> => {
+): Promise<MarketWithBettors[]> => {
   const leaderboardActor = getLeaderboardActor();
   const result = await leaderboardActor.get_upcoming_matches(
     limit !== undefined ? [BigInt(limit)] : []
   );
   return result;
+};
+
+/**
+ * Fetches recent bettors for a specific market (for social proof).
+ * @param marketId The market ID to fetch bettors for
+ * @param limit Optional maximum number of results (default 10)
+ * @returns An array of MarketBettor objects, sorted by most recent.
+ */
+export const getMarketBettors = async (
+  marketId: string,
+  limit?: number
+): Promise<MarketBettor[]> => {
+  const leaderboardActor = getLeaderboardActor();
+  const result = await leaderboardActor.get_market_bettors(
+    marketId,
+    limit !== undefined ? [BigInt(limit)] : []
+  );
+  return result.map(bettor => ({
+    principal: bettor.principal,
+    amount: bettor.amount,
+    outcome: bettor.outcome,
+    timestamp: bettor.timestamp,
+  }));
 };

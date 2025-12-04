@@ -1,6 +1,6 @@
 // packages/apps/website/hooks/useLeaderboard.ts
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
 import {
   getLeaderboardByProfit,
   getLeaderboardByAccuracy,
@@ -9,12 +9,15 @@ import {
   getUserStats,
   getPlatformStats,
   getUpcomingMatches,
+  getMarketBettors,
   type LeaderboardEntry,
   type UserStats,
   type Market,
+  type MarketWithBettors,
+  type MarketBettor,
 } from '@final-score/ic-js';
 
-export type { LeaderboardEntry, UserStats, Market };
+export type { LeaderboardEntry, UserStats, Market, MarketWithBettors, MarketBettor };
 
 /**
  * React Query hook to fetch the ranked list of top users by net profit.
@@ -91,11 +94,40 @@ export const useGetPlatformStats = () => {
 };
 
 /**
- * React Query hook to fetch upcoming matches (open markets).
+ * React Query hook to fetch upcoming matches (open markets) with recent bettors.
  */
 export const useGetUpcomingMatches = (limit?: number) => {
-  return useQuery<Market[]>({
+  return useQuery<MarketWithBettors[]>({
     queryKey: ['upcomingMatches', limit],
     queryFn: () => getUpcomingMatches(limit),
+  });
+};
+
+/**
+ * React Query infinite hook to fetch upcoming matches with pagination.
+ */
+export const useGetUpcomingMatchesInfinite = (pageSize: number = 5) => {
+  return useInfiniteQuery<MarketWithBettors[], Error>({
+    queryKey: ['upcomingMatches', 'infinite', pageSize],
+    queryFn: ({ pageParam = pageSize }) => getUpcomingMatches(pageParam as number),
+    getNextPageParam: (lastPage, allPages) => {
+      const currentTotal = allPages.reduce((sum, page) => sum + page.length, 0);
+      return lastPage.length >= pageSize ? currentTotal + pageSize : undefined;
+    },
+    initialPageParam: pageSize,
+  });
+};
+
+/**
+ * React Query hook to fetch recent bettors for a specific market.
+ */
+export const useGetMarketBettors = (marketId: string | null, limit?: number) => {
+  return useQuery<MarketBettor[]>({
+    queryKey: ['marketBettors', marketId, limit],
+    queryFn: () => {
+      if (!marketId) return [];
+      return getMarketBettors(marketId, limit);
+    },
+    enabled: !!marketId,
   });
 };

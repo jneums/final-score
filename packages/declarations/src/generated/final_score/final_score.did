@@ -85,6 +85,10 @@ type Outcome =
  };
 type McpServer = 
  service {
+   /// Admin: Backfill API Football IDs for existing markets
+   /// Queries the Football Oracle to get API Football IDs for markets that have null values
+   /// OWNER ONLY - This is an expensive operation that makes many oracle calls
+   admin_backfill_api_football_ids: () -> (Result_3);
    /// Admin: Cancel a stuck market and refund all positions
    /// OWNER ONLY - Use for markets that cannot resolve (invalid oracle IDs, etc.)
    /// This refunds all user positions back to their virtual balances and deletes the market
@@ -146,6 +150,14 @@ type McpServer =
    /// Get the top users by total wagered
    get_leaderboard_by_volume: (limit: opt nat) ->
     (vec LeaderboardEntry) query;
+   /// Get recent bettors for a specific market (for social proof display)
+   get_market_bettors: (marketId: text, limit: opt nat) ->
+    (vec record {
+           amount: nat;
+           outcome: text;
+           "principal": text;
+           timestamp: int;
+         }) query;
    /// Get the current number of markets
    get_market_count: () ->
     (record {
@@ -167,8 +179,8 @@ type McpServer =
      }) query;
    /// Get the canister's balance of a specific ICRC-1 token.
    get_treasury_balance: (ledger_id: principal) -> (nat);
-   /// Get upcoming matches (open markets sorted by kickoff time)
-   get_upcoming_matches: (limit: opt nat) -> (vec Market) query;
+   /// Get upcoming matches (open markets sorted by kickoff time) with recent bettors
+   get_upcoming_matches: (limit: opt nat) -> (vec MarketWithBettors) query;
    /// Get specific user stats
    get_user_stats: (user: principal) -> (opt UserStats) query;
    /// Handle incoming HTTP requests.
@@ -201,13 +213,7 @@ type McpServer =
    withdraw: (ledger_id: principal, amount: nat, destination: Destination) ->
     (Result);
  };
-type MarketStatus = 
- variant {
-   Closed;
-   Open;
-   Resolved: Outcome;
- };
-type Market = 
+type MarketWithBettors = 
  record {
    apiFootballId: opt text;
    awayTeam: text;
@@ -220,8 +226,22 @@ type Market =
    marketId: text;
    matchDetails: text;
    oracleMatchId: text;
+   recentBettors:
+    vec record {
+          amount: nat;
+          outcome: text;
+          "principal": text;
+          timestamp: int;
+        };
    status: MarketStatus;
    totalPool: nat;
+ };
+type MarketStatus = 
+ variant {
+   Cancelled;
+   Closed;
+   Open;
+   Resolved: Outcome;
  };
 type LeaderboardEntry = 
  record {

@@ -29,8 +29,8 @@ export function BookmakerOdds({ fixtureId, enabled = true }: BookmakerOddsProps)
       <p className="text-xs text-muted-foreground font-medium">Bookmaker Odds</p>
       <div className="grid grid-cols-3 gap-3">
         {odds.map((odd, index) => (
-          <Card key={index} className="border border-primary/10 bg-card/50">
-            <CardContent className="p-3">
+          <Card key={index} className="border border-primary/10 bg-card/50 py-2">
+            <CardContent className="p-3 md:p-6">
               <div className="text-center mb-3">
                 <p className="text-xs font-medium text-foreground mb-1">{odd.bookmaker}</p>
                 <p className="text-[10px] text-muted-foreground">

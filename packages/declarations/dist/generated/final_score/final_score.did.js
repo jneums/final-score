@@ -24,15 +24,24 @@ export const idlFactory = ({ IDL }) => {
   const MarketStatus = IDL.Variant({
     'Open' : IDL.Null,
     'Closed' : IDL.Null,
+    'Cancelled' : IDL.Null,
     'Resolved' : Outcome,
   });
-  const Market = IDL.Record({
+  const MarketWithBettors = IDL.Record({
     'status' : MarketStatus,
     'apiFootballId' : IDL.Opt(IDL.Text),
     'homeTeam' : IDL.Text,
     'matchDetails' : IDL.Text,
     'drawPool' : IDL.Nat,
     'totalPool' : IDL.Nat,
+    'recentBettors' : IDL.Vec(
+      IDL.Record({
+        'principal' : IDL.Text,
+        'timestamp' : IDL.Int,
+        'amount' : IDL.Nat,
+        'outcome' : IDL.Text,
+      })
+    ),
     'marketId' : IDL.Text,
     'oracleMatchId' : IDL.Text,
     'awayTeam' : IDL.Text,
@@ -123,6 +132,7 @@ export const idlFactory = ({ IDL }) => {
   });
   const Result = IDL.Variant({ 'ok' : IDL.Nat, 'err' : TreasuryError });
   const McpServer = IDL.Service({
+    'admin_backfill_api_football_ids' : IDL.Func([], [Result_3], []),
     'admin_cancel_and_refund_market' : IDL.Func([IDL.Text], [Result_3], []),
     'admin_clear_processed_event' : IDL.Func([IDL.Nat], [Result_3], []),
     'admin_delete_market' : IDL.Func([IDL.Text], [Result_3], []),
@@ -180,6 +190,20 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Vec(LeaderboardEntry)],
         ['query'],
       ),
+    'get_market_bettors' : IDL.Func(
+        [IDL.Text, IDL.Opt(IDL.Nat)],
+        [
+          IDL.Vec(
+            IDL.Record({
+              'principal' : IDL.Text,
+              'timestamp' : IDL.Int,
+              'amount' : IDL.Nat,
+              'outcome' : IDL.Text,
+            })
+          ),
+        ],
+        ['query'],
+      ),
     'get_market_count' : IDL.Func(
         [],
         [
@@ -209,7 +233,7 @@ export const idlFactory = ({ IDL }) => {
     'get_treasury_balance' : IDL.Func([IDL.Principal], [IDL.Nat], []),
     'get_upcoming_matches' : IDL.Func(
         [IDL.Opt(IDL.Nat)],
-        [IDL.Vec(Market)],
+        [IDL.Vec(MarketWithBettors)],
         ['query'],
       ),
     'get_user_stats' : IDL.Func(

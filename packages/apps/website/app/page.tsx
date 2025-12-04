@@ -4,8 +4,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { useGetPlatformStats, useGetUpcomingMatches, useGetLeaderboardByProfit, type Market, type LeaderboardEntry } from "@/hooks/useLeaderboard";
+import { useGetPlatformStats, useGetUpcomingMatches, useGetLeaderboardByProfit, type MarketWithBettors, type LeaderboardEntry } from "@/hooks/useLeaderboard";
 import { useState } from "react";
+import { MarketBettors } from "@/components/MarketBettors";
 
 function formatUsdc(amount: bigint): string {
   const dollars = Number(amount) / 1_000_000;
@@ -33,7 +34,7 @@ function calculateOdds(outcomePool: bigint, totalPool: bigint): number {
   return Number(totalPool) / Number(outcomePool);
 }
 
-function FeaturedMatch({ market }: { market: Market }) {
+function FeaturedMatch({ market }: { market: MarketWithBettors }) {
   const homeOdds = calculateOdds(market.homeWinPool, market.totalPool);
   const awayOdds = calculateOdds(market.awayWinPool, market.totalPool);
   const drawOdds = calculateOdds(market.drawPool, market.totalPool);
@@ -43,7 +44,7 @@ function FeaturedMatch({ market }: { market: Market }) {
       <CardHeader>
         <div className="flex justify-between items-start gap-4">
           <div className="flex-1">
-            <CardTitle className="text-xl mb-2">{market.homeTeam} vs {market.awayTeam}</CardTitle>
+            <CardTitle className="text-xl mb-2 min-h-[3.5rem]">{market.homeTeam} vs {market.awayTeam}</CardTitle>
             <CardDescription className="text-sm">
               🕒 {formatDate(market.kickoffTime)}
             </CardDescription>
@@ -72,6 +73,11 @@ function FeaturedMatch({ market }: { market: Market }) {
             <p className="text-xs text-muted-foreground">Away</p>
             <p className="text-lg font-bold text-primary">{awayOdds > 0 ? awayOdds.toFixed(2) : '-'}x</p>
           </div>
+        </div>
+
+        {/* Social Proof */}
+        <div className="pt-2 border-t border-primary/10">
+          <MarketBettors bettors={market.recentBettors} />
         </div>
       </CardContent>
     </Card>

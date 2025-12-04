@@ -84,6 +84,29 @@ module ToolContext {
     apiFootballId : ?Text; // API Football fixture ID for fetching odds and live data (nullable for backward compatibility)
   };
 
+  /// Market with recent bettors info (for efficient frontend display)
+  public type MarketWithBettors = {
+    marketId : Text;
+    matchDetails : Text;
+    homeTeam : Text;
+    awayTeam : Text;
+    kickoffTime : Int;
+    bettingDeadline : Int;
+    status : MarketStatus;
+    homeWinPool : Nat;
+    awayWinPool : Nat;
+    drawPool : Nat;
+    totalPool : Nat;
+    oracleMatchId : Text;
+    apiFootballId : ?Text;
+    recentBettors : [{
+      principal : Text;
+      amount : Nat;
+      outcome : Text;
+      timestamp : Int;
+    }];
+  };
+
   /// Virtual account balance for a user
   public type VirtualBalance = Nat;
 

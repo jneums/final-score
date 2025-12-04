@@ -1358,8 +1358,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
   };
 
-  /// Get upcoming matches (open markets sorted by kickoff time)
-  public query func get_upcoming_matches(limit : ?Nat) : async [ToolContext.Market] {
+  /// Get upcoming matches (open markets sorted by kickoff time) with recent bettors
+  public query func get_upcoming_matches(limit : ?Nat) : async [ToolContext.MarketWithBettors] {
     let maxResults = Option.get(limit, 50);
     var activeMarkets : [ToolContext.Market] = [];
 
@@ -1394,8 +1394,167 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     );
 
     // Take top N
-    if (sorted.size() > maxResults) {
+    let topMarkets = if (sorted.size() > maxResults) {
       Array.tabulate<ToolContext.Market>(maxResults, func(i) { sorted[i] });
+    } else {
+      sorted;
+    };
+
+    // Enhance each market with recent bettors
+    Array.map<ToolContext.Market, ToolContext.MarketWithBettors>(
+      topMarkets,
+      func(market : ToolContext.Market) : ToolContext.MarketWithBettors {
+        // Collect all bettors for this market
+        var bettors : [{
+          principal : Text;
+          amount : Nat;
+          outcome : Text;
+          timestamp : Int;
+        }] = [];
+
+        for ((userPrincipal, positions) in Map.entries(userPositions)) {
+          for (position in positions.vals()) {
+            if (position.marketId == market.marketId) {
+              let outcomeText = switch (position.outcome) {
+                case (#HomeWin) { "HomeWin" };
+                case (#AwayWin) { "AwayWin" };
+                case (#Draw) { "Draw" };
+              };
+
+              bettors := Array.append(
+                bettors,
+                [{
+                  principal = Principal.toText(userPrincipal);
+                  amount = position.amount;
+                  outcome = outcomeText;
+                  timestamp = position.timestamp;
+                }],
+              );
+            };
+          };
+        };
+
+        // Sort by timestamp (most recent first) and take top 5
+        let sortedBettors = Array.sort(
+          bettors,
+          func(
+            a : {
+              principal : Text;
+              amount : Nat;
+              outcome : Text;
+              timestamp : Int;
+            },
+            b : {
+              principal : Text;
+              amount : Nat;
+              outcome : Text;
+              timestamp : Int;
+            },
+          ) : {
+            #less;
+            #equal;
+            #greater;
+          } {
+            if (a.timestamp > b.timestamp) { #less } else if (a.timestamp < b.timestamp) {
+              #greater;
+            } else { #equal };
+          },
+        );
+
+        let recentBettors = if (sortedBettors.size() > 5) {
+          Array.tabulate(5, func(i) { sortedBettors[i] });
+        } else {
+          sortedBettors;
+        };
+
+        {
+          marketId = market.marketId;
+          matchDetails = market.matchDetails;
+          homeTeam = market.homeTeam;
+          awayTeam = market.awayTeam;
+          kickoffTime = market.kickoffTime;
+          bettingDeadline = market.bettingDeadline;
+          status = market.status;
+          homeWinPool = market.homeWinPool;
+          awayWinPool = market.awayWinPool;
+          drawPool = market.drawPool;
+          totalPool = market.totalPool;
+          oracleMatchId = market.oracleMatchId;
+          apiFootballId = market.apiFootballId;
+          recentBettors = recentBettors;
+        };
+      },
+    );
+  };
+
+  /// Get recent bettors for a specific market (for social proof display)
+  public query func get_market_bettors(marketId : Text, limit : ?Nat) : async [{
+    principal : Text;
+    amount : Nat;
+    outcome : Text;
+    timestamp : Int;
+  }] {
+    let maxResults = Option.get(limit, 10);
+    var bettors : [{
+      principal : Text;
+      amount : Nat;
+      outcome : Text;
+      timestamp : Int;
+    }] = [];
+
+    // Collect all positions for this market
+    for ((userPrincipal, positions) in Map.entries(userPositions)) {
+      for (position in positions.vals()) {
+        if (position.marketId == marketId) {
+          let outcomeText = switch (position.outcome) {
+            case (#HomeWin) { "HomeWin" };
+            case (#AwayWin) { "AwayWin" };
+            case (#Draw) { "Draw" };
+          };
+
+          bettors := Array.append(
+            bettors,
+            [{
+              principal = Principal.toText(userPrincipal);
+              amount = position.amount;
+              outcome = outcomeText;
+              timestamp = position.timestamp;
+            }],
+          );
+        };
+      };
+    };
+
+    // Sort by timestamp (most recent first)
+    let sorted = Array.sort(
+      bettors,
+      func(
+        a : {
+          principal : Text;
+          amount : Nat;
+          outcome : Text;
+          timestamp : Int;
+        },
+        b : {
+          principal : Text;
+          amount : Nat;
+          outcome : Text;
+          timestamp : Int;
+        },
+      ) : {
+        #less;
+        #equal;
+        #greater;
+      } {
+        if (a.timestamp > b.timestamp) { #less } else if (a.timestamp < b.timestamp) {
+          #greater;
+        } else { #equal };
+      },
+    );
+
+    // Take top N
+    if (sorted.size() > maxResults) {
+      Array.tabulate(maxResults, func(i) { sorted[i] });
     } else {
       sorted;
     };

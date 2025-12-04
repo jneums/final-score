@@ -61,12 +61,28 @@ export const getPlatformStats = async () => {
     return await leaderboardActor.get_platform_stats();
 };
 /**
- * Fetches upcoming matches (open markets sorted by kickoff time).
+ * Fetches upcoming matches (open markets sorted by kickoff time) with recent bettors.
  * @param limit Optional maximum number of results (default 50)
- * @returns An array of Market objects, sorted by kickoff time.
+ * @returns An array of MarketWithBettors objects, sorted by kickoff time.
  */
 export const getUpcomingMatches = async (limit) => {
     const leaderboardActor = getLeaderboardActor();
     const result = await leaderboardActor.get_upcoming_matches(limit !== undefined ? [BigInt(limit)] : []);
     return result;
+};
+/**
+ * Fetches recent bettors for a specific market (for social proof).
+ * @param marketId The market ID to fetch bettors for
+ * @param limit Optional maximum number of results (default 10)
+ * @returns An array of MarketBettor objects, sorted by most recent.
+ */
+export const getMarketBettors = async (marketId, limit) => {
+    const leaderboardActor = getLeaderboardActor();
+    const result = await leaderboardActor.get_market_bettors(marketId, limit !== undefined ? [BigInt(limit)] : []);
+    return result.map(bettor => ({
+        principal: bettor.principal,
+        amount: bettor.amount,
+        outcome: bettor.outcome,
+        timestamp: bettor.timestamp,
+    }));
 };

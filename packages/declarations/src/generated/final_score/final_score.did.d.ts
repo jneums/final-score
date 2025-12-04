@@ -39,13 +39,25 @@ export interface HttpResponse {
   'status_code' : number,
 }
 export interface LeaderboardEntry { 'rank' : bigint, 'stats' : UserStats }
-export interface Market {
+export type MarketStatus = { 'Open' : null } |
+  { 'Closed' : null } |
+  { 'Cancelled' : null } |
+  { 'Resolved' : Outcome };
+export interface MarketWithBettors {
   'status' : MarketStatus,
   'apiFootballId' : [] | [string],
   'homeTeam' : string,
   'matchDetails' : string,
   'drawPool' : bigint,
   'totalPool' : bigint,
+  'recentBettors' : Array<
+    {
+      'principal' : string,
+      'timestamp' : bigint,
+      'amount' : bigint,
+      'outcome' : string,
+    }
+  >,
   'marketId' : string,
   'oracleMatchId' : string,
   'awayTeam' : string,
@@ -54,10 +66,8 @@ export interface Market {
   'awayWinPool' : bigint,
   'kickoffTime' : bigint,
 }
-export type MarketStatus = { 'Open' : null } |
-  { 'Closed' : null } |
-  { 'Resolved' : Outcome };
 export interface McpServer {
+  'admin_backfill_api_football_ids' : ActorMethod<[], Result_3>,
   'admin_cancel_and_refund_market' : ActorMethod<[string], Result_3>,
   'admin_clear_processed_event' : ActorMethod<[bigint], Result_3>,
   'admin_delete_market' : ActorMethod<[string], Result_3>,
@@ -104,6 +114,17 @@ export interface McpServer {
     [[] | [bigint]],
     Array<LeaderboardEntry>
   >,
+  'get_market_bettors' : ActorMethod<
+    [string, [] | [bigint]],
+    Array<
+      {
+        'principal' : string,
+        'timestamp' : bigint,
+        'amount' : bigint,
+        'outcome' : string,
+      }
+    >
+  >,
   'get_market_count' : ActorMethod<
     [],
     {
@@ -125,7 +146,10 @@ export interface McpServer {
     }
   >,
   'get_treasury_balance' : ActorMethod<[Principal], bigint>,
-  'get_upcoming_matches' : ActorMethod<[[] | [bigint]], Array<Market>>,
+  'get_upcoming_matches' : ActorMethod<
+    [[] | [bigint]],
+    Array<MarketWithBettors>
+  >,
   'get_user_stats' : ActorMethod<[Principal], [] | [UserStats]>,
   'http_request' : ActorMethod<[HttpRequest], HttpResponse>,
   'http_request_streaming_callback' : ActorMethod<
