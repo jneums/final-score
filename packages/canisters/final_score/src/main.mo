@@ -450,7 +450,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     serverInfo = {
       name = "io.github.jneums.final-score";
       title = "Final Score - Football Prediction Markets";
-      version = "0.5.0";
+      version = "0.5.1";
     };
     resources = resources;
     resourceReader = func(uri) {
