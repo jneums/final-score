@@ -147,7 +147,7 @@ export interface McpServer {
   >,
   'get_treasury_balance' : ActorMethod<[Principal], bigint>,
   'get_upcoming_matches' : ActorMethod<
-    [[] | [bigint]],
+    [[] | [bigint], [] | [bigint]],
     Array<MarketWithBettors>
   >,
   'get_user_stats' : ActorMethod<[Principal], [] | [UserStats]>,

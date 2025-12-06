@@ -54,9 +54,10 @@ export declare const getPlatformStats: () => Promise<{
 /**
  * Fetches upcoming matches (open markets sorted by kickoff time) with recent bettors.
  * @param limit Optional maximum number of results (default 50)
+ * @param offset Optional number of results to skip (default 0)
  * @returns An array of MarketWithBettors objects, sorted by kickoff time.
  */
-export declare const getUpcomingMatches: (limit?: number) => Promise<MarketWithBettors[]>;
+export declare const getUpcomingMatches: (limit?: number, offset?: number) => Promise<MarketWithBettors[]>;
 /**
  * Fetches recent bettors for a specific market (for social proof).
  * @param marketId The market ID to fetch bettors for

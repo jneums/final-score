@@ -109,12 +109,20 @@ export const useGetUpcomingMatches = (limit?: number) => {
 export const useGetUpcomingMatchesInfinite = (pageSize: number = 5) => {
   return useInfiniteQuery<MarketWithBettors[], Error>({
     queryKey: ['upcomingMatches', 'infinite', pageSize],
-    queryFn: ({ pageParam = pageSize }) => getUpcomingMatches(pageParam as number),
-    getNextPageParam: (lastPage, allPages) => {
-      const currentTotal = allPages.reduce((sum, page) => sum + page.length, 0);
-      return lastPage.length >= pageSize ? currentTotal + pageSize : undefined;
+    queryFn: async ({ pageParam = 0 }) => {
+      const offset = pageParam as number;
+      return getUpcomingMatches(pageSize, offset);
     },
-    initialPageParam: pageSize,
+    getNextPageParam: (lastPage, allPages) => {
+      // If the last page has fewer items than pageSize, we've reached the end
+      if (lastPage.length < pageSize) {
+        return undefined;
+      }
+      // Calculate the offset for the next page
+      const currentTotal = allPages.reduce((sum, page) => sum + page.length, 0);
+      return currentTotal;
+    },
+    initialPageParam: 0,
   });
 };
 

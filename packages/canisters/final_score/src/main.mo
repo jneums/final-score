@@ -1359,8 +1359,9 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   };
 
   /// Get upcoming matches (open markets sorted by kickoff time) with recent bettors
-  public query func get_upcoming_matches(limit : ?Nat) : async [ToolContext.MarketWithBettors] {
+  public query func get_upcoming_matches(limit : ?Nat, offset : ?Nat) : async [ToolContext.MarketWithBettors] {
     let maxResults = Option.get(limit, 50);
+    let skipResults = Option.get(offset, 0);
     var activeMarkets : [ToolContext.Market] = [];
 
     // Collect all open and closed markets (exclude resolved and cancelled)
@@ -1393,11 +1394,15 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       },
     );
 
-    // Take top N
-    let topMarkets = if (sorted.size() > maxResults) {
-      Array.tabulate<ToolContext.Market>(maxResults, func(i) { sorted[i] });
+    // Apply offset and limit
+    let totalAvailable = sorted.size();
+    let startIdx = if (skipResults >= totalAvailable) { totalAvailable } else { skipResults };
+    let endIdx = if (startIdx + maxResults > totalAvailable) { totalAvailable } else { startIdx + maxResults };
+    
+    let topMarkets = if (startIdx >= endIdx) {
+      [] : [ToolContext.Market];
     } else {
-      sorted;
+      Array.tabulate<ToolContext.Market>(endIdx - startIdx, func(i) { sorted[startIdx + i] });
     };
 
     // Enhance each market with recent bettors

@@ -63,11 +63,12 @@ export const getPlatformStats = async () => {
 /**
  * Fetches upcoming matches (open markets sorted by kickoff time) with recent bettors.
  * @param limit Optional maximum number of results (default 50)
+ * @param offset Optional number of results to skip (default 0)
  * @returns An array of MarketWithBettors objects, sorted by kickoff time.
  */
-export const getUpcomingMatches = async (limit) => {
+export const getUpcomingMatches = async (limit, offset) => {
     const leaderboardActor = getLeaderboardActor();
-    const result = await leaderboardActor.get_upcoming_matches(limit !== undefined ? [BigInt(limit)] : []);
+    const result = await leaderboardActor.get_upcoming_matches(limit !== undefined ? [BigInt(limit)] : [], offset !== undefined ? [BigInt(offset)] : []);
     return result;
 };
 /**

@@ -232,7 +232,7 @@ export const idlFactory = ({ IDL }) => {
       ),
     'get_treasury_balance' : IDL.Func([IDL.Principal], [IDL.Nat], []),
     'get_upcoming_matches' : IDL.Func(
-        [IDL.Opt(IDL.Nat)],
+        [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
         [IDL.Vec(MarketWithBettors)],
         ['query'],
       ),
