@@ -33,17 +33,14 @@ import ApiKey "mo:mcp-motoko-sdk/auth/ApiKey";
 import SrvTypes "mo:mcp-motoko-sdk/server/Types";
 
 import IC "mo:ic";
+import ICRC2 "mo:icrc2-types";
 
 import ToolContext "tools/ToolContext";
 import FootballOracle "tools/FootballOracle";
-import account_deposit "tools/account_deposit";
 import markets_list "tools/markets_list";
 import prediction_place "tools/prediction_place";
-import prediction_claim_winnings "tools/prediction_claim_winnings";
 import account_get_info "tools/account_get_info";
 import account_get_history "tools/account_get_history";
-import account_withdraw "tools/account_withdraw";
-import odds_fetch "tools/odds_fetch";
 
 // // Migration function to add #Cancelled variant to MarketStatus
 // (
@@ -271,13 +268,258 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
   };
 
+  // --- Automatic Payout Logic ---
+  func payoutMarketWinners(marketId : Text, market : ToolContext.Market, winningOutcome : ToolContext.Outcome) : async () {
+    Debug.print("Starting automatic payouts for market " # marketId);
+    
+    let ledger = actor (Principal.toText(tokenLedger)) : actor {
+      icrc1_transfer : (ICRC2.TransferArgs) -> async ICRC2.TransferResult;
+    };
+
+    let marketAccount = ToolContext.getMarketAccount(Principal.fromActor(self), marketId);
+    let currentTime = Int.abs(Time.now() / 1_000_000_000); // Convert to seconds
+    
+    // Check if anyone bet on the winning outcome
+    let winningPool = switch (winningOutcome) {
+      case (#HomeWin) { market.homeWinPool };
+      case (#AwayWin) { market.awayWinPool };
+      case (#Draw) { market.drawPool };
+    };
+    
+    let noWinners = winningPool == 0;
+    
+    if (noWinners) {
+      Debug.print("No winners for market " # marketId # " - refunding all bettors");
+    };
+    
+    // Calculate and transfer protocol rake to canister's main account
+    let rakeAmount = (market.totalPool * ToolContext.PROTOCOL_RAKE_BPS) / 10_000;
+    if (rakeAmount > ToolContext.TRANSFER_FEE) {
+      try {
+        let rakeTransferArgs : ICRC2.TransferArgs = {
+          from_subaccount = ?ToolContext.marketSubaccount(marketId);
+          to = { owner = Principal.fromActor(self); subaccount = null };
+          amount = Nat.sub(rakeAmount, ToolContext.TRANSFER_FEE);
+          fee = ?ToolContext.TRANSFER_FEE;
+          memo = null;
+          created_at_time = null;
+        };
+        let rakeResult = await ledger.icrc1_transfer(rakeTransferArgs);
+        switch (rakeResult) {
+          case (#Ok(blockIndex)) {
+            Debug.print("Transferred rake of " # Nat.toText(rakeAmount) # " to canister account (block: " # debug_show(blockIndex) # ")");
+          };
+          case (#Err(err)) {
+            Debug.print("WARNING: Failed to transfer rake: " # debug_show(err));
+          };
+        };
+      } catch (e) {
+        Debug.print("WARNING: Exception transferring rake: " # Error.message(e));
+      };
+    };
+    
+    var totalPaidOut : Nat = 0;
+    var successfulPayouts : Nat = 0;
+    var failedPayouts : Nat = 0;
+
+    // Iterate through all users and their positions
+    for ((user, positions) in Map.entries(userPositions)) {
+      // Filter positions for this market that haven't been claimed
+      let marketPositions = Array.filter<ToolContext.Position>(
+        positions,
+        func(pos : ToolContext.Position) : Bool {
+          pos.marketId == marketId and not pos.claimed;
+        },
+      );
+
+      if (marketPositions.size() > 0) {
+        var userTotalPayout : Nat = 0;
+        
+        // Calculate total payout for this user across all their positions
+        for (position in marketPositions.vals()) {
+          // If no winners, refund stake minus rake; otherwise calculate normal payout
+          let payout = if (noWinners) {
+            // Refund: stake minus proportional rake
+            let positionRake = (position.amount * ToolContext.PROTOCOL_RAKE_BPS) / 10_000;
+            Nat.sub(position.amount, positionRake);
+          } else {
+            ToolContext.calculatePayout(position, market, winningOutcome);
+          };
+          userTotalPayout += payout;
+
+          // Record in history
+          let historyEntry : ToolContext.HistoricalPosition = {
+            marketId = marketId;
+            homeTeam = market.homeTeam;
+            awayTeam = market.awayTeam;
+            betOutcome = position.outcome;
+            betAmount = position.amount;
+            actualOutcome = winningOutcome;
+            payout = payout;
+            resolvedAt = currentTime;
+          };
+          ToolContext.addHistoricalPosition(toolContext, user, historyEntry);
+
+          // Update user stats - if no winners, nobody is "correct"
+          let wasCorrect = if (noWinners) { false } else { position.outcome == winningOutcome };
+          ToolContext.updateUserStatsAfterSettlement(
+            toolContext,
+            user,
+            position.amount,
+            payout,
+            wasCorrect,
+          );
+        };
+
+        // Transfer payout/refund if user gets anything
+        if (userTotalPayout > ToolContext.TRANSFER_FEE) {
+          try {
+            let transferArgs : ICRC2.TransferArgs = {
+              from_subaccount = ?ToolContext.marketSubaccount(marketId);
+              to = { owner = user; subaccount = null };
+              amount = Nat.sub(userTotalPayout, ToolContext.TRANSFER_FEE); // Deduct transfer fee
+              fee = ?ToolContext.TRANSFER_FEE;
+              memo = null;
+              created_at_time = null;
+            };
+
+            let transferResult = await ledger.icrc1_transfer(transferArgs);
+            
+            switch (transferResult) {
+              case (#Ok(blockIndex)) {
+                Debug.print("Paid out " # Nat.toText(userTotalPayout) # " to " # Principal.toText(user) # " (block: " # debug_show(blockIndex) # ")");
+                totalPaidOut += userTotalPayout;
+                successfulPayouts += 1;
+              };
+              case (#Err(err)) {
+                Debug.print("ERROR: Failed to payout to " # Principal.toText(user) # ": " # debug_show(err));
+                failedPayouts += 1;
+                // Continue with other payouts
+              };
+            };
+          } catch (e) {
+            Debug.print("ERROR: Exception during payout to " # Principal.toText(user) # ": " # Error.message(e));
+            failedPayouts += 1;
+          };
+        };
+
+        // Remove all positions for this market (winners have been paid, losers get nothing)
+        let remainingPositions = Array.filter<ToolContext.Position>(
+          positions,
+          func(pos : ToolContext.Position) : Bool {
+            pos.marketId != marketId;
+          },
+        );
+        
+        if (remainingPositions.size() > 0) {
+          Map.set(userPositions, Map.phash, user, remainingPositions);
+        } else {
+          // No positions left, remove entry
+          ignore Map.remove(userPositions, Map.phash, user);
+        };
+      };
+    };
+
+    Debug.print("Payout summary for market " # marketId # ": " # Nat.toText(successfulPayouts) # " successful, " # Nat.toText(failedPayouts) # " failed, total paid: " # Nat.toText(totalPaidOut));
+  };
+
+  // --- Automatic Refund Logic for Cancelled Matches ---
+  func refundCancelledMarket(marketId : Text) : async () {
+    Debug.print("Starting automatic refunds for cancelled market " # marketId);
+    
+    let ledger = actor (Principal.toText(tokenLedger)) : actor {
+      icrc1_transfer : (ICRC2.TransferArgs) -> async ICRC2.TransferResult;
+    };
+
+    var totalRefunded : Nat = 0;
+    var successfulRefunds : Nat = 0;
+    var failedRefunds : Nat = 0;
+
+    // Iterate through all users and refund their positions for this market
+    for ((user, positions) in Map.entries(userPositions)) {
+      let marketPositions = Array.filter<ToolContext.Position>(
+        positions,
+        func(p : ToolContext.Position) : Bool {
+          p.marketId == marketId and not p.claimed;
+        },
+      );
+
+      if (marketPositions.size() > 0) {
+        var userTotalRefund : Nat = 0;
+        
+        // Calculate total refund for this user
+        for (position in marketPositions.vals()) {
+          userTotalRefund += position.amount;
+        };
+
+        // Transfer refund back to user
+        if (userTotalRefund > 0) {
+          try {
+            let transferArgs : ICRC2.TransferArgs = {
+              from_subaccount = ?ToolContext.marketSubaccount(marketId);
+              to = { owner = user; subaccount = null };
+              amount = Nat.sub(userTotalRefund, ToolContext.TRANSFER_FEE); // Deduct transfer fee
+              fee = ?ToolContext.TRANSFER_FEE;
+              memo = null;
+              created_at_time = null;
+            };
+
+            let transferResult = await ledger.icrc1_transfer(transferArgs);
+            
+            switch (transferResult) {
+              case (#Ok(blockIndex)) {
+                Debug.print("Refunded " # Nat.toText(userTotalRefund) # " to " # Principal.toText(user) # " (block: " # debug_show(blockIndex) # ")");
+                totalRefunded += userTotalRefund;
+                successfulRefunds += 1;
+              };
+              case (#Err(err)) {
+                Debug.print("ERROR: Failed to refund to " # Principal.toText(user) # ": " # debug_show(err));
+                failedRefunds += 1;
+              };
+            };
+          } catch (e) {
+            Debug.print("ERROR: Exception during refund to " # Principal.toText(user) # ": " # Error.message(e));
+            failedRefunds += 1;
+          };
+        };
+
+        // Remove all positions for this market
+        let remainingPositions = Array.filter<ToolContext.Position>(
+          positions,
+          func(pos : ToolContext.Position) : Bool {
+            pos.marketId != marketId;
+          },
+        );
+        
+        if (remainingPositions.size() > 0) {
+          Map.set(userPositions, Map.phash, user, remainingPositions);
+        } else {
+          ignore Map.remove(userPositions, Map.phash, user);
+        };
+      };
+    };
+
+    Debug.print("Refund summary for cancelled market " # marketId # ": " # Nat.toText(successfulRefunds) # " successful, " # Nat.toText(failedRefunds) # " failed, total refunded: " # Nat.toText(totalRefunded));
+  };
+
   // --- Market Resolution Logic ---
   func resolveCompletedMarkets() : async () {
     let oracle = actor (Principal.toText(footballOracleId)) : FootballOracle.Self;
     let now = Time.now();
+    
+    // Process markets in batches to avoid timeouts
+    let maxMarketsToProcess : Nat = 50; // Process max 50 markets per run
+    var marketsProcessed : Nat = 0;
+    var marketsClosed : Nat = 0;
+    var marketsResolved : Nat = 0;
 
     // Find markets that are open or closed but not yet resolved
     label marketLoop for ((marketId, market) in Map.entries(markets)) {
+      // Stop if we've processed enough markets this run
+      if (marketsProcessed >= maxMarketsToProcess) {
+        Debug.print("Reached batch limit of " # debug_show(maxMarketsToProcess) # " markets. Will continue in next run.");
+        break marketLoop;
+      };
       switch (market.status) {
         case (#Open) {
           // Check if betting deadline has passed
@@ -285,9 +527,12 @@ shared ({ caller = deployer }) persistent actor class McpServer(
             let closedMarket = { market with status = #Closed };
             Map.set(markets, thash, marketId, closedMarket);
             Debug.print("Closed market " # marketId # " for betting");
+            marketsClosed += 1;
+            marketsProcessed += 1;
           };
         };
         case (#Closed) {
+          marketsProcessed += 1;
           // Try to get the latest event from the oracle
           try {
             let oracleId = switch (Nat.fromText(market.oracleMatchId)) {
@@ -312,51 +557,42 @@ shared ({ caller = deployer }) persistent actor class McpServer(
                       case (#Draw) { #Draw };
                     };
 
+                    // Mark market as resolved
                     let resolvedMarket = {
                       market with status = #Resolved(finalOutcome)
                     };
                     Map.set(markets, thash, marketId, resolvedMarket);
 
                     Debug.print("Resolved market " # marketId # " with outcome: " # debug_show (finalOutcome));
+                    marketsResolved += 1;
+
+                    // Automatically payout all winners
+                    try {
+                      await payoutMarketWinners(marketId, resolvedMarket, finalOutcome);
+                      Debug.print("Payouts completed for market " # marketId);
+                    } catch (e) {
+                      Debug.print("ERROR: Failed to payout winners for market " # marketId # ": " # Error.message(e));
+                      // Market is still marked as resolved, but payouts failed
+                      // This requires manual intervention
+                    };
                   };
                   case (#MatchCancelled { homeTeam = _; awayTeam = _; reason }) {
-                    // Match was cancelled - refund all bets
+                    // Match was cancelled - automatically refund all bets
                     Debug.print("Market " # marketId # " cancelled: " # reason);
 
-                    // Refund all positions for this market
-                    for ((principal, positions) in Map.entries(userPositions)) {
-                      let marketPositions = Array.filter<ToolContext.Position>(
-                        positions,
-                        func(p : ToolContext.Position) : Bool {
-                          p.marketId == marketId;
-                        },
-                      );
-
-                      for (position in marketPositions.vals()) {
-                        // Refund the amount
-                        let currentBalance = Option.get(Map.get(userBalances, Map.phash, principal), 0);
-                        Map.set(userBalances, Map.phash, principal, currentBalance + position.amount);
-
-                        Debug.print("Refunded " # debug_show (position.amount) # " to " # debug_show (principal));
-                      };
-
-                      // Remove positions for this market
-                      let remainingPositions = Array.filter<ToolContext.Position>(
-                        positions,
-                        func(p : ToolContext.Position) : Bool {
-                          p.marketId != marketId;
-                        },
-                      );
-                      Map.set(userPositions, Map.phash, principal, remainingPositions);
-                    };
-
-                    // Mark market as cancelled
+                    // Mark market as cancelled first
                     let cancelledMarket = {
                       market with status = #Cancelled
                     };
                     Map.set(markets, thash, marketId, cancelledMarket);
 
-                    Debug.print("Market " # marketId # " cancelled and all bets refunded");
+                    // Automatically refund all bettors
+                    try {
+                      await refundCancelledMarket(marketId);
+                      Debug.print("Refunds completed for cancelled market " # marketId);
+                    } catch (e) {
+                      Debug.print("ERROR: Failed to refund cancelled market " # marketId # ": " # Error.message(e));
+                    };
                   };
                   case (_) {
                     // Not a final or cancelled event yet
@@ -379,6 +615,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         };
       };
     };
+    
+    Debug.print("Resolution batch completed. Processed: " # debug_show(marketsProcessed) # ", Closed: " # debug_show(marketsClosed) # ", Resolved: " # debug_show(marketsResolved));
   };
 
   // --- Market Timers Setup ---
@@ -405,28 +643,17 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     },
   );
 
-  // Market Resolution Timer - Periodically check for match results and resolve markets
-  // Check every 15 minutes for completed matches
-  ignore Timer.recurringTimer<system>(
-    #seconds(15 * 60), // Every 15 minutes (900 seconds)
-    func() : async () {
-      Debug.print("Market resolution check starting...");
-      await resolveCompletedMarkets();
-    },
-  );
-
   // --- 1. DEFINE YOUR RESOURCES & TOOLS ---
   transient let resources : [McpTypes.Resource] = [];
 
   transient let tools : [McpTypes.Tool] = [
-    account_deposit.config(),
-    account_withdraw.config(),
     account_get_info.config(),
     account_get_history.config(),
     markets_list.config(),
     prediction_place.config(),
-    prediction_claim_winnings.config(),
-    odds_fetch.config(),
+    // Note: account_deposit and account_withdraw are deprecated - system now uses direct transfers
+    // Note: prediction_claim_winnings removed - payouts are automatic on market resolution
+    // Note: odds_fetch removed - too expensive, available via web2 APIs
   ];
 
   transient let toolContext : ToolContext.ToolContext = {
@@ -443,6 +670,22 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     var nextPositionId = nextPositionId;
   };
 
+  // Market Resolution Timer - Periodically check for match results and resolve markets
+  // Check every 15 minutes for completed matches
+  // Note: Must be initialized after toolContext is defined
+  ignore Timer.recurringTimer<system>(
+    #seconds(15 * 60), // Every 15 minutes (900 seconds)
+    func() : async () {
+      Debug.print("Market resolution check starting...");
+      try {
+        await resolveCompletedMarkets();
+        Debug.print("Market resolution check completed successfully.");
+      } catch (e) {
+        Debug.print("Market resolution check failed: " # Error.message(e));
+      };
+    },
+  );
+
   // --- 3. CONFIGURE THE SDK ---
   transient let mcpConfig : McpTypes.McpConfig = {
     self = Principal.fromActor(self);
@@ -458,14 +701,10 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
     tools = tools;
     toolImplementations = [
-      ("account_deposit", account_deposit.handle(toolContext)),
-      ("account_withdraw", account_withdraw.handle(toolContext)),
       ("account_get_info", account_get_info.handle(toolContext)),
       ("account_get_history", account_get_history.handle(toolContext)),
       ("markets_list", markets_list.handle(toolContext)),
       ("prediction_place", prediction_place.handle(toolContext)),
-      ("prediction_claim_winnings", prediction_claim_winnings.handle(toolContext)),
-      ("odds_fetch", odds_fetch.handle(toolContext)),
     ];
     beacon = beaconContext;
   };
@@ -705,6 +944,119 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       open = openCount;
       closed = closedCount;
       resolved = resolvedCount;
+    };
+  };
+
+  /// Manual trigger for market resolution (for testing/debugging)
+  public shared(msg) func manual_resolve_markets() : async { success : Bool; message : Text } {
+    if (msg.caller != owner) {
+      return { success = false; message = "Only owner can manually trigger resolution" };
+    };
+    
+    try {
+      Debug.print("Manual market resolution triggered by owner");
+      await resolveCompletedMarkets();
+      return { success = true; message = "Market resolution completed" };
+    } catch (e) {
+      return { success = false; message = "Resolution failed: " # Error.message(e) };
+    };
+  };
+
+  /// Manually cancel a specific market and process refunds
+  public shared(msg) func admin_cancel_market(marketId : Text) : async { success : Bool; message : Text } {
+    if (msg.caller != owner) {
+      return { success = false; message = "Only owner can cancel markets" };
+    };
+
+    switch (Map.get(markets, thash, marketId)) {
+      case (?market) {
+        // Mark as cancelled
+        let cancelledMarket = { market with status = #Cancelled };
+        Map.set(markets, thash, marketId, cancelledMarket);
+        
+        // Process refunds if there are any funds
+        if (market.totalPool > 0) {
+          try {
+            await refundCancelledMarket(marketId);
+            return { success = true; message = "Market cancelled and refunds processed" };
+          } catch (e) {
+            return { success = false; message = "Market cancelled but refund failed: " # Error.message(e) };
+          };
+        } else {
+          return { success = true; message = "Market cancelled (no bets to refund)" };
+        };
+      };
+      case (null) {
+        return { success = false; message = "Market not found" };
+      };
+    };
+  };
+
+  /// Admin function to drain stuck funds from a market subaccount to canister treasury
+  /// Use this when positions were already deleted but funds remain in subaccount
+  public shared(msg) func admin_drain_market_subaccount(marketId : Text) : async { success : Bool; message : Text; amount : Nat } {
+    if (msg.caller != owner) {
+      return { success = false; message = "Only owner can drain market subaccounts"; amount = 0 };
+    };
+
+    let ledger = actor (Principal.toText(tokenLedger)) : actor {
+      icrc1_balance_of : (ICRC2.Account) -> async Nat;
+      icrc1_transfer : (ICRC2.TransferArgs) -> async ICRC2.TransferResult;
+    };
+
+    let marketAccount = ToolContext.getMarketAccount(Principal.fromActor(self), marketId);
+    
+    // Check balance in market subaccount
+    let balance = await ledger.icrc1_balance_of(marketAccount);
+    
+    if (balance <= ToolContext.TRANSFER_FEE) {
+      return { success = true; message = "Subaccount empty or balance too low to transfer"; amount = balance };
+    };
+
+    // Transfer to canister's main account
+    let transferArgs : ICRC2.TransferArgs = {
+      from_subaccount = ?ToolContext.marketSubaccount(marketId);
+      to = { owner = Principal.fromActor(self); subaccount = null };
+      amount = Nat.sub(balance, ToolContext.TRANSFER_FEE);
+      fee = ?ToolContext.TRANSFER_FEE;
+      memo = null;
+      created_at_time = null;
+    };
+
+    try {
+      let result = await ledger.icrc1_transfer(transferArgs);
+      switch (result) {
+        case (#Ok(blockIndex)) {
+          Debug.print("Drained " # Nat.toText(balance) # " from market " # marketId # " subaccount (block: " # debug_show(blockIndex) # ")");
+          return { success = true; message = "Drained to treasury (block: " # debug_show(blockIndex) # ")"; amount = balance };
+        };
+        case (#Err(err)) {
+          return { success = false; message = "Transfer failed: " # debug_show(err); amount = 0 };
+        };
+      };
+    } catch (e) {
+      return { success = false; message = "Exception: " # Error.message(e); amount = 0 };
+    };
+  };
+
+  /// Get timer diagnostic information
+  public query func get_timer_info() : async {
+    message : Text;
+    marketCount : Nat;
+    closedMarkets : Nat;
+  } {
+    var closedCount = 0;
+    for ((_, market) in Map.entries(markets)) {
+      switch (market.status) {
+        case (#Closed) { closedCount += 1 };
+        case (_) {};
+      };
+    };
+
+    {
+      message = "Timers: Market sync (6h), Resolution (15min). Note: Timer execution shown in canister logs.";
+      marketCount = Map.size(markets);
+      closedMarkets = closedCount;
     };
   };
 

@@ -6,6 +6,9 @@ import Json "mo:json";
 import Nat "mo:base/Nat";
 import Time "mo:base/Time";
 import Map "mo:map/Map";
+import Error "mo:base/Error";
+import ICRC2 "mo:icrc2-types";
+import Debug "mo:base/Debug";
 
 import ToolContext "ToolContext";
 
@@ -17,10 +20,14 @@ module {
     title = ?"Place a Prediction (Bet)";
     description = ?(
       "Submit a prediction for a specific match outcome. " #
-      "This commits USDC funds from your virtual account to the corresponding outcome pool. " #
+      "Funds are transferred directly from your wallet via ICRC-2 transfer_from into the market's pool. " #
       "Currency: USDC with 6 decimals (1 USDC = 1,000,000 base units). " #
-      "Example: To bet $10, use amount '10000000'. To bet $50, use '50000000'. " #
-      "You can predict HomeWin, AwayWin, or Draw."
+      "Minimum bet: 0.10 USDC (100,000 base units). " #
+      "Note: A 0.01 USDC (10,000) transfer fee will be deducted automatically. " #
+      "Example: To bet $1, use amount '1000000'. To bet $10, use '10000000'. " #
+      "You can predict HomeWin, AwayWin, or Draw. " #
+      "IMPORTANT: Payouts are AUTOMATIC when the match ends - winnings go directly to your wallet. No claiming needed! " #
+      "Make sure you have approved the canister to spend your USDC tokens first (ICRC-2 approve)."
     );
     payment = null;
     inputSchema = Json.obj([
@@ -79,8 +86,12 @@ module {
         };
       };
 
-      if (amount == 0) {
-        return ToolContext.makeError("Amount must be greater than 0", cb);
+      // Validate minimum bet amount
+      if (amount < ToolContext.MINIMUM_BET) {
+        return ToolContext.makeError(
+          "Amount must be at least " # Nat.toText(ToolContext.MINIMUM_BET) # " (0.10 USDC) to cover transaction fees",
+          cb
+        );
       };
 
       // Get the market
@@ -108,51 +119,108 @@ module {
         return ToolContext.makeError("Betting deadline has passed", cb);
       };
 
-      // Check user balance
-      if (not ToolContext.checkBalance(context, userPrincipal, amount)) {
-        return ToolContext.makeError("Insufficient balance in virtual account", cb);
+      // Transfer funds from user to market subaccount using ICRC-2 transfer_from
+      let tokenLedger = actor (Principal.toText(context.tokenLedger)) : actor {
+        icrc2_transfer_from : (ICRC2.TransferFromArgs) -> async ICRC2.TransferFromResult;
       };
 
-      // Debit user balance
-      if (not ToolContext.debitBalance(context, userPrincipal, amount)) {
-        return ToolContext.makeError("Failed to debit balance", cb);
+      // Calculate the net amount after fee
+      let netAmount = Nat.sub(amount, ToolContext.TRANSFER_FEE);
+
+      // Prepare transfer_from arguments
+      let marketAccount = ToolContext.getMarketAccount(context.canisterPrincipal, marketId);
+      let transferFromArgs : ICRC2.TransferFromArgs = {
+        from = { owner = userPrincipal; subaccount = null };
+        to = marketAccount;
+        amount = netAmount;
+        fee = ?ToolContext.TRANSFER_FEE;
+        memo = null;
+        created_at_time = null;
+        spender_subaccount = null; // Canister doesn't use a subaccount for this operation
       };
 
-      // Update the market pools
+      // Execute the transfer
+      let transferResult = try {
+        await tokenLedger.icrc2_transfer_from(transferFromArgs);
+      } catch (e) {
+        Debug.print("Transfer error: " # Error.message(e));
+        return ToolContext.makeError("Failed to transfer funds: " # Error.message(e), cb);
+      };
+
+      // Check transfer result
+      switch (transferResult) {
+        case (#Err(err)) {
+          let errorMsg = switch (err) {
+            case (#InsufficientFunds { balance }) {
+              "Insufficient funds. Your balance: " # debug_show (balance);
+            };
+            case (#InsufficientAllowance { allowance }) {
+              "Insufficient allowance. Current allowance: " # debug_show (allowance) # ". Please approve the canister to spend your tokens first.";
+            };
+            case (#BadFee { expected_fee }) {
+              "Bad fee. Expected: " # debug_show (expected_fee);
+            };
+            case (#Duplicate { duplicate_of }) {
+              "Duplicate transaction: " # debug_show (duplicate_of);
+            };
+            case (#BadBurn { min_burn_amount }) {
+              "Bad burn amount: " # debug_show (min_burn_amount);
+            };
+            case (#CreatedInFuture { ledger_time }) {
+              "Created in future: " # debug_show (ledger_time);
+            };
+            case (#TooOld) {
+              "Transaction too old";
+            };
+            case (#TemporarilyUnavailable) {
+              "Ledger temporarily unavailable";
+            };
+            case (#GenericError { error_code; message }) {
+              "Error " # debug_show (error_code) # ": " # message;
+            };
+          };
+          return ToolContext.makeError("Transfer failed: " # errorMsg, cb);
+        };
+        case (#Ok(blockIndex)) {
+          Debug.print("Transfer successful. Block index: " # debug_show (blockIndex));
+        };
+      };
+
+      // Update the market pools (net amount only, since fee was deducted)
       let updatedMarket : ToolContext.Market = switch (outcome) {
         case (#HomeWin) {
           {
             market with
-            homeWinPool = market.homeWinPool + amount;
-            totalPool = market.totalPool + amount;
+            homeWinPool = market.homeWinPool + netAmount;
+            totalPool = market.totalPool + netAmount;
           };
         };
         case (#AwayWin) {
           {
             market with
-            awayWinPool = market.awayWinPool + amount;
-            totalPool = market.totalPool + amount;
+            awayWinPool = market.awayWinPool + netAmount;
+            totalPool = market.totalPool + netAmount;
           };
         };
         case (#Draw) {
           {
             market with
-            drawPool = market.drawPool + amount;
-            totalPool = market.totalPool + amount;
+            drawPool = market.drawPool + netAmount;
+            totalPool = market.totalPool + netAmount;
           };
         };
       };
 
       Map.set(context.markets, Map.thash, marketId, updatedMarket);
 
-      // Create position record
+      // Create position record (record net amount)
       let positionId = ToolContext.getNextPositionId(context);
       let position : ToolContext.Position = {
         positionId = positionId;
         marketId = marketId;
         userPrincipal = userPrincipal;
         outcome = outcome;
-        amount = amount;
+        amount = netAmount; // Store net amount (after fee)
         timestamp = now;
         claimed = false;
       };
@@ -164,6 +232,8 @@ module {
       let output = Json.obj([
         ("positionId", Json.str(positionId)),
         ("status", Json.str("Prediction placed successfully")),
+        ("transferred_amount", Json.str(Nat.toText(netAmount))),
+        ("fee_paid", Json.str(Nat.toText(ToolContext.TRANSFER_FEE))),
       ]);
 
       ToolContext.makeSuccess(output, cb);

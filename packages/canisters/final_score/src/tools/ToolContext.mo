@@ -7,8 +7,17 @@ import Int "mo:base/Int";
 import Float "mo:base/Float";
 import Array "mo:base/Array";
 import Json "mo:json";
+import Blob "mo:base/Blob";
+import Nat8 "mo:base/Nat8";
+import Text "mo:base/Text";
+import Nat32 "mo:base/Nat32";
+import ICRC2 "mo:icrc2-types";
 
 module ToolContext {
+  // Constants
+  public let TRANSFER_FEE : Nat = 10_000; // 0.01 USDC (6 decimals)
+  public let MINIMUM_BET : Nat = 100_000; // 0.10 USDC minimum (10x the fee to make it worthwhile)
+  public let PROTOCOL_RAKE_BPS : Nat = 200; // 2% rake (200 basis points out of 10,000)
   /// Prediction outcome enum
   public type Outcome = {
     #HomeWin;
@@ -132,6 +141,34 @@ module ToolContext {
 
   /// Authorization result
   public type AuthResult = Result.Result<(), Text>;
+
+  /// Generate a subaccount for a market based on its ID
+  /// This creates a unique 32-byte subaccount identifier
+  public func marketSubaccount(marketId : Text) : Blob {
+    // Create a 32-byte array
+    let subaccount = Array.init<Nat8>(32, 0);
+    
+    // Use market ID as seed - take first bytes of the text representation
+    let marketIdBytes = Blob.toArray(Text.encodeUtf8(marketId));
+    let len = if (marketIdBytes.size() < 32) { marketIdBytes.size() } else { 32 };
+    
+    // Fill subaccount with market ID bytes
+    var i = 0;
+    while (i < len) {
+      subaccount[i] := marketIdBytes[i];
+      i += 1;
+    };
+    
+    Blob.fromArray(Array.freeze(subaccount));
+  };
+
+  /// Get the ICRC-1 Account for a market's subaccount
+  public func getMarketAccount(canisterPrincipal : Principal, marketId : Text) : ICRC2.Account {
+    {
+      owner = canisterPrincipal;
+      subaccount = ?marketSubaccount(marketId);
+    };
+  };
 
   /// Check if user has sufficient balance
   public func checkBalance(context : ToolContext, user : Principal, amount : Nat) : Bool {
@@ -343,5 +380,33 @@ module ToolContext {
         };
       };
     };
+  };
+
+  /// Calculate a user's payout for a position in a resolved market
+  public func calculatePayout(position : Position, market : Market, winningOutcome : Outcome) : Nat {
+    // If user didn't bet on winning outcome, they get nothing
+    if (position.outcome != winningOutcome) {
+      return 0;
+    };
+
+    let winningPool = switch (winningOutcome) {
+      case (#HomeWin) { market.homeWinPool };
+      case (#AwayWin) { market.awayWinPool };
+      case (#Draw) { market.drawPool };
+    };
+
+    // If nobody bet on the winning outcome, user gets their stake back (minus rake)
+    if (winningPool == 0) {
+      let rakeAmount = (position.amount * PROTOCOL_RAKE_BPS) / 10_000;
+      return Nat.sub(position.amount, rakeAmount);
+    };
+
+    // Calculate rake from total pool
+    let rakeAmount = (market.totalPool * PROTOCOL_RAKE_BPS) / 10_000;
+    let poolAfterRake = Nat.sub(market.totalPool, rakeAmount);
+
+    // Calculate payout proportionally from post-rake pool: (user_stake / winning_pool) * pool_after_rake
+    let payoutFloat = (Float.fromInt(position.amount) / Float.fromInt(winningPool)) * Float.fromInt(poolAfterRake);
+    Int.abs(Float.toInt(payoutFloat));
   };
 };

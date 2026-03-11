@@ -7,6 +7,7 @@ import Nat "mo:base/Nat";
 import Array "mo:base/Array";
 import Map "mo:map/Map";
 import Int "mo:base/Int";
+import ICRC2 "mo:icrc2-types";
 
 import ToolContext "ToolContext";
 
@@ -17,9 +18,10 @@ module {
     name = "account_get_info";
     title = ?"Get Account Information";
     description = ?(
-      "Returns a comprehensive overview of your account including your available USDC balance, " #
-      "a list of all unclaimed positions (including resolved markets awaiting claim), and your " #
+      "Returns a comprehensive overview of your account including your USDC wallet balance (queried directly from the token ledger), " #
+      "a list of your active positions (bets on open or closed markets not yet resolved), and your " #
       "performance statistics (accuracy, profit, streaks, etc.). " #
+      "NOTE: Payouts are AUTOMATIC - when a market resolves, winnings are transferred directly to your wallet. No claiming needed! " #
       "Currency: USDC with 6 decimals. Balances shown in base units where 1,000,000 = $1 USDC."
     );
     payment = null;
@@ -30,7 +32,7 @@ module {
     ]);
     outputSchema = ?Json.obj([
       ("type", Json.str("object")),
-      ("properties", Json.obj([("owner", Json.obj([("type", Json.str("string")), ("description", Json.str("Your Internet Computer principal ID"))])), ("availableBalance", Json.obj([("type", Json.str("string")), ("description", Json.str("Available USDC balance in base units (6 decimals). Example: '10000000' = $10 USDC."))])), ("unclaimedPositions", Json.obj([("type", Json.str("array")), ("description", Json.str("List of your unclaimed positions (in open, closed, or resolved markets). Amounts in USDC base units."))])), ("items", Json.obj([("type", Json.str("object")), ("properties", Json.obj([("positionId", Json.obj([("type", Json.str("string"))])), ("marketId", Json.obj([("type", Json.str("string"))])), ("matchDetails", Json.obj([("type", Json.str("string"))])), ("stakedAmount", Json.obj([("type", Json.str("string")), ("description", Json.str("Amount in USDC base units"))])), ("predictedOutcome", Json.obj([("type", Json.str("string"))])), ("marketStatus", Json.obj([("type", Json.str("string"))]))]))])), ("stats", Json.obj([("type", Json.str("object")), ("description", Json.str("Your betting performance statistics")), ("properties", Json.obj([("totalPredictions", Json.obj([("type", Json.str("string")), ("description", Json.str("Total number of predictions made"))])), ("correctPredictions", Json.obj([("type", Json.str("string")), ("description", Json.str("Number of correct predictions"))])), ("incorrectPredictions", Json.obj([("type", Json.str("string")), ("description", Json.str("Number of incorrect predictions"))])), ("accuracyRate", Json.obj([("type", Json.str("string")), ("description", Json.str("Win rate as a percentage (e.g., '75%')"))])), ("totalWagered", Json.obj([("type", Json.str("string")), ("description", Json.str("Total amount wagered in USDC base units"))])), ("totalWon", Json.obj([("type", Json.str("string")), ("description", Json.str("Total amount won in USDC base units"))])), ("netProfit", Json.obj([("type", Json.str("string")), ("description", Json.str("Net profit/loss in USDC base units (can be negative)"))])), ("currentStreak", Json.obj([("type", Json.str("string")), ("description", Json.str("Current win/loss streak (positive for wins, negative for losses)"))])), ("longestWinStreak", Json.obj([("type", Json.str("string")), ("description", Json.str("Longest consecutive win streak"))]))]))]))])),
+      ("properties", Json.obj([("owner", Json.obj([("type", Json.str("string")), ("description", Json.str("Your Internet Computer principal ID"))])), ("availableBalance", Json.obj([("type", Json.str("string")), ("description", Json.str("Your USDC wallet balance in base units (6 decimals). Example: '10000000' = $10 USDC. Queried directly from the token ledger."))])), ("unclaimedPositions", Json.obj([("type", Json.str("array")), ("description", Json.str("List of your unclaimed positions (in open, closed, or resolved markets). Amounts in USDC base units."))])), ("items", Json.obj([("type", Json.str("object")), ("properties", Json.obj([("positionId", Json.obj([("type", Json.str("string"))])), ("marketId", Json.obj([("type", Json.str("string"))])), ("matchDetails", Json.obj([("type", Json.str("string"))])), ("stakedAmount", Json.obj([("type", Json.str("string")), ("description", Json.str("Amount in USDC base units"))])), ("predictedOutcome", Json.obj([("type", Json.str("string"))])), ("marketStatus", Json.obj([("type", Json.str("string"))]))]))])), ("stats", Json.obj([("type", Json.str("object")), ("description", Json.str("Your betting performance statistics")), ("properties", Json.obj([("totalPredictions", Json.obj([("type", Json.str("string")), ("description", Json.str("Total number of predictions made"))])), ("correctPredictions", Json.obj([("type", Json.str("string")), ("description", Json.str("Number of correct predictions"))])), ("incorrectPredictions", Json.obj([("type", Json.str("string")), ("description", Json.str("Number of incorrect predictions"))])), ("accuracyRate", Json.obj([("type", Json.str("string")), ("description", Json.str("Win rate as a percentage (e.g., '75%')"))])), ("totalWagered", Json.obj([("type", Json.str("string")), ("description", Json.str("Total amount wagered in USDC base units"))])), ("totalWon", Json.obj([("type", Json.str("string")), ("description", Json.str("Total amount won in USDC base units"))])), ("netProfit", Json.obj([("type", Json.str("string")), ("description", Json.str("Net profit/loss in USDC base units (can be negative)"))])), ("currentStreak", Json.obj([("type", Json.str("string")), ("description", Json.str("Current win/loss streak (positive for wins, negative for losses)"))])), ("longestWinStreak", Json.obj([("type", Json.str("string")), ("description", Json.str("Longest consecutive win streak"))]))]))]))])),
       ("required", Json.arr([Json.str("owner"), Json.str("availableBalance"), Json.str("unclaimedPositions"), Json.str("stats")])),
     ]);
   };
@@ -43,8 +45,15 @@ module {
       let ?auth = _auth else return ToolContext.makeError("Authentication required", cb);
       let userPrincipal = auth.principal;
 
-      // Get user balance
-      let balance = ToolContext.getUserBalance(context, userPrincipal);
+      // Query user's actual ICRC-2 wallet balance from the token ledger
+      let ledger = actor (Principal.toText(context.tokenLedger)) : actor {
+        icrc1_balance_of : (ICRC2.Account) -> async Nat;
+      };
+      
+      let walletBalance = await ledger.icrc1_balance_of({
+        owner = userPrincipal;
+        subaccount = null;
+      });
 
       // Get user positions
       let userPositions = ToolContext.getUserPositions(context, userPrincipal);
@@ -94,7 +103,7 @@ module {
 
       let output = Json.obj([
         ("owner", Json.str(Principal.toText(userPrincipal))),
-        ("availableBalance", Json.str(Nat.toText(balance))),
+        ("availableBalance", Json.str(Nat.toText(walletBalance))),
         ("unclaimedPositions", predictionsJson),
         ("stats", Json.obj([("totalPredictions", Json.str(Nat.toText(stats.totalPredictions))), ("correctPredictions", Json.str(Nat.toText(stats.correctPredictions))), ("incorrectPredictions", Json.str(Nat.toText(stats.incorrectPredictions))), ("accuracyRate", Json.str(if (stats.totalPredictions > 0) { let accuracy = (stats.correctPredictions * 100) / stats.totalPredictions; Nat.toText(accuracy) # "%" } else { "0%" })), ("totalWagered", Json.str(Nat.toText(stats.totalWagered))), ("totalWon", Json.str(Nat.toText(stats.totalWon))), ("netProfit", Json.str(Int.toText(stats.netProfit))), ("currentStreak", Json.str(Int.toText(stats.currentStreak))), ("longestWinStreak", Json.str(Nat.toText(stats.longestWinStreak)))])),
       ]);
