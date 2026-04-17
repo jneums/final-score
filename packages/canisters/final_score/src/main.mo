@@ -42,7 +42,13 @@ import ICRC2 "mo:icrc2-types";
 import ToolContext "tools/ToolContext";
 import OrderBook "tools/OrderBook";
 import markets_list "tools/markets_list";
+import market_detail "tools/market_detail";
 import order_place "tools/order_place";
+import order_cancel "tools/order_cancel";
+import orders_list "tools/orders_list";
+import positions_list "tools/positions_list";
+import sports_list "tools/sports_list";
+import leaderboard "tools/leaderboard";
 import account_get_info "tools/account_get_info";
 import account_get_history "tools/account_get_history";
 
@@ -664,7 +670,13 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     account_get_info.config(),
     account_get_history.config(),
     markets_list.config(),
+    market_detail.config(),
     order_place.config(),
+    order_cancel.config(),
+    orders_list.config(),
+    positions_list.config(),
+    sports_list.config(),
+    leaderboard.config(),
   ];
 
   transient let toolContext : ToolContext.ToolContext = {
@@ -691,6 +703,16 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     orderBooks;
   };
 
+  transient let cancelContext : order_cancel.CancelContext = {
+    toolContext;
+    orderBooks;
+  };
+
+  transient let detailContext : market_detail.DetailContext = {
+    toolContext;
+    orderBooks;
+  };
+
   transient let mcpConfig : McpTypes.McpConfig = {
     self = Principal.fromActor(self);
     allowanceUrl = ?allowanceUrl;
@@ -708,7 +730,13 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       ("account_get_info", account_get_info.handle(toolContext)),
       ("account_get_history", account_get_history.handle(toolContext)),
       ("markets_list", markets_list.handle(toolContext)),
+      ("market_detail", market_detail.handle(detailContext)),
       ("order_place", order_place.handle(placeContext)),
+      ("order_cancel", order_cancel.handle(cancelContext)),
+      ("orders_list", orders_list.handle(toolContext)),
+      ("positions_list", positions_list.handle(toolContext)),
+      ("sports_list", sports_list.handle(toolContext)),
+      ("leaderboard", leaderboard.handle(toolContext)),
     ];
     beacon = beaconContext;
   };
