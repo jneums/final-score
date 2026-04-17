@@ -12,7 +12,7 @@ export function useAllowance(owner?: string, spender?: string) {
   return useQuery({
     queryKey: ['allowance', owner, spender],
     queryFn: async () => {
-      const identity = user?.agent?.config?.identity;
+      const identity = user?.agent;
       if (!identity) throw new Error('No identity');
       const targetSpender = spender || getCanisterId('FINAL_SCORE');
       const allowanceAtomic = await getAllowance(identity, targetSpender);
@@ -34,7 +34,7 @@ export function useSetAllowance() {
   return useMutation({
     mutationFn: async ({ amount, spender }: { amount: number; spender?: string }) => {
       if (!user?.agent) throw new Error('Not authenticated');
-      const identity = user.agent.config?.identity;
+      const identity = user.agent;
       if (!identity) throw new Error('No identity available');
       const targetSpender = spender || getCanisterId('FINAL_SCORE');
       const atomicAmount = Tokens.USDC.toAtomic(amount);

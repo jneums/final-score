@@ -1,10 +1,6 @@
 import { Principal } from '@icp-sdk/core/principal';
 import { getCanisterId } from './config.js';
-// --- CORE CONVERSION LOGIC (Internal Helpers) ---
-/**
- * Converts a human-readable token amount into its atomic representation.
- * This is the generic, internal implementation.
- */
+// --- CORE CONVERSION LOGIC ---
 const toAtomicAmount = (amount, decimals) => {
     const amountStr = String(amount);
     const [integerPart, fractionalPart = ''] = amountStr.split('.');
@@ -14,10 +10,6 @@ const toAtomicAmount = (amount, decimals) => {
     const combined = (integerPart || '0') + fractionalPart.padEnd(decimals, '0');
     return BigInt(combined);
 };
-/**
- * Converts an atomic token amount into its human-readable string representation.
- * This is the generic, internal implementation.
- */
 const fromAtomicAmount = (atomicAmount, decimals) => {
     const atomicStr = atomicAmount.toString().padStart(decimals + 1, '0');
     const integerPart = atomicStr.slice(0, -decimals);
@@ -27,12 +19,6 @@ const fromAtomicAmount = (atomicAmount, decimals) => {
         : integerPart;
 };
 // --- TOKEN FACTORY ---
-/**
- * A factory function that takes basic token info and returns an enhanced Token object
- * with attached conversion methods.
- * @param info The base TokenInfo object.
- * @returns An enhanced Token object.
- */
 const createToken = (info) => {
     return {
         ...info,
@@ -42,8 +28,8 @@ const createToken = (info) => {
 };
 // --- TOKEN DEFINITIONS ---
 /**
- * Gets the USDC token configuration with the correct canister ID from the config system.
- * This ensures we use the right ledger for the current environment (local/mainnet).
+ * Gets the USDC token configuration.
+ * USDC on ICP (ckUSDC) uses 6 decimals and a 10_000 fee (0.01 USDC).
  */
 const getUSDCToken = () => {
     return createToken({
@@ -51,13 +37,12 @@ const getUSDCToken = () => {
         name: 'USD Coin',
         symbol: 'USDC',
         decimals: 6,
-        fee: 10000, // Standard fee for ckUSDC is 10 e6s (0.01 USDC)
+        fee: 10000,
     });
 };
 /**
- * The centralized, exported registry of all supported tokens.
- * Each token object is enhanced with its own `toAtomic` and `fromAtomic` methods.
- * Tokens are created lazily to ensure the config system is initialized first.
+ * Centralized token registry. Tokens are created lazily so the config
+ * system is initialized first.
  */
 export const Tokens = {
     get USDC() {

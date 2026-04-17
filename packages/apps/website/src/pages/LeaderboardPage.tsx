@@ -70,7 +70,7 @@ export default function LeaderboardPage() {
                 Total Trades
               </div>
               <p className="text-xl font-bold">
-                {statsLoading ? '—' : stats?.totalPredictions ?? 0}
+                {statsLoading ? '—' : stats?.totalTrades ?? 0}
               </p>
             </div>
             <div className="text-center space-y-1">

@@ -1,29 +1,25 @@
 const MAINNET_URL = 'https://icp-api.io';
-// Internal state for the package. Not exported.
 let _canisterIds = {};
 let _host = MAINNET_URL;
 let _isConfigured = false;
 /**
  * Initializes the ic-js package with the necessary canister IDs.
- * This MUST be called once at the startup of any consuming application (CLI or frontend).
- * @param config An object mapping canister names (e.g., 'AUTH_SERVER') to their IDs.
+ * This MUST be called once at the startup of any consuming application.
+ *
+ * Expected canister names: 'FINAL_SCORE', 'USDC_LEDGER'
  */
 export function configure(config) {
     if (_isConfigured) {
-        // Optional: prevent re-configuration if it's not desired.
         console.warn('ic-js package has already been configured.');
         return;
     }
     _canisterIds = config.canisterIds;
     _host = config.host || MAINNET_URL;
     _isConfigured = true;
-    if (config.verbose)
-        console.log('[ic-js] Configured with canister IDs:', _canisterIds);
 }
 /**
  * A type-safe helper to get a canister ID.
- * Reads from the internal, configured state.
- * @param name The short name of the canister (e.g., 'AUTH_SERVER')
+ * @param name The short name of the canister (e.g., 'FINAL_SCORE', 'USDC_LEDGER')
  * @returns The canister ID principal string.
  */
 export const getCanisterId = (name) => {

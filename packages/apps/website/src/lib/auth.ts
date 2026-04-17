@@ -124,20 +124,14 @@ export class AuthService {
             const principal = await agent.getPrincipal();
             
             // Re-create actors for restored session
-            const [FinalScore, UsdcLedger] = await Promise.all([
-              import('@final-score/declarations').then(m => m.FinalScore),
-              import('@final-score/declarations').then(m => m.UsdcLedger),
-            ]);
+            const FinalScore = await import('@final-score/declarations').then(m => m.FinalScore);
 
             const plugActors = {
               finalScore: await window.ic.plug.createActor({
                 canisterId: whitelist[0],
                 interfaceFactory: FinalScore.idlFactory,
               }),
-              usdcLedger: await window.ic.plug.createActor({
-                canisterId: whitelist[1],
-                interfaceFactory: UsdcLedger.idlFactory,
-              }),
+              usdcLedger: null,
             };
             
             this.currentUser = {

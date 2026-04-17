@@ -10,9 +10,9 @@
     },
     "website": {      
       "build": [
-        "cd packages/apps/website && npm run build"
+        "cd packages/apps/website && pnpm build"
       ],
-      "source": ["packages/apps/website/out"],
+      "source": ["packages/apps/website/dist"],
       "type": "assets"
     }
   },

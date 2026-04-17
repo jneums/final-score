@@ -83,7 +83,7 @@ export default function HomePage() {
                 Total Trades
               </div>
               <p className="text-2xl font-bold text-foreground">
-                {statsLoading ? '—' : stats?.totalPredictions ?? 0}
+                {statsLoading ? '—' : stats?.totalTrades ?? 0}
               </p>
             </div>
             <div className="text-center space-y-1">
