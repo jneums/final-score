@@ -1,6 +1,5 @@
 @import "tailwindcss";
-@plugin "@tailwindcss/typography";
-@import "prism-themes/themes/prism-nord.css";
+@import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -132,123 +131,13 @@
     background-color: var(--background);
     color: var(--foreground);
     line-height: 1.5;
-    font-family: var(--font-inter), system-ui, sans-serif;
+    font-family: system-ui, sans-serif;
   }
   h1, h2, h3, h4, h5, h6 {
-    font-family: var(--font-orbitron), system-ui, sans-serif;
     font-weight: 700;
     letter-spacing: -0.02em;
   }
   button, a, [role="button"] {
     cursor: pointer;
-  }
-}
-
-@layer base {
-  /* Markdown content styling */
-  .markdown-content {
-    line-height: 1.75;
-    color: oklch(0.94 0.005 250);
-  }
-  
-  .markdown-content h1,
-  .markdown-content h2,
-  .markdown-content h3,
-  .markdown-content h4,
-  .markdown-content h5,
-  .markdown-content h6 {
-    color: oklch(0.94 0.005 250);
-  }
-  
-  .markdown-content p,
-  .markdown-content li,
-  .markdown-content td,
-  .markdown-content th {
-    color: oklch(0.94 0.005 250);
-  }
-  
-  .markdown-content code:not(pre code) {
-    background-color: oklch(0.25 0.02 250);
-    border: 1px solid oklch(0.30 0.02 250);
-    border-radius: 0.25rem;
-    padding: 0.125rem 0.375rem;
-    font-size: 0.875em;
-    font-family: var(--font-mono);
-  }
-  
-  .markdown-content pre {
-    background-color: oklch(0.15 0.015 250) !important;
-    border: 1px solid oklch(0.30 0.02 250);
-    border-radius: 0.5rem;
-    padding: 1rem !important;
-    overflow-x: auto;
-    margin: 1.5rem 0;
-  }
-  
-  .markdown-content pre code {
-    background-color: transparent !important;
-    border: none;
-    padding: 0;
-    font-size: 0.875rem;
-    line-height: 1.5;
-    font-family: var(--font-mono);
-  }
-  
-  .markdown-content table {
-    border-collapse: collapse;
-    width: 100%;
-    margin: 1.5rem 0;
-    display: block;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-  
-  .markdown-content table th,
-  .markdown-content table td {
-    border: 1px solid oklch(0.30 0.02 250);
-    padding: 0.75rem !important;
-    text-align: left;
-    white-space: nowrap;
-  }
-  
-  @media (min-width: 640px) {
-    .markdown-content table th,
-    .markdown-content table td {
-      padding: 1rem !important;
-    }
-  }
-  
-  .markdown-content table th:first-child,
-  .markdown-content table td:first-child {
-    padding-left: 1rem !important;
-  }
-  
-  .markdown-content table th {
-    background-color: oklch(0.20 0.015 250);
-    font-weight: 600;
-  }
-  
-  .markdown-content table tr:nth-child(even) {
-    background-color: oklch(0.16 0.015 250);
-  }
-  
-  /* Override prose-invert colors */
-  .prose-invert {
-    --tw-prose-body: oklch(0.94 0.005 250) !important;
-    --tw-prose-headings: oklch(0.94 0.005 250) !important;
-    --tw-prose-lead: oklch(0.94 0.005 250) !important;
-    --tw-prose-links: oklch(0.82 0.11 200) !important;
-    --tw-prose-bold: oklch(0.94 0.005 250) !important;
-    --tw-prose-counters: oklch(0.94 0.005 250) !important;
-    --tw-prose-bullets: oklch(0.94 0.005 250) !important;
-    --tw-prose-hr: oklch(0.30 0.02 250) !important;
-    --tw-prose-quotes: oklch(0.94 0.005 250) !important;
-    --tw-prose-quote-borders: oklch(0.30 0.02 250) !important;
-    --tw-prose-captions: oklch(0.94 0.005 250) !important;
-    --tw-prose-code: oklch(0.94 0.005 250) !important;
-    --tw-prose-pre-code: oklch(0.94 0.005 250) !important;
-    --tw-prose-pre-bg: oklch(0.15 0.015 250) !important;
-    --tw-prose-th-borders: oklch(0.30 0.02 250) !important;
-    --tw-prose-td-borders: oklch(0.30 0.02 250) !important;
   }
 }

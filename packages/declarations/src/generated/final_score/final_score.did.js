@@ -1,54 +1,17 @@
 export const idlFactory = ({ IDL }) => {
-  const Result_3 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
+  const Result_2 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
   const UserStats = IDL.Record({
-    'totalWagered' : IDL.Nat,
-    'totalPredictions' : IDL.Nat,
-    'averageOdds' : IDL.Float64,
-    'totalWon' : IDL.Nat,
+    'totalTrades' : IDL.Nat,
+    'marketsWon' : IDL.Nat,
+    'totalVolume' : IDL.Nat,
     'userPrincipal' : IDL.Principal,
-    'longestWinStreak' : IDL.Nat,
-    'correctPredictions' : IDL.Nat,
-    'incorrectPredictions' : IDL.Nat,
-    'currentStreak' : IDL.Int,
+    'totalPayout' : IDL.Nat,
+    'marketsLost' : IDL.Nat,
     'netProfit' : IDL.Int,
   });
   const LeaderboardEntry = IDL.Record({
     'rank' : IDL.Nat,
     'stats' : UserStats,
-  });
-  const Outcome = IDL.Variant({
-    'HomeWin' : IDL.Null,
-    'Draw' : IDL.Null,
-    'AwayWin' : IDL.Null,
-  });
-  const MarketStatus = IDL.Variant({
-    'Open' : IDL.Null,
-    'Closed' : IDL.Null,
-    'Cancelled' : IDL.Null,
-    'Resolved' : Outcome,
-  });
-  const MarketWithBettors = IDL.Record({
-    'status' : MarketStatus,
-    'apiFootballId' : IDL.Opt(IDL.Text),
-    'homeTeam' : IDL.Text,
-    'matchDetails' : IDL.Text,
-    'drawPool' : IDL.Nat,
-    'totalPool' : IDL.Nat,
-    'recentBettors' : IDL.Vec(
-      IDL.Record({
-        'principal' : IDL.Text,
-        'timestamp' : IDL.Int,
-        'amount' : IDL.Nat,
-        'outcome' : IDL.Text,
-      })
-    ),
-    'marketId' : IDL.Text,
-    'oracleMatchId' : IDL.Text,
-    'awayTeam' : IDL.Text,
-    'homeWinPool' : IDL.Nat,
-    'bettingDeadline' : IDL.Int,
-    'awayWinPool' : IDL.Nat,
-    'kickoffTime' : IDL.Int,
   });
   const Header = IDL.Tuple(IDL.Text, IDL.Text);
   const HttpRequest = IDL.Record({
@@ -98,7 +61,6 @@ export const idlFactory = ({ IDL }) => {
     'info' : ApiKeyInfo,
     'hashed_key' : HashedApiKey,
   });
-  const Result_2 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
   const Timestamp = IDL.Nat64;
   const TransferError = IDL.Variant({
     'GenericError' : IDL.Record({
@@ -132,76 +94,51 @@ export const idlFactory = ({ IDL }) => {
   });
   const Result = IDL.Variant({ 'ok' : IDL.Nat, 'err' : TreasuryError });
   const McpServer = IDL.Service({
-    'admin_backfill_api_football_ids' : IDL.Func([], [Result_3], []),
-    'admin_cancel_and_refund_market' : IDL.Func([IDL.Text], [Result_3], []),
-    'admin_clear_processed_event' : IDL.Func([IDL.Nat], [Result_3], []),
-    'admin_delete_market' : IDL.Func([IDL.Text], [Result_3], []),
-    'admin_rebuild_stats_from_history' : IDL.Func([], [Result_3], []),
-    'admin_revert_market_to_open' : IDL.Func([IDL.Text], [Result_3], []),
-    'admin_seed_test_data' : IDL.Func([], [Result_3], []),
+    'admin_cancel_market' : IDL.Func([IDL.Text], [Result_2], []),
+    'admin_create_market' : IDL.Func(
+        [
+          IDL.Text,
+          IDL.Text,
+          IDL.Text,
+          IDL.Text,
+          IDL.Text,
+          IDL.Int,
+          IDL.Nat,
+          IDL.Nat,
+        ],
+        [Result_2],
+        [],
+      ),
+    'admin_drain_market_subaccount' : IDL.Func([IDL.Text], [Result_2], []),
+    'admin_resolve_market' : IDL.Func([IDL.Text, IDL.Text], [Result_2], []),
     'create_my_api_key' : IDL.Func(
         [IDL.Text, IDL.Vec(IDL.Text)],
         [IDL.Text],
         [],
       ),
-    'debug_check_oracle_events' : IDL.Func([IDL.Text], [Result_3], []),
     'debug_get_market' : IDL.Func(
         [IDL.Text],
         [
           IDL.Opt(
             IDL.Record({
               'status' : IDL.Text,
-              'apiFootballId' : IDL.Opt(IDL.Text),
-              'homeTeam' : IDL.Text,
-              'matchDetails' : IDL.Text,
-              'drawPool' : IDL.Text,
-              'totalPool' : IDL.Text,
+              'polymarketSlug' : IDL.Text,
+              'endDate' : IDL.Int,
+              'totalVolume' : IDL.Nat,
+              'question' : IDL.Text,
+              'lastYesPrice' : IDL.Nat,
+              'lastNoPrice' : IDL.Nat,
+              'sport' : IDL.Text,
+              'eventTitle' : IDL.Text,
               'marketId' : IDL.Text,
-              'oracleMatchId' : IDL.Text,
-              'awayTeam' : IDL.Text,
-              'homeWinPool' : IDL.Text,
-              'bettingDeadline' : IDL.Int,
-              'awayWinPool' : IDL.Text,
-              'kickoffTime' : IDL.Int,
             })
           ),
         ],
-        ['query'],
-      ),
-    'debug_get_processed_events' : IDL.Func([], [IDL.Nat], ['query']),
-    'debug_resolve_market' : IDL.Func([IDL.Text], [Result_3], []),
-    'get_leaderboard_by_accuracy' : IDL.Func(
-        [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
-        [IDL.Vec(LeaderboardEntry)],
         ['query'],
       ),
     'get_leaderboard_by_profit' : IDL.Func(
         [IDL.Opt(IDL.Nat)],
         [IDL.Vec(LeaderboardEntry)],
-        ['query'],
-      ),
-    'get_leaderboard_by_streak' : IDL.Func(
-        [IDL.Opt(IDL.Nat)],
-        [IDL.Vec(LeaderboardEntry)],
-        ['query'],
-      ),
-    'get_leaderboard_by_volume' : IDL.Func(
-        [IDL.Opt(IDL.Nat)],
-        [IDL.Vec(LeaderboardEntry)],
-        ['query'],
-      ),
-    'get_market_bettors' : IDL.Func(
-        [IDL.Text, IDL.Opt(IDL.Nat)],
-        [
-          IDL.Vec(
-            IDL.Record({
-              'principal' : IDL.Text,
-              'timestamp' : IDL.Int,
-              'amount' : IDL.Nat,
-              'outcome' : IDL.Text,
-            })
-          ),
-        ],
         ['query'],
       ),
     'get_market_count' : IDL.Func(
@@ -211,6 +148,7 @@ export const idlFactory = ({ IDL }) => {
             'resolved' : IDL.Nat,
             'closed' : IDL.Nat,
             'total' : IDL.Nat,
+            'cancelled' : IDL.Nat,
             'open' : IDL.Nat,
           }),
         ],
@@ -221,9 +159,9 @@ export const idlFactory = ({ IDL }) => {
         [],
         [
           IDL.Record({
+            'totalTrades' : IDL.Nat,
             'activeMarkets' : IDL.Nat,
             'totalVolume' : IDL.Nat,
-            'totalPredictions' : IDL.Nat,
             'totalUsers' : IDL.Nat,
             'resolvedMarkets' : IDL.Nat,
           }),
@@ -231,16 +169,6 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'get_treasury_balance' : IDL.Func([IDL.Principal], [IDL.Nat], []),
-    'get_upcoming_matches' : IDL.Func(
-        [IDL.Opt(IDL.Nat), IDL.Opt(IDL.Nat)],
-        [IDL.Vec(MarketWithBettors)],
-        ['query'],
-      ),
-    'get_user_stats' : IDL.Func(
-        [IDL.Principal],
-        [IDL.Opt(UserStats)],
-        ['query'],
-      ),
     'http_request' : IDL.Func([HttpRequest], [HttpResponse], ['query']),
     'http_request_streaming_callback' : IDL.Func(
         [StreamingToken],
@@ -250,10 +178,19 @@ export const idlFactory = ({ IDL }) => {
     'http_request_update' : IDL.Func([HttpRequest], [HttpResponse], []),
     'icrc120_upgrade_finished' : IDL.Func([], [UpgradeFinishedResult], []),
     'list_my_api_keys' : IDL.Func([], [IDL.Vec(ApiKeyMetadata)], ['query']),
-    'refresh_markets' : IDL.Func([], [Result_2], []),
     'revoke_my_api_key' : IDL.Func([IDL.Text], [], []),
     'set_owner' : IDL.Func([IDL.Principal], [Result_1], []),
     'transformJwksResponse' : IDL.Func(
+        [
+          IDL.Record({
+            'context' : IDL.Vec(IDL.Nat8),
+            'response' : HttpRequestResult,
+          }),
+        ],
+        [HttpRequestResult],
+        ['query'],
+      ),
+    'transformPolymarket' : IDL.Func(
         [
           IDL.Record({
             'context' : IDL.Vec(IDL.Nat8),
@@ -273,7 +210,6 @@ export const init = ({ IDL }) => {
       IDL.Record({
         'tokenLedger' : IDL.Opt(IDL.Principal),
         'owner' : IDL.Opt(IDL.Principal),
-        'footballOracleId' : IDL.Opt(IDL.Principal),
       })
     ),
   ];

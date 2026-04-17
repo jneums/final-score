@@ -1,6 +1,6 @@
-import type { Principal } from '@dfinity/principal';
-import type { ActorMethod } from '@dfinity/agent';
-import type { IDL } from '@dfinity/candid';
+import type { Principal } from '@icp-sdk/core/principal';
+import type { ActorMethod } from '@icp-sdk/core/agent';
+import type { IDL } from '@icp-sdk/core/candid';
 
 export interface ApiKeyInfo {
   'created' : Time,
@@ -39,118 +39,82 @@ export interface HttpResponse {
   'status_code' : number,
 }
 export interface LeaderboardEntry { 'rank' : bigint, 'stats' : UserStats }
-export type MarketStatus = { 'Open' : null } |
-  { 'Closed' : null } |
-  { 'Cancelled' : null } |
-  { 'Resolved' : Outcome };
-export interface MarketWithBettors {
-  'status' : MarketStatus,
-  'apiFootballId' : [] | [string],
-  'homeTeam' : string,
-  'matchDetails' : string,
-  'drawPool' : bigint,
-  'totalPool' : bigint,
-  'recentBettors' : Array<
-    {
-      'principal' : string,
-      'timestamp' : bigint,
-      'amount' : bigint,
-      'outcome' : string,
-    }
-  >,
-  'marketId' : string,
-  'oracleMatchId' : string,
-  'awayTeam' : string,
-  'homeWinPool' : bigint,
-  'bettingDeadline' : bigint,
-  'awayWinPool' : bigint,
-  'kickoffTime' : bigint,
-}
 export interface McpServer {
-  'admin_backfill_api_football_ids' : ActorMethod<[], Result_3>,
-  'admin_cancel_and_refund_market' : ActorMethod<[string], Result_3>,
-  'admin_clear_processed_event' : ActorMethod<[bigint], Result_3>,
-  'admin_delete_market' : ActorMethod<[string], Result_3>,
-  'admin_rebuild_stats_from_history' : ActorMethod<[], Result_3>,
-  'admin_revert_market_to_open' : ActorMethod<[string], Result_3>,
-  'admin_seed_test_data' : ActorMethod<[], Result_3>,
+  /**
+   * / Admin: cancel a market and refund all
+   */
+  'admin_cancel_market' : ActorMethod<[string], Result_2>,
+  /**
+   * / Admin: manually create a market (for testing before Polymarket sync is implemented)
+   */
+  'admin_create_market' : ActorMethod<
+    [string, string, string, string, string, bigint, bigint, bigint],
+    Result_2
+  >,
+  /**
+   * / Admin: drain stuck funds from a market subaccount
+   */
+  'admin_drain_market_subaccount' : ActorMethod<[string], Result_2>,
+  /**
+   * / Admin: manually resolve a market
+   */
+  'admin_resolve_market' : ActorMethod<[string, string], Result_2>,
   'create_my_api_key' : ActorMethod<[string, Array<string>], string>,
-  'debug_check_oracle_events' : ActorMethod<[string], Result_3>,
+  /**
+   * / Debug: get a specific market
+   */
   'debug_get_market' : ActorMethod<
     [string],
     [] | [
       {
         'status' : string,
-        'apiFootballId' : [] | [string],
-        'homeTeam' : string,
-        'matchDetails' : string,
-        'drawPool' : string,
-        'totalPool' : string,
+        'polymarketSlug' : string,
+        'endDate' : bigint,
+        'totalVolume' : bigint,
+        'question' : string,
+        'lastYesPrice' : bigint,
+        'lastNoPrice' : bigint,
+        'sport' : string,
+        'eventTitle' : string,
         'marketId' : string,
-        'oracleMatchId' : string,
-        'awayTeam' : string,
-        'homeWinPool' : string,
-        'bettingDeadline' : bigint,
-        'awayWinPool' : string,
-        'kickoffTime' : bigint,
       }
     ]
   >,
-  'debug_get_processed_events' : ActorMethod<[], bigint>,
-  'debug_resolve_market' : ActorMethod<[string], Result_3>,
-  'get_leaderboard_by_accuracy' : ActorMethod<
-    [[] | [bigint], [] | [bigint]],
-    Array<LeaderboardEntry>
-  >,
+  /**
+   * / Leaderboard by net profit
+   */
   'get_leaderboard_by_profit' : ActorMethod<
     [[] | [bigint]],
     Array<LeaderboardEntry>
   >,
-  'get_leaderboard_by_streak' : ActorMethod<
-    [[] | [bigint]],
-    Array<LeaderboardEntry>
-  >,
-  'get_leaderboard_by_volume' : ActorMethod<
-    [[] | [bigint]],
-    Array<LeaderboardEntry>
-  >,
-  'get_market_bettors' : ActorMethod<
-    [string, [] | [bigint]],
-    Array<
-      {
-        'principal' : string,
-        'timestamp' : bigint,
-        'amount' : bigint,
-        'outcome' : string,
-      }
-    >
-  >,
+  /**
+   * / Get market counts by status
+   */
   'get_market_count' : ActorMethod<
     [],
     {
       'resolved' : bigint,
       'closed' : bigint,
       'total' : bigint,
+      'cancelled' : bigint,
       'open' : bigint,
     }
   >,
   'get_owner' : ActorMethod<[], Principal>,
+  /**
+   * / Get platform stats
+   */
   'get_platform_stats' : ActorMethod<
     [],
     {
+      'totalTrades' : bigint,
       'activeMarkets' : bigint,
       'totalVolume' : bigint,
-      'totalPredictions' : bigint,
       'totalUsers' : bigint,
       'resolvedMarkets' : bigint,
     }
   >,
   'get_treasury_balance' : ActorMethod<[Principal], bigint>,
-  'get_upcoming_matches' : ActorMethod<
-    [[] | [bigint], [] | [bigint]],
-    Array<MarketWithBettors>
-  >,
-  'get_user_stats' : ActorMethod<[Principal], [] | [UserStats]>,
   'http_request' : ActorMethod<[HttpRequest], HttpResponse>,
   'http_request_streaming_callback' : ActorMethod<
     [StreamingToken],
@@ -159,25 +123,23 @@ export interface McpServer {
   'http_request_update' : ActorMethod<[HttpRequest], HttpResponse>,
   'icrc120_upgrade_finished' : ActorMethod<[], UpgradeFinishedResult>,
   'list_my_api_keys' : ActorMethod<[], Array<ApiKeyMetadata>>,
-  'refresh_markets' : ActorMethod<[], Result_2>,
   'revoke_my_api_key' : ActorMethod<[string], undefined>,
   'set_owner' : ActorMethod<[Principal], Result_1>,
   'transformJwksResponse' : ActorMethod<
     [{ 'context' : Uint8Array | number[], 'response' : HttpRequestResult }],
     HttpRequestResult
   >,
+  'transformPolymarket' : ActorMethod<
+    [{ 'context' : Uint8Array | number[], 'response' : HttpRequestResult }],
+    HttpRequestResult
+  >,
   'withdraw' : ActorMethod<[Principal, bigint, Destination], Result>,
 }
-export type Outcome = { 'HomeWin' : null } |
-  { 'Draw' : null } |
-  { 'AwayWin' : null };
 export type Result = { 'ok' : bigint } |
   { 'err' : TreasuryError };
 export type Result_1 = { 'ok' : null } |
   { 'err' : TreasuryError };
-export type Result_2 = { 'ok' : bigint } |
-  { 'err' : string };
-export type Result_3 = { 'ok' : string } |
+export type Result_2 = { 'ok' : string } |
   { 'err' : string };
 export type StreamingCallback = ActorMethod<
   [StreamingToken],
@@ -188,7 +150,7 @@ export interface StreamingCallbackResponse {
   'body' : Uint8Array | number[],
 }
 export type StreamingStrategy = {
-    'Callback' : { 'token' : StreamingToken, 'callback' : StreamingCallback }
+    'Callback' : { 'token' : StreamingToken, 'callback' : [Principal, string] }
   };
 export type StreamingToken = Uint8Array | number[];
 export type Subaccount = Uint8Array | number[];
@@ -211,15 +173,12 @@ export type UpgradeFinishedResult = { 'Failed' : [bigint, string] } |
   { 'Success' : bigint } |
   { 'InProgress' : bigint };
 export interface UserStats {
-  'totalWagered' : bigint,
-  'totalPredictions' : bigint,
-  'averageOdds' : number,
-  'totalWon' : bigint,
+  'totalTrades' : bigint,
+  'marketsWon' : bigint,
+  'totalVolume' : bigint,
   'userPrincipal' : Principal,
-  'longestWinStreak' : bigint,
-  'correctPredictions' : bigint,
-  'incorrectPredictions' : bigint,
-  'currentStreak' : bigint,
+  'totalPayout' : bigint,
+  'marketsLost' : bigint,
   'netProfit' : bigint,
 }
 export interface _SERVICE extends McpServer {}
