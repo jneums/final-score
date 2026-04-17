@@ -3,9 +3,6 @@ import { getCanisterId } from './config.js';
 
 // --- TYPE DEFINITIONS ---
 
-/**
- * The base information required to define a token.
- */
 export interface TokenInfo {
   canisterId: Principal;
   name: string;
@@ -14,10 +11,6 @@ export interface TokenInfo {
   fee: number;
 }
 
-/**
- * The enhanced Token object, which includes conversion methods.
- * This is the object you will interact with throughout the app.
- */
 export interface Token extends TokenInfo {
   /** Converts a human-readable amount to its atomic unit (bigint). */
   toAtomic: (amount: string | number) => bigint;
@@ -25,12 +18,8 @@ export interface Token extends TokenInfo {
   fromAtomic: (atomicAmount: bigint) => string;
 }
 
-// --- CORE CONVERSION LOGIC (Internal Helpers) ---
+// --- CORE CONVERSION LOGIC ---
 
-/**
- * Converts a human-readable token amount into its atomic representation.
- * This is the generic, internal implementation.
- */
 const toAtomicAmount = (amount: string | number, decimals: number): bigint => {
   const amountStr = String(amount);
   const [integerPart, fractionalPart = ''] = amountStr.split('.');
@@ -44,10 +33,6 @@ const toAtomicAmount = (amount: string | number, decimals: number): bigint => {
   return BigInt(combined);
 };
 
-/**
- * Converts an atomic token amount into its human-readable string representation.
- * This is the generic, internal implementation.
- */
 const fromAtomicAmount = (atomicAmount: bigint, decimals: number): string => {
   const atomicStr = atomicAmount.toString().padStart(decimals + 1, '0');
   const integerPart = atomicStr.slice(0, -decimals);
@@ -60,12 +45,6 @@ const fromAtomicAmount = (atomicAmount: bigint, decimals: number): string => {
 
 // --- TOKEN FACTORY ---
 
-/**
- * A factory function that takes basic token info and returns an enhanced Token object
- * with attached conversion methods.
- * @param info The base TokenInfo object.
- * @returns An enhanced Token object.
- */
 const createToken = (info: TokenInfo): Token => {
   return {
     ...info,
@@ -77,8 +56,8 @@ const createToken = (info: TokenInfo): Token => {
 // --- TOKEN DEFINITIONS ---
 
 /**
- * Gets the USDC token configuration with the correct canister ID from the config system.
- * This ensures we use the right ledger for the current environment (local/mainnet).
+ * Gets the USDC token configuration.
+ * USDC on ICP (ckUSDC) uses 6 decimals and a 10_000 fee (0.01 USDC).
  */
 const getUSDCToken = (): Token => {
   return createToken({
@@ -86,14 +65,13 @@ const getUSDCToken = (): Token => {
     name: 'USD Coin',
     symbol: 'USDC',
     decimals: 6,
-    fee: 10_000, // Standard fee for ckUSDC is 10 e6s (0.01 USDC)
+    fee: 10_000,
   });
 };
 
 /**
- * The centralized, exported registry of all supported tokens.
- * Each token object is enhanced with its own `toAtomic` and `fromAtomic` methods.
- * Tokens are created lazily to ensure the config system is initialized first.
+ * Centralized token registry. Tokens are created lazily so the config
+ * system is initialized first.
  */
 export const Tokens = {
   get USDC(): Token {

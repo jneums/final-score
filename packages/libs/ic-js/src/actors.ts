@@ -1,31 +1,162 @@
 import { Actor, HttpAgent, type Identity } from '@icp-sdk/core/agent';
+import type { IDL } from '@icp-sdk/core/candid';
 import { Principal } from '@icp-sdk/core/principal';
-import {
-  FinalScore,
-} from '@final-score/declarations';
+import { FinalScore } from '@final-score/declarations';
 import { getCanisterId, getHost } from './config.js';
 
-/**
- * A generic function to create an actor for any canister.
- * @param idlFactoryFn The IDL factory for the canister
- * @param canisterId The canister ID to connect to
- * @param identity Optional identity to use for the actor
- * @returns An actor instance for the specified canister
- */
-const createActor = <T>(
+// Re-export the service type for convenience
+export type FinalScoreService = FinalScore._SERVICE;
+
+// --------------------------------------------------------------------------
+// Minimal ICRC-1 / ICRC-2 IDL for the USDC ledger
+// --------------------------------------------------------------------------
+
+const usdcIdlFactory: IDL.InterfaceFactory = ({ IDL: IDLInner }) => {
+  const Account = IDLInner.Record({
+    owner: IDLInner.Principal,
+    subaccount: IDLInner.Opt(IDLInner.Vec(IDLInner.Nat8)),
+  });
+
+  const TransferArg = IDLInner.Record({
+    from_subaccount: IDLInner.Opt(IDLInner.Vec(IDLInner.Nat8)),
+    to: Account,
+    amount: IDLInner.Nat,
+    fee: IDLInner.Opt(IDLInner.Nat),
+    memo: IDLInner.Opt(IDLInner.Vec(IDLInner.Nat8)),
+    created_at_time: IDLInner.Opt(IDLInner.Nat64),
+  });
+
+  const TransferError = IDLInner.Variant({
+    BadFee: IDLInner.Record({ expected_fee: IDLInner.Nat }),
+    BadBurn: IDLInner.Record({ min_burn_amount: IDLInner.Nat }),
+    InsufficientFunds: IDLInner.Record({ balance: IDLInner.Nat }),
+    TooOld: IDLInner.Null,
+    CreatedInFuture: IDLInner.Record({ ledger_time: IDLInner.Nat64 }),
+    Duplicate: IDLInner.Record({ duplicate_of: IDLInner.Nat }),
+    TemporarilyUnavailable: IDLInner.Null,
+    GenericError: IDLInner.Record({
+      error_code: IDLInner.Nat,
+      message: IDLInner.Text,
+    }),
+  });
+
+  const TransferResult = IDLInner.Variant({
+    Ok: IDLInner.Nat,
+    Err: TransferError,
+  });
+
+  const ApproveArg = IDLInner.Record({
+    from_subaccount: IDLInner.Opt(IDLInner.Vec(IDLInner.Nat8)),
+    spender: Account,
+    amount: IDLInner.Nat,
+    expected_allowance: IDLInner.Opt(IDLInner.Nat),
+    expires_at: IDLInner.Opt(IDLInner.Nat64),
+    fee: IDLInner.Opt(IDLInner.Nat),
+    memo: IDLInner.Opt(IDLInner.Vec(IDLInner.Nat8)),
+    created_at_time: IDLInner.Opt(IDLInner.Nat64),
+  });
+
+  const ApproveError = IDLInner.Variant({
+    BadFee: IDLInner.Record({ expected_fee: IDLInner.Nat }),
+    InsufficientFunds: IDLInner.Record({ balance: IDLInner.Nat }),
+    AllowanceChanged: IDLInner.Record({ current_allowance: IDLInner.Nat }),
+    Expired: IDLInner.Record({ ledger_time: IDLInner.Nat64 }),
+    TooOld: IDLInner.Null,
+    CreatedInFuture: IDLInner.Record({ ledger_time: IDLInner.Nat64 }),
+    Duplicate: IDLInner.Record({ duplicate_of: IDLInner.Nat }),
+    TemporarilyUnavailable: IDLInner.Null,
+    GenericError: IDLInner.Record({
+      error_code: IDLInner.Nat,
+      message: IDLInner.Text,
+    }),
+  });
+
+  const ApproveResult = IDLInner.Variant({
+    Ok: IDLInner.Nat,
+    Err: ApproveError,
+  });
+
+  const AllowanceArg = IDLInner.Record({
+    account: Account,
+    spender: Account,
+  });
+
+  const AllowanceResult = IDLInner.Record({
+    allowance: IDLInner.Nat,
+    expires_at: IDLInner.Opt(IDLInner.Nat64),
+  });
+
+  return IDLInner.Service({
+    icrc1_balance_of: IDLInner.Func([Account], [IDLInner.Nat], ['query']),
+    icrc1_transfer: IDLInner.Func([TransferArg], [TransferResult], []),
+    icrc2_approve: IDLInner.Func([ApproveArg], [ApproveResult], []),
+    icrc2_allowance: IDLInner.Func([AllowanceArg], [AllowanceResult], ['query']),
+  });
+};
+
+// --------------------------------------------------------------------------
+// USDC Ledger service type (minimal)
+// --------------------------------------------------------------------------
+
+export interface UsdcAccount {
+  owner: Principal;
+  subaccount: [] | [Uint8Array | number[]];
+}
+
+export interface UsdcLedgerService {
+  icrc1_balance_of: (account: UsdcAccount) => Promise<bigint>;
+  icrc1_transfer: (arg: {
+    from_subaccount: [] | [Uint8Array | number[]];
+    to: UsdcAccount;
+    amount: bigint;
+    fee: [] | [bigint];
+    memo: [] | [Uint8Array | number[]];
+    created_at_time: [] | [bigint];
+  }) => Promise<{ Ok: bigint } | { Err: any }>;
+  icrc2_approve: (arg: {
+    from_subaccount: [] | [Uint8Array | number[]];
+    spender: UsdcAccount;
+    amount: bigint;
+    expected_allowance: [] | [bigint];
+    expires_at: [] | [bigint];
+    fee: [] | [bigint];
+    memo: [] | [Uint8Array | number[]];
+    created_at_time: [] | [bigint];
+  }) => Promise<{ Ok: bigint } | { Err: any }>;
+  icrc2_allowance: (arg: {
+    account: UsdcAccount;
+    spender: UsdcAccount;
+  }) => Promise<{ allowance: bigint; expires_at: [] | [bigint] }>;
+}
+
+// --------------------------------------------------------------------------
+// Generic actor creation
+// --------------------------------------------------------------------------
+
+type IdentityOrAgent = Identity | any;
+
+function isPlugAgent(identityOrAgent: any): boolean {
+  return (
+    identityOrAgent &&
+    typeof identityOrAgent === 'object' &&
+    'agent' in identityOrAgent &&
+    'getPrincipal' in identityOrAgent &&
+    typeof identityOrAgent.getPrincipal === 'function'
+  );
+}
+
+const createActor = async <T>(
   idlFactoryFn: any,
   canisterId: string,
   identity?: Identity,
-): T => {
+): Promise<T> => {
   const host = getHost();
   const isLocal =
     host.includes('localhost') ||
     host.includes('127.0.0.1') ||
     host.includes('host.docker.internal');
 
-  // In v3, use HttpAgent.createSync with shouldFetchRootKey for local development
-  // This will fetch the root key before the first request is made
-  const agent = HttpAgent.createSync({
+  const agent = await HttpAgent.create({
     host,
     identity,
     shouldFetchRootKey: isLocal,
@@ -37,15 +168,32 @@ const createActor = <T>(
   });
 };
 
+// --------------------------------------------------------------------------
+// Public actor getters
+// --------------------------------------------------------------------------
+
 /**
- * Gets an actor for the Final Score canister
- * @param identity Optional identity to use for the actor
- * @returns An actor instance for the Final Score canister
+ * Gets an actor for the Final Score canister.
  */
-export const getLeaderboardActor = (identity?: Identity) => {
-  return createActor<FinalScore._SERVICE>(
+export const getFinalScoreActor = async (
+  identity?: Identity,
+): Promise<FinalScoreService> => {
+  return createActor<FinalScoreService>(
     FinalScore.idlFactory,
     getCanisterId('FINAL_SCORE'),
+    identity,
+  );
+};
+
+/**
+ * Gets an actor for the USDC ledger canister (ICRC-1/ICRC-2).
+ */
+export const getUsdcLedgerActor = async (
+  identity?: Identity,
+): Promise<UsdcLedgerService> => {
+  return createActor<UsdcLedgerService>(
+    usdcIdlFactory,
+    getCanisterId('USDC_LEDGER'),
     identity,
   );
 };
