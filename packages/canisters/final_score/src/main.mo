@@ -13,6 +13,8 @@ import Array "mo:base/Array";
 import Float "mo:base/Float";
 import Iter "mo:base/Iter";
 import Nat64 "mo:base/Nat64";
+import Nat32 "mo:base/Nat32";
+import Char "mo:base/Char";
 
 import Json "mo:json";
 import ICCall "mo:ic/Call";
@@ -261,15 +263,40 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   };
 
   /// Parse a price string like "0.60" into basis points (6000)
+  /// Handles: "0.60", "0.4295", "1", "0", "0.999"
   func parsePriceToBps(text : Text) : Nat {
-    // Parse float, multiply by 10000
-    switch (Float.fromText(text)) {
-      case (?f) {
-        let bps = Float.toInt(f * 10000.0);
-        if (bps < 0) 0 else Int.abs(bps);
+    // Split on decimal point
+    var intPart : Nat = 0;
+    var fracPart : Nat = 0;
+    var fracDigits : Nat = 0;
+    var seenDot = false;
+
+    for (c in text.chars()) {
+      if (c == '.') {
+        seenDot := true;
+      } else if (c >= '0' and c <= '9') {
+        let digit = Nat32.toNat(Char.toNat32(c) - 48);
+        if (seenDot) {
+          fracPart := fracPart * 10 + digit;
+          fracDigits += 1;
+        } else {
+          intPart := intPart * 10 + digit;
+        };
       };
-      case null 0;
     };
+
+    // Convert to basis points (10000 = $1.00)
+    // intPart * 10000 + fracPart scaled to 4 decimal places
+    var bps = intPart * 10000;
+    if (fracDigits > 0) {
+      // Scale fracPart to 4 digits
+      var scaled = fracPart;
+      var digits = fracDigits;
+      while (digits < 4) { scaled *= 10; digits += 1 };
+      while (digits > 4) { scaled /= 10; digits -= 1 };
+      bps += scaled;
+    };
+    bps;
   };
 
   /// Parse ISO 8601 date string to nanoseconds
@@ -491,18 +518,6 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
   };
 
-  // Sync every 30 minutes
-  ignore Timer.recurringTimer<system>(
-    #seconds(30 * 60),
-    func() : async () { await syncMarketsFromPolymarket() },
-  );
-
-  // Also run initial sync 10 seconds after deploy
-  ignore Timer.setTimer<system>(
-    #seconds(10),
-    func() : async () { await syncMarketsFromPolymarket() },
-  );
-
   // ═══════════════════════════════════════════════════════════
   // Polymarket Resolution — Automated Market Settlement
   // ═══════════════════════════════════════════════════════════
@@ -665,12 +680,6 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       case null #err("Market not found");
     };
   };
-
-  // Check resolutions every 5 minutes
-  ignore Timer.recurringTimer<system>(
-    #seconds(5 * 60),
-    func() : async () { await checkResolutions() },
-  );
 
   // ═══════════════════════════════════════════════════════════
   // MCP Tool Configuration
@@ -1170,4 +1179,26 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       case null null;
     };
   };
+
+  // ═══════════════════════════════════════════════════════════
+  // Timers (must be after all function definitions)
+  // ═══════════════════════════════════════════════════════════
+
+  // Sync markets from Polymarket every 30 minutes
+  ignore Timer.recurringTimer<system>(
+    #seconds(30 * 60),
+    func() : async () { await syncMarketsFromPolymarket() },
+  );
+
+  // Initial sync 10 seconds after deploy
+  ignore Timer.setTimer<system>(
+    #seconds(10),
+    func() : async () { await syncMarketsFromPolymarket() },
+  );
+
+  // Check resolutions every 5 minutes
+  ignore Timer.recurringTimer<system>(
+    #seconds(5 * 60),
+    func() : async () { await checkResolutions() },
+  );
 };
