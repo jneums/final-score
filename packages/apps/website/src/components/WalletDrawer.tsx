@@ -1,5 +1,6 @@
 import { useAuth } from '../hooks/useAuth';
 import { useWalletDrawer } from '../contexts/WalletDrawerContext';
+import { useUsdcBalance } from '../hooks/useLedger';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { AllowanceManager } from './AllowanceManager';
@@ -9,6 +10,7 @@ import { useState } from 'react';
 
 export function WalletDrawer() {
   const { user, logout } = useAuth();
+  const { data: balance, isLoading: balanceLoading, refetch: refetchBalance } = useUsdcBalance(user?.principal);
   const [copiedPrincipal, setCopiedPrincipal] = useState(false);
   const { isOpen, closeDrawer } = useWalletDrawer();
 
@@ -31,11 +33,7 @@ export function WalletDrawer() {
               <CardDescription>Your wallet balance</CardDescription>
             </div>
             <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {/* TODO: refetch balance */}}
-              >
+              <Button variant="ghost" size="icon" onClick={() => refetchBalance()}>
                 <RefreshCw className="h-4 w-4" />
               </Button>
             </div>
@@ -44,11 +42,8 @@ export function WalletDrawer() {
         <CardContent>
           <div className="space-y-2">
             <div className="text-3xl font-bold">
-              —{' '}
+              {balanceLoading ? '—' : `$${Number(balance ?? 0).toFixed(2)}`}{' '}
               <span className="text-lg text-muted-foreground">USDC</span>
-            </div>
-            <div className="text-xs text-muted-foreground">
-              Balance loading coming soon
             </div>
           </div>
         </CardContent>
