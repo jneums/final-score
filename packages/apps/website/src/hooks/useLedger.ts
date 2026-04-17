@@ -30,7 +30,7 @@ export function useTransferUsdc() {
   return useMutation({
     mutationFn: async ({ to, amount }: { to: string; amount: number }) => {
       if (!user?.agent) throw new Error('Not authenticated');
-      const identity = user.agent.config?.identity;
+      const identity = user.agent;
       if (!identity) throw new Error('No identity available');
       const atomicAmount = Tokens.USDC.toAtomic(amount);
       return transferUsdc(identity, to, atomicAmount);

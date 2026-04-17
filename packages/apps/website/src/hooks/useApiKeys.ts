@@ -11,7 +11,7 @@ export function useApiKeys() {
   return useQuery({
     queryKey: ['api-keys', user?.principal],
     queryFn: async () => {
-      const identity = user?.agent?.config?.identity;
+      const identity = user?.agent;
       if (!identity) throw new Error('Not authenticated');
       return listApiKeys(identity);
     },
@@ -29,7 +29,7 @@ export function useCreateApiKey() {
 
   return useMutation({
     mutationFn: async ({ name, scopes }: { name: string; scopes?: string[] }) => {
-      const identity = user?.agent?.config?.identity;
+      const identity = user?.agent;
       if (!identity) throw new Error('Not authenticated');
       return createApiKey(identity, name, scopes || ['all']);
     },
@@ -48,7 +48,7 @@ export function useRevokeApiKey() {
 
   return useMutation({
     mutationFn: async (hashedKey: string) => {
-      const identity = user?.agent?.config?.identity;
+      const identity = user?.agent;
       if (!identity) throw new Error('Not authenticated');
       await revokeApiKey(identity, hashedKey);
     },

@@ -2,35 +2,37 @@ import { useState } from 'react';
 import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Input } from './ui/input';
+import { useAllowance, useSetAllowance } from '../hooks/useAllowance';
+import { useAuth } from '../hooks/useAuth';
+import { getCanisterId, Tokens } from '@final-score/ic-js';
 
 const PRESET_AMOUNTS = [10, 25, 100, 500];
 
 export function AllowanceManager() {
+  const { user } = useAuth();
+  const spender = (() => { try { return getCanisterId('FINAL_SCORE'); } catch { return ''; } })();
+  const { data: currentAllowance, isLoading: allowanceLoading } = useAllowance(user?.principal, spender);
+  const { mutateAsync: setAllowance, isPending } = useSetAllowance();
   const [customAmount, setCustomAmount] = useState('');
   const [showCustom, setShowCustom] = useState(false);
-  const [isPending, setIsPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSetAllowance = async (amount: number) => {
-    setIsPending(true);
+    setError(null);
     try {
-      // TODO: Call icrc2_approve on USDC ledger (53nhb-haaaa-aaaar-qbn5q-cai) 
-      // with final_score canister (ilyol-uqaaa-aaaai-q34kq-cai) as spender
-      console.log(`Setting USDC allowance: $${amount}`);
+      await setAllowance({ amount, spender });
       setCustomAmount('');
       setShowCustom(false);
-    } catch (error) {
-      console.error('Failed to set allowance:', error);
-    } finally {
-      setIsPending(false);
+    } catch (err: any) {
+      console.error('Failed to set allowance:', err);
+      setError(err?.message || 'Failed to set allowance');
     }
   };
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const amount = parseFloat(customAmount);
-    if (isNaN(amount) || amount <= 0) {
-      return;
-    }
+    if (isNaN(amount) || amount <= 0) return;
     handleSetAllowance(amount);
   };
 
@@ -39,7 +41,7 @@ export function AllowanceManager() {
       <CardHeader>
         <CardTitle>Spending Allowance</CardTitle>
         <CardDescription>
-          Pre-approve USDC for prediction market operations (placing bets, claiming winnings)
+          Pre-approve USDC for trading (order placement)
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -47,9 +49,15 @@ export function AllowanceManager() {
         <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
           <span className="text-sm font-medium">Current Allowance</span>
           <span className="text-lg font-bold">
-            — USDC
+            {allowanceLoading ? '—' : `$${Number(currentAllowance ?? 0).toFixed(2)}`} USDC
           </span>
         </div>
+
+        {error && (
+          <div className="p-2 text-sm text-red-400 bg-red-950/30 rounded">
+            {error}
+          </div>
+        )}
 
         {/* Preset Amounts */}
         <div className="space-y-2">
@@ -60,7 +68,7 @@ export function AllowanceManager() {
                 key={amount}
                 variant="outline"
                 onClick={() => handleSetAllowance(amount)}
-                disabled={isPending}
+                disabled={isPending || !user}
               >
                 ${amount}
               </Button>
@@ -92,19 +100,13 @@ export function AllowanceManager() {
                 onChange={(e) => setCustomAmount(e.target.value)}
                 disabled={isPending}
               />
-              <Button
-                type="submit"
-                disabled={isPending || !customAmount}
-              >
+              <Button type="submit" disabled={isPending || !customAmount}>
                 Set
               </Button>
               <Button
                 type="button"
                 variant="ghost"
-                onClick={() => {
-                  setShowCustom(false);
-                  setCustomAmount('');
-                }}
+                onClick={() => { setShowCustom(false); setCustomAmount(''); }}
                 disabled={isPending}
               >
                 Cancel
