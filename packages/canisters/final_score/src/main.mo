@@ -355,10 +355,33 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   // ═══════════════════════════════════════════════════════════
 
   /// Phase 1: Fetch sport list, build tag map, populate sync queue.
-  /// Runs once, then syncBatch() processes sports incrementally.
+  /// Only whitelisted sports are synced to avoid wasting cycles on 100+ dormant leagues.
   func syncRefreshSportTags() : async () {
     try {
       Debug.print("Refreshing sport tag map...");
+
+      // Whitelist: only sync sports with known active markets
+      // Update this list periodically as seasons change
+      let whitelist : [Text] = [
+        // Football/Soccer — top leagues + cups
+        "epl", "lal", "bun", "fl1", "sea", "ere", "mls", "spl", "elc",
+        "ucl", "uel", "afc", "lib", "cdr",
+        // Cricket
+        "cricipl", "ipl", "cricpsl", "crictbcl",
+        // US Sports
+        "nba", "wnba", "mlb", "nfl", "nhl",
+        // Tennis
+        "atp", "wta",
+        // Esports
+        "lol", "cs2", "val", "dota2",
+        // Other
+        "kbo",
+      ];
+
+      let whitelistSet = Map.new<Text, Bool>();
+      for (w in whitelist.vals()) {
+        Map.set(whitelistSet, thash, w, true);
+      };
 
       let sportsJson = await httpGet("https://gamma-api.polymarket.com/sports");
       let sportsResult = Json.parse(sportsJson);
@@ -401,7 +424,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           };
         };
 
-        if (sportTag != "" and sportTag != "TBD" and sportTag != "test") {
+        if (sportTag != "" and sportTag != "TBD" and sportTag != "test"
+            and Map.has(whitelistSet, thash, sportSlug)) {
           Map.set(sportTagMap, thash, sportSlug, sportTag);
           queue := Array.append(queue, [sportSlug]);
         };
@@ -437,10 +461,11 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
       if (sportTag != "") {
         try {
-          // Paginate — fetch up to 100 events per sport (2 pages × 50)
+          // Fetch up to 20 events per sport (4 pages × 5)
+          // Polymarket event JSON is very large (~100KB per event with nested markets)
           var offset = 0;
-          let pageLimit = 50;
-          let maxPages = 2;
+          let pageLimit = 5;
+          let maxPages = 4;
           var page = 0;
           label pagination loop {
             if (page >= maxPages) break pagination;
@@ -466,9 +491,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
                 let eventMarkets = jsonGetArray(event, "markets");
 
                 // Cap markets per event to prevent instruction limit exhaustion
-                // Sports events typically have 3-10 moneyline markets;
-                // events with 30+ are usually non-sport or edge cases
-                let maxMarketsPerEvent = 15;
+                // Sports matches typically have 3 moneyline markets (Home/Away/Draw)
+                let maxMarketsPerEvent = 5;
                 var marketIds : [Text] = [];
                 var marketsProcessed = 0;
 
@@ -580,12 +604,12 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   /// Orchestrator: called by timer. Refreshes tags if queue empty, else processes a batch.
   func syncMarketsFromPolymarket() : async () {
     if (syncQueue.size() == 0) {
-      // Phase 1: refresh sport tags and fill the queue
+      // Phase 1 only: refresh sport tags and fill the queue.
+      // Don't process any batch in the same call — if the batch traps,
+      // it rolls back the queue population too (ICP atomicity).
       await syncRefreshSportTags();
-      // Process first sport immediately
-      await syncBatch(1);
     } else {
-      // Phase 2: continue processing the queue
+      // Phase 2: process one sport from the queue
       await syncBatch(1);
     };
   };
