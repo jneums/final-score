@@ -89,6 +89,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
   // Polymarket sync tracking
   var knownPolySlugs = Map.new<Text, [Text]>();
+  var sportTagMap = Map.new<Text, Text>(); // sport slug → best tag ID
+  var syncQueue : [Text] = []; // sport slugs pending sync
   var nextMarketId : Nat = 0;
   var nextOrderId : Nat = 0;
   var nextPositionId : Nat = 0;
@@ -349,14 +351,15 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   };
 
   // ═══════════════════════════════════════════════════════════
-  // Polymarket Sync — Market Discovery
+  // Polymarket Sync — Market Discovery (batched)
   // ═══════════════════════════════════════════════════════════
 
-  func syncMarketsFromPolymarket() : async () {
+  /// Phase 1: Fetch sport list, build tag map, populate sync queue.
+  /// Runs once, then syncBatch() processes sports incrementally.
+  func syncRefreshSportTags() : async () {
     try {
-      Debug.print("Starting Polymarket sync...");
+      Debug.print("Refreshing sport tag map...");
 
-      // 1. Fetch sports list
       let sportsJson = await httpGet("https://gamma-api.polymarket.com/sports");
       let sportsResult = Json.parse(sportsJson);
       let sports = switch (sportsResult) {
@@ -365,33 +368,87 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       };
 
       Debug.print("Found " # Nat.toText(sports.size()) # " sports");
-      var newMarkets = 0;
 
-      // 2. For each sport, fetch active events
+      // Build tag frequency map
+      let tagFreq = Map.new<Text, Nat>();
+      for (s in sports.vals()) {
+        let sTags = jsonGetText(s, "tags");
+        for (part in Text.split(sTags, #char ',')) {
+          let t = Text.trimStart(part, #char ' ');
+          if (t != "") {
+            let prev = switch (Map.get(tagFreq, thash, t)) { case (?n) n; case null 0 };
+            Map.set(tagFreq, thash, t, prev + 1);
+          };
+        };
+      };
+
+      // For each sport, pick the rarest (most specific) tag
+      var queue : [Text] = [];
       for (sport in sports.vals()) {
         let sportSlug = jsonGetText(sport, "sport");
         let tags = jsonGetText(sport, "tags");
 
-        // Extract the sport-specific tag (skip "1," prefix)
-        let tagParts = Text.split(tags, #char ',');
         var sportTag = "";
-        var skipFirst = true;
-        for (part in tagParts) {
+        var bestFreq : Nat = 999_999;
+        for (part in Text.split(tags, #char ',')) {
           let trimmed = Text.trimStart(part, #char ' ');
-          if (skipFirst) {
-            skipFirst := false;
-          } else if (sportTag == "") {
-            sportTag := trimmed;
+          if (trimmed != "" and trimmed != "1") {
+            let freq = switch (Map.get(tagFreq, thash, trimmed)) { case (?n) n; case null 0 };
+            if (freq < bestFreq) {
+              bestFreq := freq;
+              sportTag := trimmed;
+            };
           };
         };
 
-        if (sportTag == "" or sportTag == "TBD" or sportTag == "test") {
-          // Skip sports without valid tags
-        } else {
-          try {
+        if (sportTag != "" and sportTag != "TBD" and sportTag != "test") {
+          Map.set(sportTagMap, thash, sportSlug, sportTag);
+          queue := Array.append(queue, [sportSlug]);
+        };
+      };
+
+      syncQueue := queue;
+      Debug.print("Sport tag map built. Queue size: " # Nat.toText(queue.size()));
+    } catch (e) {
+      Debug.print("Failed to refresh sport tags: " # Error.message(e));
+    };
+  };
+
+  /// Phase 2: Process up to `batchSize` sports from the queue.
+  /// Each sport fetches events with pagination (up to 5 pages of 100).
+  func syncBatch(batchSize : Nat) : async () {
+    if (syncQueue.size() == 0) return;
+
+    let count = if (batchSize > syncQueue.size()) syncQueue.size() else batchSize;
+    let batch = Array.tabulate<Text>(count, func(i) { syncQueue[i] });
+    // Remove processed items from front of queue
+    syncQueue := Array.tabulate<Text>(
+      syncQueue.size() - count,
+      func(i) { syncQueue[count + i] },
+    );
+
+    var newMarkets = 0;
+
+    for (sportSlug in batch.vals()) {
+      let sportTag = switch (Map.get(sportTagMap, thash, sportSlug)) {
+        case (?t) t;
+        case null { Debug.print("No tag for " # sportSlug); "" };
+      };
+
+      if (sportTag != "") {
+        try {
+          // Paginate — fetch up to 100 events per sport (2 pages × 50)
+          var offset = 0;
+          let pageLimit = 50;
+          let maxPages = 2;
+          var page = 0;
+          label pagination loop {
+            if (page >= maxPages) break pagination;
+
             let eventsUrl = "https://gamma-api.polymarket.com/events"
               # "?tag_id=" # sportTag
-              # "&active=true&closed=false&limit=50";
+              # "&active=true&closed=false&limit=" # Nat.toText(pageLimit)
+              # "&offset=" # Nat.toText(offset);
 
             let eventsJson = await httpGet(eventsUrl);
             let eventsResult = Json.parse(eventsJson);
@@ -400,7 +457,6 @@ shared ({ caller = deployer }) persistent actor class McpServer(
               case _ { [] };
             };
 
-            // 3. For each event, create local moneyline markets
             for (event in events.vals()) {
               let slug = jsonGetText(event, "slug");
 
@@ -409,24 +465,29 @@ shared ({ caller = deployer }) persistent actor class McpServer(
                 let endDateStr = jsonGetText(event, "endDate");
                 let eventMarkets = jsonGetArray(event, "markets");
 
+                // Cap markets per event to prevent instruction limit exhaustion
+                // Sports events typically have 3-10 moneyline markets;
+                // events with 30+ are usually non-sport or edge cases
+                let maxMarketsPerEvent = 15;
                 var marketIds : [Text] = [];
+                var marketsProcessed = 0;
 
                 for (pm in eventMarkets.vals()) {
+                  if (marketsProcessed >= maxMarketsPerEvent) {
+                    // Skip remaining markets in this event
+                  } else {
                   let question = jsonGetText(pm, "question");
                   let conditionId = jsonGetText(pm, "conditionId");
                   let closed = jsonGetBool(pm, "closed");
 
-                  // Skip closed markets, spread markets, and totals
                   if (not closed and
                       not Text.contains(question, #text "Spread") and
                       not Text.contains(question, #text "O/U") and
                       conditionId != "") {
 
-                    // Parse outcomes and prices
                     let outcomesStr = jsonGetText(pm, "outcomes");
                     let pricesStr = jsonGetText(pm, "outcomePrices");
 
-                    // outcomePrices is a JSON string like "[\"0.60\",\"0.40\"]"
                     let pricesResult = Json.parse(pricesStr);
                     let prices = switch (pricesResult) {
                       case (#ok(#array(arr))) arr;
@@ -447,7 +508,6 @@ shared ({ caller = deployer }) persistent actor class McpServer(
                       };
                     } else { 5000 };
 
-                    // Parse clobTokenIds
                     let tokenIdsStr = jsonGetText(pm, "clobTokenIds");
                     let tokenIdsResult = Json.parse(tokenIdsStr);
                     let tokenIds = switch (tokenIdsResult) {
@@ -461,12 +521,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
                       switch (tokenIds[1]) { case (#string(s)) s; case _ "" };
                     } else { "" };
 
-                    // Parse endDate (ISO 8601) — use seconds-based approach
-                    // For now, store the raw ISO string parsing result
                     let endDateNanos = parseIsoDateToNanos(endDateStr);
-
-                    // Only create if we have a valid end date in the future
-                    // (or if endDateNanos is 0, meaning parsing isn't implemented yet — still create)
                     let marketId = Nat.toText(nextMarketId);
                     nextMarketId += 1;
 
@@ -498,7 +553,9 @@ shared ({ caller = deployer }) persistent actor class McpServer(
                     Map.set(orderBooks, thash, marketId, OrderBook.emptyBook());
                     marketIds := Array.append(marketIds, [marketId]);
                     newMarkets += 1;
+                    marketsProcessed += 1;
                   };
+                  }; // else (marketsProcessed < max)
                 };
 
                 if (marketIds.size() > 0) {
@@ -506,15 +563,30 @@ shared ({ caller = deployer }) persistent actor class McpServer(
                 };
               };
             };
-          } catch (e) {
-            Debug.print("Failed to fetch events for " # sportSlug # ": " # Error.message(e));
-          };
+
+            if (events.size() < pageLimit) break pagination;
+            offset += pageLimit;
+            page += 1;
+          }; // end pagination loop
+        } catch (e) {
+          Debug.print("Failed to fetch events for " # sportSlug # ": " # Error.message(e));
         };
       };
+    };
 
-      Debug.print("Polymarket sync complete. New markets: " # Nat.toText(newMarkets) # ". Total: " # Nat.toText(Map.size(markets)));
-    } catch (e) {
-      Debug.print("Polymarket sync failed: " # Error.message(e));
+    Debug.print("Batch sync: " # Nat.toText(count) # " sports, " # Nat.toText(newMarkets) # " new markets. Queue remaining: " # Nat.toText(syncQueue.size()) # ". Total markets: " # Nat.toText(Map.size(markets)));
+  };
+
+  /// Orchestrator: called by timer. Refreshes tags if queue empty, else processes a batch.
+  func syncMarketsFromPolymarket() : async () {
+    if (syncQueue.size() == 0) {
+      // Phase 1: refresh sport tags and fill the queue
+      await syncRefreshSportTags();
+      // Process first sport immediately
+      await syncBatch(1);
+    } else {
+      // Phase 2: continue processing the queue
+      await syncBatch(1);
     };
   };
 
@@ -1180,14 +1252,169 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
   };
 
+  /// Admin: manually trigger Polymarket sync (bypasses timer)
+  public shared ({ caller }) func admin_trigger_sync() : async Result.Result<Text, Text> {
+    if (caller != owner) return #err("Unauthorized: owner only");
+    await syncMarketsFromPolymarket();
+    let count = Map.size(markets);
+    let remaining = syncQueue.size();
+    #ok("Sync step complete. Total markets: " # Nat.toText(count) # ". Queue remaining: " # Nat.toText(remaining) # ". Call again to process more.");
+  };
+
+  /// Admin: manually trigger resolution check (bypasses timer)
+  public shared ({ caller }) func admin_trigger_resolution_check() : async Result.Result<Text, Text> {
+    if (caller != owner) return #err("Unauthorized: owner only");
+    await checkResolutions();
+    #ok("Resolution check complete");
+  };
+
+  /// Admin: clear all markets and reset sync state (nuclear option for re-sync)
+  public shared ({ caller }) func admin_clear_markets() : async Result.Result<Text, Text> {
+    if (caller != owner) return #err("Unauthorized: owner only");
+
+    // Safety: refuse if any market has orders or positions
+    for ((_, market) in Map.entries(markets)) {
+      if (market.totalVolume > 0) {
+        return #err("Cannot clear: market " # market.marketId # " has volume. Resolve/cancel first.");
+      };
+    };
+
+    let oldCount = Map.size(markets);
+    markets := Map.new<Text, ToolContext.Market>();
+    orderBooks := Map.new<Text, OrderBook.Book>();
+    knownPolySlugs := Map.new<Text, [Text]>();
+    sportTagMap := Map.new<Text, Text>();
+    syncQueue := [];
+    nextMarketId := 0;
+
+    #ok("Cleared " # Nat.toText(oldCount) # " markets. Ready for re-sync.");
+  };
+
+  /// Debug: list markets with optional sport filter, paginated
+  public query func debug_list_markets(
+    sportFilter : ?Text,
+    offset : Nat,
+    limit : Nat,
+  ) : async {
+    total : Nat;
+    returned : Nat;
+    markets : [{
+      marketId : Text;
+      question : Text;
+      eventTitle : Text;
+      sport : Text;
+      status : Text;
+      yesPrice : Nat;
+      noPrice : Nat;
+      polymarketSlug : Text;
+    }];
+  } {
+    let maxLimit = if (limit > 100) 100 else if (limit == 0) 20 else limit;
+    var all : [{
+      marketId : Text;
+      question : Text;
+      eventTitle : Text;
+      sport : Text;
+      status : Text;
+      yesPrice : Nat;
+      noPrice : Nat;
+      polymarketSlug : Text;
+    }] = [];
+
+    for ((_, m) in Map.entries(markets)) {
+      let shouldInclude = switch (sportFilter) {
+        case (?s) { m.sport == s };
+        case null true;
+      };
+      if (shouldInclude) {
+        all := Array.append(all, [{
+          marketId = m.marketId;
+          question = m.question;
+          eventTitle = m.eventTitle;
+          sport = m.sport;
+          status = ToolContext.marketStatusToText(m.status);
+          yesPrice = m.lastYesPrice;
+          noPrice = m.lastNoPrice;
+          polymarketSlug = m.polymarketSlug;
+        }]);
+      };
+    };
+
+    let total = all.size();
+    let start = if (offset >= total) total else offset;
+    let end = if (start + maxLimit > total) total else start + maxLimit;
+    let page = if (start >= end) {
+      [] : [{
+        marketId : Text;
+        question : Text;
+        eventTitle : Text;
+        sport : Text;
+        status : Text;
+        yesPrice : Nat;
+        noPrice : Nat;
+        polymarketSlug : Text;
+      }];
+    } else {
+      Array.tabulate<{
+        marketId : Text;
+        question : Text;
+        eventTitle : Text;
+        sport : Text;
+        status : Text;
+        yesPrice : Nat;
+        noPrice : Nat;
+        polymarketSlug : Text;
+      }>(end - start, func(i) { all[start + i] });
+    };
+
+    { total; returned = page.size(); markets = page };
+  };
+
+  /// Debug: breakdown of synced markets by sport + queue status
+  public query func debug_sync_stats() : async {
+    totalMarkets : Nat;
+    totalSlugs : Nat;
+    nextMarketId : Nat;
+    syncQueueRemaining : Nat;
+    sportTagCount : Nat;
+    sportBreakdown : [{ sport : Text; count : Nat }];
+  } {
+    let sportCounts = Map.new<Text, Nat>();
+    for ((_, m) in Map.entries(markets)) {
+      let prev = switch (Map.get(sportCounts, thash, m.sport)) { case (?n) n; case null 0 };
+      Map.set(sportCounts, thash, m.sport, prev + 1);
+    };
+
+    var breakdown : [{ sport : Text; count : Nat }] = [];
+    for ((sport, count) in Map.entries(sportCounts)) {
+      breakdown := Array.append(breakdown, [{ sport; count }]);
+    };
+
+    {
+      totalMarkets = Map.size(markets);
+      totalSlugs = Map.size(knownPolySlugs);
+      nextMarketId;
+      syncQueueRemaining = syncQueue.size();
+      sportTagCount = Map.size(sportTagMap);
+      sportBreakdown = breakdown;
+    };
+  };
+
   // ═══════════════════════════════════════════════════════════
   // Timers (must be after all function definitions)
   // ═══════════════════════════════════════════════════════════
 
-  // Sync markets from Polymarket every 30 minutes
+  // Sync markets from Polymarket every 30 minutes (refreshes sport tags + first batch)
   ignore Timer.recurringTimer<system>(
     #seconds(30 * 60),
     func() : async () { await syncMarketsFromPolymarket() },
+  );
+
+  // Drain queue every 60 seconds — processes 1 sport per tick
+  // When queue is empty, this is a no-op (syncBatch returns immediately)
+  ignore Timer.recurringTimer<system>(
+    #seconds(60),
+    func() : async () { await syncBatch(1) },
   );
 
   // Initial sync 10 seconds after deploy
