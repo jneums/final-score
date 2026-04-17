@@ -1034,7 +1034,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
   };
 
-  /// Admin: manually create a market (for testing before Polymarket sync is implemented)
+  /// Admin: create a market (called by off-chain sync script)
   public shared ({ caller }) func admin_create_market(
     question : Text,
     eventTitle : Text,
@@ -1046,6 +1046,13 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     noPrice : Nat,
   ) : async Result.Result<Text, Text> {
     if (caller != owner) return #err("Unauthorized: owner only");
+
+    // Dedup: skip if we already have a market with this conditionId
+    for ((_, existing) in Map.entries(markets)) {
+      if (existing.polymarketConditionId == polymarketConditionId) {
+        return #err("Market already exists for conditionId " # polymarketConditionId);
+      };
+    };
 
     let marketId = Nat.toText(nextMarketId);
     nextMarketId += 1;
@@ -1428,26 +1435,10 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   // Timers (must be after all function definitions)
   // ═══════════════════════════════════════════════════════════
 
-  // Sync markets from Polymarket every 30 minutes (refreshes sport tags + first batch)
-  ignore Timer.recurringTimer<system>(
-    #seconds(30 * 60),
-    func() : async () { await syncMarketsFromPolymarket() },
-  );
+  // Market sync is handled off-chain via cron script calling admin_create_market.
+  // This avoids ICP instruction limits on JSON parsing of Polymarket responses.
 
-  // Drain queue every 60 seconds — processes 1 sport per tick
-  // When queue is empty, this is a no-op (syncBatch returns immediately)
-  ignore Timer.recurringTimer<system>(
-    #seconds(60),
-    func() : async () { await syncBatch(1) },
-  );
-
-  // Initial sync 10 seconds after deploy
-  ignore Timer.setTimer<system>(
-    #seconds(10),
-    func() : async () { await syncMarketsFromPolymarket() },
-  );
-
-  // Check resolutions every 5 minutes
+  // Check resolutions every 5 minutes (lightweight — only checks #Closed markets)
   ignore Timer.recurringTimer<system>(
     #seconds(5 * 60),
     func() : async () { await checkResolutions() },
