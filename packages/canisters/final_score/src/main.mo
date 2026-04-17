@@ -16,6 +16,7 @@ import Nat64 "mo:base/Nat64";
 
 import Json "mo:json";
 import ICCall "mo:ic/Call";
+import DateTime "mo:datetime/DateTime";
 import HttpTypes "mo:http-types";
 import Map "mo:map/Map";
 import { thash } "mo:map/Map";
@@ -272,13 +273,24 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   };
 
   /// Parse ISO 8601 date string to nanoseconds
-  /// Simple approach: extract year-month-day-hour-min-sec
+  /// Handles formats like "2026-03-21T15:00:00Z" and "2026-03-21T15:00:00.000Z"
   func parseIsoDateToNanos(isoDate : Text) : Int {
-    // For a proper implementation we'd use a date library.
-    // Simplified: count seconds from epoch using the datetime fields.
-    // Since Polymarket endDates are always future, we'll use a rough approach.
-    // TODO: Use mo:datetime for proper parsing.
-    // For now, return 0 and rely on admin_create_market for manual testing.
+    // Try with Z suffix (most Polymarket dates)
+    switch (DateTime.fromText(isoDate, "YYYY-MM-DDTHH:mm:ssZ")) {
+      case (?dt) { return dt.toTime() };
+      case null {};
+    };
+    // Try with milliseconds
+    switch (DateTime.fromText(isoDate, "YYYY-MM-DDTHH:mm:ss.SSSZ")) {
+      case (?dt) { return dt.toTime() };
+      case null {};
+    };
+    // Try without timezone
+    switch (DateTime.fromText(isoDate, "YYYY-MM-DDTHH:mm:ss")) {
+      case (?dt) { return dt.toTime() };
+      case null {};
+    };
+    Debug.print("Failed to parse date: " # isoDate);
     0;
   };
 
