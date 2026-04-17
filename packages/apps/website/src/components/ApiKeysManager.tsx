@@ -6,12 +6,15 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Badge } from './ui/badge';
 import { toast } from 'sonner';
 import { Copy, Key, Trash2, Plus, RefreshCw, Eye, EyeOff } from 'lucide-react';
+import { useApiKeys, useCreateApiKey, useRevokeApiKey } from '../hooks/useApiKeys';
 
 const MCP_URL = 'https://ilyol-uqaaa-aaaai-q34kq-cai.icp0.io/mcp';
 
 export function ApiKeysManager() {
-  const [keys, setKeys] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const { data: keys, isLoading: loading, refetch } = useApiKeys();
+  const { mutateAsync: createKey, isPending: isCreating } = useCreateApiKey();
+  const { mutateAsync: revokeKey, isPending: isRevoking } = useRevokeApiKey();
+
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showNewKeyDialog, setShowNewKeyDialog] = useState(false);
   const [showRevokeDialog, setShowRevokeDialog] = useState(false);
@@ -19,16 +22,14 @@ export function ApiKeysManager() {
   const [newKeyName, setNewKeyName] = useState('');
   const [newApiKey, setNewApiKey] = useState('');
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set());
-  const [isPending, setIsPending] = useState(false);
+
+  const isPending = isCreating || isRevoking;
 
   const handleCreateKey = async () => {
     if (!newKeyName.trim()) return;
-    
+
     try {
-      setIsPending(true);
-      // TODO: Call canister to create API key
-      console.log('Creating API key:', newKeyName.trim());
-      const rawKey = 'placeholder-key-' + Date.now();
+      const rawKey = await createKey({ name: newKeyName.trim(), scopes: ['all'] });
       setNewApiKey(rawKey);
       setShowCreateDialog(false);
       setShowNewKeyDialog(true);
@@ -36,25 +37,19 @@ export function ApiKeysManager() {
       toast.success('API key created successfully!');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to create API key');
-    } finally {
-      setIsPending(false);
     }
   };
 
   const handleRevokeKey = async () => {
     if (!keyToRevoke) return;
-    
+
     try {
-      setIsPending(true);
-      // TODO: Call canister to revoke API key
-      console.log('Revoking API key:', keyToRevoke.id);
+      await revokeKey(keyToRevoke.id);
       setShowRevokeDialog(false);
       setKeyToRevoke(null);
       toast.success('API key revoked successfully');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to revoke API key');
-    } finally {
-      setIsPending(false);
     }
   };
 
@@ -66,11 +61,8 @@ export function ApiKeysManager() {
   const toggleRevealKey = (keyId: string) => {
     setRevealedKeys(prev => {
       const next = new Set(prev);
-      if (next.has(keyId)) {
-        next.delete(keyId);
-      } else {
-        next.add(keyId);
-      }
+      if (next.has(keyId)) next.delete(keyId);
+      else next.add(keyId);
       return next;
     });
   };
@@ -79,6 +71,8 @@ export function ApiKeysManager() {
     if (key.length < 12) return key;
     return `${key.slice(0, 8)}...${key.slice(-4)}`;
   };
+
+  const keysList = keys ?? [];
 
   return (
     <>
@@ -98,7 +92,7 @@ export function ApiKeysManager() {
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setLoading(true)}
+                onClick={() => refetch()}
                 disabled={loading}
               >
                 <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
@@ -137,12 +131,7 @@ export function ApiKeysManager() {
                   <code className="flex-1 px-3 py-2 bg-background rounded-md border text-sm font-mono">
                     x-api-key
                   </code>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => copyToClipboard('x-api-key', 'Header name')}
-                    className="shrink-0"
-                  >
+                  <Button size="sm" variant="outline" onClick={() => copyToClipboard('x-api-key', 'Header name')} className="shrink-0">
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
@@ -153,12 +142,7 @@ export function ApiKeysManager() {
                   <code className="flex-1 px-3 py-2 bg-background rounded-md border text-sm font-mono break-all">
                     {MCP_URL}
                   </code>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => copyToClipboard(MCP_URL, 'MCP URL')}
-                    className="shrink-0"
-                  >
+                  <Button size="sm" variant="outline" onClick={() => copyToClipboard(MCP_URL, 'MCP URL')} className="shrink-0">
                     <Copy className="h-4 w-4" />
                   </Button>
                 </div>
@@ -166,15 +150,15 @@ export function ApiKeysManager() {
             </div>
           </div>
 
-          {keys.length === 0 ? (
+          {keysList.length === 0 ? (
             <div className="text-center py-8 text-muted-foreground">
               <Key className="h-12 w-12 mx-auto mb-3 opacity-20" />
-              <p>No API keys yet</p>
+              <p>{loading ? 'Loading keys...' : 'No API keys yet'}</p>
               <p className="text-sm mt-1">Create a key to use with MCP tools and external integrations</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {keys.map((key: any) => (
+              {keysList.map((key: any) => (
                 <div
                   key={key.hashed_key}
                   className="flex items-center justify-between p-3 border rounded-lg hover:bg-accent/50 transition-colors"
@@ -250,18 +234,10 @@ export function ApiKeysManager() {
             </div>
           </div>
           <div className="flex gap-2">
-            <Button
-              onClick={handleCreateKey}
-              disabled={isPending || !newKeyName.trim()}
-              className="flex-1"
-            >
-              {isPending ? 'Creating...' : 'Create Key'}
+            <Button onClick={handleCreateKey} disabled={isPending || !newKeyName.trim()} className="flex-1">
+              {isCreating ? 'Creating...' : 'Create Key'}
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => setShowCreateDialog(false)}
-              disabled={isPending}
-            >
+            <Button variant="outline" onClick={() => setShowCreateDialog(false)} disabled={isPending}>
               Cancel
             </Button>
           </div>
@@ -287,30 +263,9 @@ export function ApiKeysManager() {
                 <code className="flex-1 p-2 bg-background rounded border text-sm font-mono break-all">
                   {newApiKey}
                 </code>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => copyToClipboard(newApiKey, 'API key')}
-                >
+                <Button size="sm" variant="outline" onClick={() => copyToClipboard(newApiKey, 'API key')}>
                   <Copy className="h-4 w-4" />
                 </Button>
-              </div>
-            </div>
-            <div className="p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg space-y-2">
-              <p className="text-sm font-medium text-blue-600 dark:text-blue-400">
-                MCP Server Configuration
-              </p>
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">Header Name:</p>
-                <code className="block p-2 bg-background rounded border text-xs font-mono">
-                  x-api-key
-                </code>
-              </div>
-              <div className="space-y-1">
-                <p className="text-xs text-muted-foreground">MCP Server URL:</p>
-                <code className="block p-2 bg-background rounded border text-xs font-mono break-all">
-                  {MCP_URL}
-                </code>
               </div>
             </div>
             <div className="p-3 bg-orange-500/10 border border-orange-500/30 rounded-lg">
@@ -334,28 +289,11 @@ export function ApiKeysManager() {
               Are you sure you want to revoke the API key "{keyToRevoke?.name}"? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
-          <div className="p-4 bg-destructive/10 border border-destructive/30 rounded-lg">
-            <p className="text-sm text-destructive">
-              ⚠️ Any applications or integrations using this key will immediately lose access.
-            </p>
-          </div>
           <div className="flex gap-2">
-            <Button
-              variant="destructive"
-              onClick={handleRevokeKey}
-              disabled={isPending}
-              className="flex-1"
-            >
-              {isPending ? 'Revoking...' : 'Revoke Key'}
+            <Button variant="destructive" onClick={handleRevokeKey} disabled={isPending} className="flex-1">
+              {isRevoking ? 'Revoking...' : 'Revoke Key'}
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setShowRevokeDialog(false);
-                setKeyToRevoke(null);
-              }}
-              disabled={isPending}
-            >
+            <Button variant="outline" onClick={() => { setShowRevokeDialog(false); setKeyToRevoke(null); }} disabled={isPending}>
               Cancel
             </Button>
           </div>
