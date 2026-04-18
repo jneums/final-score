@@ -40,3 +40,25 @@ export const getMarket = async (marketId) => {
         return null;
     return result[0] ?? null;
 };
+/**
+ * Lists markets with optional sport filter and pagination.
+ * Uses the canister's debug_list_markets query (no API key needed).
+ */
+export const queryMarkets = async (sportFilter, offset = 0, limit = 50) => {
+    const actor = await getFinalScoreActor();
+    const result = await actor.debug_list_markets(sportFilter ? [sportFilter] : [], BigInt(offset), BigInt(limit));
+    return {
+        total: Number(result.total),
+        returned: Number(result.returned),
+        markets: result.markets.map((m) => ({
+            marketId: m.marketId,
+            question: m.question,
+            eventTitle: m.eventTitle,
+            sport: m.sport,
+            status: m.status,
+            yesPrice: Number(m.yesPrice),
+            noPrice: Number(m.noPrice),
+            polymarketSlug: m.polymarketSlug,
+        })),
+    };
+};

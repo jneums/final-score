@@ -3,9 +3,11 @@ import {
   getMarketCount,
   getPlatformStats,
   getMarket,
+  queryMarkets,
   type MarketCount,
   type PlatformStats,
   type MarketInfo,
+  type MarketListResult,
 } from '@final-score/ic-js';
 
 /**
@@ -41,5 +43,17 @@ export function useMarket(marketId: string | undefined) {
     queryFn: () => getMarket(marketId!),
     enabled: !!marketId,
     staleTime: 30 * 1000,
+  });
+}
+
+/**
+ * Hook to list markets with optional sport filter and pagination
+ */
+export function useMarketsList(sport?: string, offset = 0, limit = 50) {
+  return useQuery<MarketListResult>({
+    queryKey: ['markets-list', sport, offset, limit],
+    queryFn: () => queryMarkets(sport, offset, limit),
+    staleTime: 60 * 1000,
+    refetchInterval: 120 * 1000,
   });
 }

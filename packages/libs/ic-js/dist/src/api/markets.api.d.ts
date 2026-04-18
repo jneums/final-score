@@ -38,3 +38,23 @@ export declare const getPlatformStats: () => Promise<PlatformStats>;
  * @returns The market info or null if not found
  */
 export declare const getMarket: (marketId: string) => Promise<MarketInfo | null>;
+export interface MarketListItem {
+    marketId: string;
+    question: string;
+    eventTitle: string;
+    sport: string;
+    status: string;
+    yesPrice: number;
+    noPrice: number;
+    polymarketSlug: string;
+}
+export interface MarketListResult {
+    total: number;
+    returned: number;
+    markets: MarketListItem[];
+}
+/**
+ * Lists markets with optional sport filter and pagination.
+ * Uses the canister's debug_list_markets query (no API key needed).
+ */
+export declare const queryMarkets: (sportFilter?: string, offset?: number, limit?: number) => Promise<MarketListResult>;

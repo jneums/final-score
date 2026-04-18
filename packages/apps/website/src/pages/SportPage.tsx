@@ -2,27 +2,96 @@ import { useParams, Link } from 'react-router-dom';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { useMarketCount } from '../hooks/useMarkets';
-import { ArrowLeft, Calendar, Clock, Search } from 'lucide-react';
+import { useMarketsList } from '../hooks/useMarkets';
+import { ArrowLeft, Calendar, TrendingUp, TrendingDown, Loader2 } from 'lucide-react';
 
-const SPORT_META: Record<string, { name: string; emoji: string; description: string }> = {
-  cricket: { name: 'Cricket', emoji: '🏏', description: 'IPL, international matches, and more' },
-  football: { name: 'Football', emoji: '⚽', description: 'Premier League, Champions League, World Cup' },
-  basketball: { name: 'Basketball', emoji: '🏀', description: 'NBA, EuroLeague, and international' },
-  tennis: { name: 'Tennis', emoji: '🎾', description: 'Grand Slams, ATP, WTA tours' },
-  baseball: { name: 'Baseball', emoji: '⚾', description: 'MLB and international leagues' },
-  mma: { name: 'MMA', emoji: '🥊', description: 'UFC, Bellator, and more' },
-  esports: { name: 'Esports', emoji: '🎮', description: 'CS2, LoL, Dota 2, Valorant' },
-  hockey: { name: 'Hockey', emoji: '🏒', description: 'NHL and international leagues' },
+// Map URL slugs to display names + which Polymarket sport codes to query
+const SPORT_CONFIG: Record<string, {
+  name: string;
+  emoji: string;
+  description: string;
+  polymarketSports: string[];
+}> = {
+  basketball: {
+    name: 'Basketball',
+    emoji: '🏀',
+    description: 'NBA Playoffs, WNBA, and international leagues',
+    polymarketSports: ['nba', 'wnba'],
+  },
+  football: {
+    name: 'Football',
+    emoji: '⚽',
+    description: 'Premier League, La Liga, Bundesliga, Serie A, Ligue 1, UCL',
+    polymarketSports: ['epl', 'lal', 'bun', 'fl1', 'sea', 'ucl'],
+  },
+  cricket: {
+    name: 'Cricket',
+    emoji: '🏏',
+    description: 'IPL and international matches',
+    polymarketSports: ['cricipl', 'ipl'],
+  },
+  baseball: {
+    name: 'Baseball',
+    emoji: '⚾',
+    description: 'MLB and KBO leagues',
+    polymarketSports: ['mlb', 'kbo'],
+  },
+  hockey: {
+    name: 'Hockey',
+    emoji: '🏒',
+    description: 'NHL and international leagues',
+    polymarketSports: ['nhl'],
+  },
+  'american-football': {
+    name: 'American Football',
+    emoji: '🏈',
+    description: 'NFL and college football',
+    polymarketSports: ['nfl'],
+  },
 };
+
+// League display names for Polymarket sport codes
+const LEAGUE_NAMES: Record<string, string> = {
+  nba: 'NBA', wnba: 'WNBA', epl: 'Premier League', lal: 'La Liga',
+  bun: 'Bundesliga', fl1: 'Ligue 1', sea: 'Serie A', ucl: 'Champions League',
+  cricipl: 'IPL', ipl: 'IPL', mlb: 'MLB', kbo: 'KBO',
+  nhl: 'NHL', nfl: 'NFL',
+};
+
+function formatPrice(bps: number): string {
+  if (bps <= 0) return '—';
+  return `${(bps / 100).toFixed(0)}¢`;
+}
 
 export default function SportPage() {
   const { slug } = useParams();
-  const sport = SPORT_META[slug || ''] || { name: slug || 'Unknown', emoji: '🏆', description: '' };
-  const { data: marketCount } = useMarketCount();
+  const config = SPORT_CONFIG[slug || ''] || {
+    name: slug || 'Unknown',
+    emoji: '🏆',
+    description: '',
+    polymarketSports: [],
+  };
 
-  const isCricket = slug === 'cricket';
-  const activeCount = isCricket ? (marketCount?.open ?? 0) : 0;
+  // Fetch markets for all leagues in this sport category
+  // We fetch without filter and filter client-side since we need multiple sport codes
+  const { data: allMarkets, isLoading } = useMarketsList(undefined, 0, 100);
+
+  // Filter to only markets belonging to this sport category
+  const sportSlugs = new Set(config.polymarketSports);
+  const markets = allMarkets?.markets.filter(m => sportSlugs.has(m.sport)) ?? [];
+
+  // Group markets by event (polymarketSlug)
+  const eventGroups = new Map<string, typeof markets>();
+  for (const m of markets) {
+    const key = m.polymarketSlug;
+    if (!eventGroups.has(key)) eventGroups.set(key, []);
+    eventGroups.get(key)!.push(m);
+  }
+
+  // Sort events by first market's eventTitle
+  const events = Array.from(eventGroups.entries()).sort((a, b) =>
+    (a[1][0]?.eventTitle ?? '').localeCompare(b[1][0]?.eventTitle ?? '')
+  );
 
   return (
     <div className="min-h-screen">
@@ -34,67 +103,40 @@ export default function SportPage() {
             Back to Home
           </Link>
           <div className="flex items-center gap-4">
-            <span className="text-5xl">{sport.emoji}</span>
+            <span className="text-5xl">{config.emoji}</span>
             <div>
-              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">{sport.name}</h1>
-              <p className="text-muted-foreground mt-1">{sport.description}</p>
+              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight">{config.name}</h1>
+              <p className="text-muted-foreground mt-1">{config.description}</p>
             </div>
           </div>
           <div className="flex items-center gap-3 mt-6">
             <Badge variant="outline" className="border-primary/30 text-primary">
               <Calendar className="w-3 h-3 mr-1" />
-              {activeCount} Active Markets
+              {markets.length} Markets
             </Badge>
-            {isCricket && (
-              <Badge variant="outline" className="border-green-500/30 text-green-400">
-                IPL 2025
-              </Badge>
-            )}
+            <Badge variant="outline" className="border-green-500/30 text-green-400">
+              {events.length} Events
+            </Badge>
           </div>
         </div>
       </section>
 
-      {/* Markets Grid */}
-      <section className="container mx-auto px-4 py-12">
-        {isCricket ? (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold">Available Markets</h2>
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <Search className="w-4 h-4" />
-                <span>{marketCount?.total ?? 0} total markets</span>
-              </div>
-            </div>
-            <Card className="border-dashed border-2 border-border/60">
-              <CardContent className="py-16 text-center space-y-4">
-                <Clock className="w-12 h-12 mx-auto text-muted-foreground/40" />
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">
-                    Market browsing coming soon
-                  </h3>
-                  <p className="text-muted-foreground mt-2 max-w-md mx-auto">
-                    {activeCount} markets are synced from Polymarket. A filterable market grid with live prices is coming in the next update.
-                  </p>
-                </div>
-                <p className="text-xs text-muted-foreground/60">
-                  Use the MCP API or CLI to browse and trade on markets right now
-                </p>
-              </CardContent>
-            </Card>
+      {/* Markets */}
+      <section className="container mx-auto px-4 py-8">
+        {isLoading ? (
+          <div className="flex items-center justify-center py-20 gap-3">
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            <span className="text-muted-foreground">Loading markets...</span>
           </div>
-        ) : (
+        ) : events.length === 0 ? (
           <Card className="border-dashed border-2 border-border/60">
             <CardContent className="py-20 text-center space-y-4">
-              <span className="text-6xl block">{sport.emoji}</span>
-              <div>
-                <h3 className="text-xl font-semibold text-foreground">
-                  Coming Soon
-                </h3>
-                <p className="text-muted-foreground mt-2 max-w-md mx-auto">
-                  {sport.name} markets will appear here once they're available.
-                  Check back soon or follow our updates.
-                </p>
-              </div>
+              <span className="text-6xl block">{config.emoji}</span>
+              <h3 className="text-xl font-semibold">No Active Markets</h3>
+              <p className="text-muted-foreground max-w-md mx-auto">
+                {config.name} markets will appear here when matches are scheduled.
+                Check back soon.
+              </p>
               <Button variant="outline" asChild>
                 <Link to="/">
                   <ArrowLeft className="w-4 h-4 mr-2" />
@@ -103,6 +145,58 @@ export default function SportPage() {
               </Button>
             </CardContent>
           </Card>
+        ) : (
+          <div className="space-y-4">
+            {events.map(([eventSlug, eventMarkets]) => {
+              const first = eventMarkets[0];
+              const league = LEAGUE_NAMES[first.sport] || first.sport.toUpperCase();
+
+              return (
+                <Card key={eventSlug} className="hover:border-primary/30 transition-colors">
+                  <CardContent className="p-5">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="text-xs">
+                          {league}
+                        </Badge>
+                        <h3 className="font-semibold text-lg">{first.eventTitle}</h3>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={first.status === 'open'
+                          ? 'border-green-500/30 text-green-400'
+                          : 'border-muted text-muted-foreground'}
+                      >
+                        {first.status}
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {eventMarkets.map((m) => (
+                        <Link key={m.marketId} to={`/event/${m.marketId}`}>
+                          <div className="p-3 rounded-lg border border-border/50 hover:border-primary/40 hover:bg-card/50 transition-all cursor-pointer group">
+                            <p className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate">
+                              {m.question}
+                            </p>
+                            <div className="flex items-center gap-4 mt-2 text-xs">
+                              <span className="flex items-center gap-1 text-green-400">
+                                <TrendingUp className="w-3 h-3" />
+                                Yes {formatPrice(m.yesPrice)}
+                              </span>
+                              <span className="flex items-center gap-1 text-red-400">
+                                <TrendingDown className="w-3 h-3" />
+                                No {formatPrice(m.noPrice)}
+                              </span>
+                            </div>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
         )}
       </section>
     </div>

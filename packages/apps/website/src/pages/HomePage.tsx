@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { usePlatformStats, useMarketCount } from '../hooks/useMarkets';
+import { usePlatformStats, useMarketCount, useMarketsList } from '../hooks/useMarkets';
 import {
   TrendingUp,
   Users,
@@ -14,20 +14,63 @@ import {
   Globe,
 } from 'lucide-react';
 
+// Sport categories that map to Polymarket sport slugs
 const SPORTS = [
-  { slug: 'cricket', name: 'Cricket', emoji: '🏏' },
-  { slug: 'football', name: 'Football', emoji: '⚽' },
-  { slug: 'basketball', name: 'Basketball', emoji: '🏀' },
-  { slug: 'tennis', name: 'Tennis', emoji: '🎾' },
-  { slug: 'baseball', name: 'Baseball', emoji: '⚾' },
-  { slug: 'mma', name: 'MMA', emoji: '🥊' },
-  { slug: 'esports', name: 'Esports', emoji: '🎮' },
-  { slug: 'hockey', name: 'Hockey', emoji: '🏒' },
+  {
+    slug: 'basketball',
+    name: 'Basketball',
+    emoji: '🏀',
+    polymarketSports: ['nba', 'wnba'],
+  },
+  {
+    slug: 'football',
+    name: 'Football',
+    emoji: '⚽',
+    polymarketSports: ['epl', 'lal', 'bun', 'fl1', 'sea', 'ucl'],
+  },
+  {
+    slug: 'cricket',
+    name: 'Cricket',
+    emoji: '🏏',
+    polymarketSports: ['cricipl', 'ipl'],
+  },
+  {
+    slug: 'baseball',
+    name: 'Baseball',
+    emoji: '⚾',
+    polymarketSports: ['mlb', 'kbo'],
+  },
+  {
+    slug: 'hockey',
+    name: 'Hockey',
+    emoji: '🏒',
+    polymarketSports: ['nhl'],
+  },
+  {
+    slug: 'american-football',
+    name: 'American Football',
+    emoji: '🏈',
+    polymarketSports: ['nfl'],
+  },
 ];
 
 export default function HomePage() {
   const { data: stats, isLoading: statsLoading } = usePlatformStats();
   const { data: marketCount, isLoading: countLoading } = useMarketCount();
+  // Fetch all markets to compute per-sport counts
+  const { data: allMarkets } = useMarketsList(undefined, 0, 100);
+
+  // Compute per-sport-category counts from actual market data
+  const sportCounts: Record<string, number> = {};
+  if (allMarkets?.markets) {
+    for (const m of allMarkets.markets) {
+      for (const sport of SPORTS) {
+        if (sport.polymarketSports.includes(m.sport)) {
+          sportCounts[sport.slug] = (sportCounts[sport.slug] || 0) + 1;
+        }
+      }
+    }
+  }
 
   return (
     <div className="min-h-screen">
@@ -119,28 +162,29 @@ export default function HomePage() {
             <p className="text-muted-foreground mt-1">Browse prediction markets by sport</p>
           </div>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 gap-4">
-          {SPORTS.map((sport) => (
-            <Link key={sport.slug} to={`/sport/${sport.slug}`}>
-              <Card className="hover:border-primary/50 transition-all duration-200 hover:shadow-lg hover:shadow-primary/5 cursor-pointer group">
-                <CardContent className="p-6 text-center">
-                  <span className="text-4xl block mb-3">{sport.emoji}</span>
-                  <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
-                    {sport.name}
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {sport.slug === 'cricket'
-                      ? `${countLoading ? '...' : marketCount?.open ?? 0} active`
-                      : 'Coming soon'}
-                  </p>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4">
+          {SPORTS.map((sport) => {
+            const count = sportCounts[sport.slug] || 0;
+            return (
+              <Link key={sport.slug} to={`/sport/${sport.slug}`}>
+                <Card className="hover:border-primary/50 transition-all duration-200 hover:shadow-lg hover:shadow-primary/5 cursor-pointer group">
+                  <CardContent className="p-6 text-center">
+                    <span className="text-4xl block mb-3">{sport.emoji}</span>
+                    <h3 className="font-semibold text-foreground group-hover:text-primary transition-colors">
+                      {sport.name}
+                    </h3>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {count > 0 ? `${count} markets` : 'No active markets'}
+                    </p>
+                  </CardContent>
+                </Card>
+              </Link>
+            );
+          })}
         </div>
       </section>
 
-      {/* Featured Markets Section */}
+      {/* Markets Overview */}
       <section className="container mx-auto px-4 py-12">
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -154,12 +198,6 @@ export default function HomePage() {
                 : `${marketCount?.total ?? 0} total markets synced from Polymarket`}
             </p>
           </div>
-          <Link to="/sport/cricket">
-            <Button variant="outline" size="sm">
-              Browse All
-              <ArrowRight className="w-4 h-4 ml-2" />
-            </Button>
-          </Link>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>

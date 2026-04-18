@@ -74,3 +74,51 @@ export const getMarket = async (
   if (result.length === 0) return null;
   return result[0] ?? null;
 };
+
+export interface MarketListItem {
+  marketId: string;
+  question: string;
+  eventTitle: string;
+  sport: string;
+  status: string;
+  yesPrice: number;
+  noPrice: number;
+  polymarketSlug: string;
+}
+
+export interface MarketListResult {
+  total: number;
+  returned: number;
+  markets: MarketListItem[];
+}
+
+/**
+ * Lists markets with optional sport filter and pagination.
+ * Uses the canister's debug_list_markets query (no API key needed).
+ */
+export const queryMarkets = async (
+  sportFilter?: string,
+  offset: number = 0,
+  limit: number = 50,
+): Promise<MarketListResult> => {
+  const actor = await getFinalScoreActor();
+  const result = await (actor as any).debug_list_markets(
+    sportFilter ? [sportFilter] : [],
+    BigInt(offset),
+    BigInt(limit),
+  );
+  return {
+    total: Number(result.total),
+    returned: Number(result.returned),
+    markets: result.markets.map((m: any) => ({
+      marketId: m.marketId,
+      question: m.question,
+      eventTitle: m.eventTitle,
+      sport: m.sport,
+      status: m.status,
+      yesPrice: Number(m.yesPrice),
+      noPrice: Number(m.noPrice),
+      polymarketSlug: m.polymarketSlug,
+    })),
+  };
+};
