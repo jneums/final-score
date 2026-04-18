@@ -53,8 +53,56 @@ export interface MarketListResult {
     returned: number;
     markets: MarketListItem[];
 }
-/**
- * Lists markets with optional sport filter and pagination.
- * Uses the canister's debug_list_markets query (no API key needed).
- */
 export declare const queryMarkets: (sportFilter?: string, offset?: number, limit?: number) => Promise<MarketListResult>;
+export interface DepthLevel {
+    price: number;
+    totalSize: number;
+    orderCount: number;
+}
+export interface OrderBookData {
+    yesBids: DepthLevel[];
+    noBids: DepthLevel[];
+    bestYesBid: number;
+    bestNoBid: number;
+    impliedYesAsk: number;
+    impliedNoAsk: number;
+    spread: number;
+}
+export declare const getOrderBook: (marketId: string, maxLevels?: number) => Promise<OrderBookData>;
+export interface PlaceOrderResult {
+    orderId: string;
+    status: string;
+    filled: number;
+    remaining: number;
+    fills: {
+        tradeId: string;
+        price: number;
+        size: number;
+    }[];
+}
+export declare const placeOrderCandid: (identity: any, marketId: string, outcome: string, price: number, size: number) => Promise<PlaceOrderResult>;
+export declare const cancelOrderCandid: (identity: any, orderId: string) => Promise<string>;
+export interface UserOrder {
+    orderId: string;
+    marketId: string;
+    outcome: string;
+    price: number;
+    size: number;
+    filledSize: number;
+    status: string;
+    timestamp: number;
+}
+export declare const getMyOrders: (identity: any, statusFilter?: string, marketFilter?: string) => Promise<UserOrder[]>;
+export interface UserPosition {
+    positionId: string;
+    marketId: string;
+    question: string;
+    outcome: string;
+    shares: number;
+    costBasis: number;
+    averagePrice: number;
+    currentPrice: number;
+    marketStatus: string;
+}
+export declare const getMyPositions: (identity: any, marketFilter?: string) => Promise<UserPosition[]>;
+export declare const getEventMarkets: (polymarketSlug: string) => Promise<MarketInfo[]>;

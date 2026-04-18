@@ -30,13 +30,13 @@ export declare function listMarkets(apiKey: string, args?: {
 export declare function getMarketDetail(apiKey: string, marketId: string): Promise<any>;
 /**
  * Place an order on a market.
+ * Price is in dollars (0.01 to 0.99). Size is number of shares.
  */
 export declare function placeOrder(apiKey: string, args: {
     market_id: string;
-    side: string;
     outcome: string;
-    amount: number;
     price: number;
+    size: number;
 }): Promise<any>;
 /**
  * Cancel an existing order.

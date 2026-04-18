@@ -17,7 +17,7 @@ import { configure as configureIcJs } from '@final-score/ic-js';
 const canisterIds = {
   FINAL_SCORE: process.env.CANISTER_ID_FINAL_SCORE!,
   WEBSITE: process.env.CANISTER_ID_WEBSITE!,
-  USDC_LEDGER: process.env.CANISTER_ID_USDC_LEDGER || '53nhb-haaaa-aaaar-qbn5q-cai',
+  USDC_LEDGER: process.env.CANISTER_ID_USDC_LEDGER || '3jkp5-oyaaa-aaaaj-azwqa-cai',
 };
 
 const network = process.env.DFX_NETWORK || 'local';

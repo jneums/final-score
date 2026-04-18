@@ -47,6 +47,9 @@ module ToolContext {
   /// Basis points denominator
   public let BPS_DENOM : Nat = 10_000;
 
+  /// Maximum fills per order placement (prevents instruction limit traps)
+  public let MAX_FILLS_PER_ORDER : Nat = 10;
+
   // ═══════════════════════════════════════════════════════════
   // Core Enums
   // ═══════════════════════════════════════════════════════════
@@ -198,7 +201,7 @@ module ToolContext {
     trades : Map.Map<Text, Trade>;
     positions : Map.Map<Text, Position>;
     userPositionIds : Map.Map<Principal, [Text]>;
-    userBalances : Map.Map<Principal, Nat>;
+    userOrderIds : Map.Map<Principal, [Text]>;
     userStats : Map.Map<Principal, UserStats>;
     positionHistory : Map.Map<Principal, [HistoricalPosition]>;
 
@@ -244,50 +247,37 @@ module ToolContext {
   // Balance Helpers
   // ═══════════════════════════════════════════════════════════
 
-  /// Get user's total balance
-  public func getUserBalance(context : ToolContext, user : Principal) : Nat {
-    switch (Map.get(context.userBalances, Map.phash, user)) {
-      case (?balance) balance;
-      case null 0;
+  /// Track an order ID under the user for O(1) lookup
+  public func trackUserOrder(context : ToolContext, user : Principal, orderId : Text) {
+    let existing = switch (Map.get(context.userOrderIds, Map.phash, user)) {
+      case (?ids) ids;
+      case null [];
     };
+    Map.set(context.userOrderIds, Map.phash, user, Array.append(existing, [orderId]));
   };
 
-  /// Calculate user's locked balance (sum of open order escrow)
+  /// Calculate user's locked balance (sum of open order escrow) — O(user's orders) via index
   public func getLockedBalance(context : ToolContext, user : Principal) : Nat {
+    let orderIds = switch (Map.get(context.userOrderIds, Map.phash, user)) {
+      case (?ids) ids;
+      case null return 0;
+    };
     var locked : Nat = 0;
-    for ((_, order) in Map.entries(context.orders)) {
-      if (Principal.equal(order.user, user) and (order.status == #Open or order.status == #PartiallyFilled)) {
-        let remaining = order.size - order.filledSize;
-        // Cost to buy `remaining` shares at `order.price` basis points
-        locked += (remaining * order.price * SHARE_VALUE) / BPS_DENOM;
+    for (orderId in orderIds.vals()) {
+      switch (Map.get(context.orders, Map.thash, orderId)) {
+        case (?order) {
+          if (order.status == #Open or order.status == #PartiallyFilled) {
+            let remaining = order.size - order.filledSize;
+            locked += (remaining * order.price * SHARE_VALUE) / BPS_DENOM;
+          };
+        };
+        case null {};
       };
     };
     locked;
   };
 
-  /// Get user's available (unlocked) balance
-  public func getAvailableBalance(context : ToolContext, user : Principal) : Nat {
-    let total = getUserBalance(context, user);
-    let locked = getLockedBalance(context, user);
-    if (total > locked) { total - locked } else { 0 };
-  };
 
-  /// Debit user balance (absolute, not checking available)
-  public func debitBalance(context : ToolContext, user : Principal, amount : Nat) : Bool {
-    let current = getUserBalance(context, user);
-    if (current >= amount) {
-      Map.set(context.userBalances, Map.phash, user, current - amount);
-      true;
-    } else {
-      false;
-    };
-  };
-
-  /// Credit user balance
-  public func creditBalance(context : ToolContext, user : Principal, amount : Nat) {
-    let current = getUserBalance(context, user);
-    Map.set(context.userBalances, Map.phash, user, current + amount);
-  };
 
   // ═══════════════════════════════════════════════════════════
   // Position Helpers
@@ -384,6 +374,71 @@ module ToolContext {
       case null [];
     };
     Map.set(context.positionHistory, Map.phash, user, Array.append(current, [entry]));
+  };
+
+  /// Check how many Yes+No pairs overlap WITHOUT modifying state
+  public func getNetOverlap(context : ToolContext, user : Principal, marketId : Text) : Nat {
+    let yesPos = findPosition(context, user, marketId, #Yes);
+    let noPos = findPosition(context, user, marketId, #No);
+    switch (yesPos, noPos) {
+      case (?yes, ?no) Nat.min(yes.shares, no.shares);
+      case _ 0;
+    };
+  };
+
+  /// Net opposing positions: if user holds both Yes and No in the same market,
+  /// redeem the overlap (1 Yes + 1 No = $1.00). Returns the number of complete
+  /// sets redeemed (0 if no overlap).
+  public func netPositions(context : ToolContext, user : Principal, marketId : Text) : Nat {
+    let yesPos = findPosition(context, user, marketId, #Yes);
+    let noPos = findPosition(context, user, marketId, #No);
+
+    switch (yesPos, noPos) {
+      case (?yes, ?no) {
+        let overlap = Nat.min(yes.shares, no.shares);
+        if (overlap == 0) return 0;
+
+        // Reduce Yes position
+        let newYesShares = yes.shares - overlap;
+        if (newYesShares == 0) {
+          // Remove position entirely
+          Map.delete(context.positions, Map.thash, yes.positionId);
+          let ids = switch (Map.get(context.userPositionIds, Map.phash, user)) {
+            case (?ids) Array.filter<Text>(ids, func(id : Text) : Bool { id != yes.positionId });
+            case null [];
+          };
+          Map.set(context.userPositionIds, Map.phash, user, ids);
+        } else {
+          let costReduction = (overlap * yes.costBasis) / yes.shares;
+          Map.set(context.positions, Map.thash, yes.positionId, {
+            yes with
+            shares = newYesShares;
+            costBasis = yes.costBasis - costReduction;
+          });
+        };
+
+        // Reduce No position
+        let newNoShares = no.shares - overlap;
+        if (newNoShares == 0) {
+          Map.delete(context.positions, Map.thash, no.positionId);
+          let ids = switch (Map.get(context.userPositionIds, Map.phash, user)) {
+            case (?ids) Array.filter<Text>(ids, func(id : Text) : Bool { id != no.positionId });
+            case null [];
+          };
+          Map.set(context.userPositionIds, Map.phash, user, ids);
+        } else {
+          let costReduction = (overlap * no.costBasis) / no.shares;
+          Map.set(context.positions, Map.thash, no.positionId, {
+            no with
+            shares = newNoShares;
+            costBasis = no.costBasis - costReduction;
+          });
+        };
+
+        overlap;
+      };
+      case _ 0;
+    };
   };
 
   // ═══════════════════════════════════════════════════════════

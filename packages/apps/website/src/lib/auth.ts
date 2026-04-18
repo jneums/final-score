@@ -102,7 +102,7 @@ export class AuthService {
       try {
         const whitelist = [
           'ilyol-uqaaa-aaaai-q34kq-cai', // Final Score canister
-          '53nhb-haaaa-aaaar-qbn5q-cai'   // USDC Ledger canister
+          '3jkp5-oyaaa-aaaaj-azwqa-cai'   // Test faucet ICRC-1 ledger
         ];
         
         let isConnected = false;
@@ -237,7 +237,7 @@ export class AuthService {
 
     const whitelist = [
       'ilyol-uqaaa-aaaai-q34kq-cai', // Final Score canister
-      '53nhb-haaaa-aaaar-qbn5q-cai'   // USDC Ledger canister
+      '3jkp5-oyaaa-aaaaj-azwqa-cai'   // Test faucet ICRC-1 ledger
     ];
 
     if (!window.ic?.plug?.requestConnect) {

@@ -92,10 +92,6 @@ export interface MarketListResult {
   markets: MarketListItem[];
 }
 
-/**
- * Lists markets with optional sport filter and pagination.
- * Uses the canister's debug_list_markets query (no API key needed).
- */
 export const queryMarkets = async (
   sportFilter?: string,
   offset: number = 0,
@@ -121,4 +117,180 @@ export const queryMarkets = async (
       polymarketSlug: m.polymarketSlug,
     })),
   };
+};
+
+// ─── Order Book ──────────────────────────────────────────────────────────────
+
+export interface DepthLevel {
+  price: number;       // basis points (100 = $0.01)
+  totalSize: number;   // shares at this level
+  orderCount: number;
+}
+
+export interface OrderBookData {
+  yesBids: DepthLevel[];
+  noBids: DepthLevel[];
+  bestYesBid: number;
+  bestNoBid: number;
+  impliedYesAsk: number;
+  impliedNoAsk: number;
+  spread: number;
+}
+
+export const getOrderBook = async (
+  marketId: string,
+  maxLevels: number = 20,
+): Promise<OrderBookData> => {
+  const actor = await getFinalScoreActor();
+  const result = await (actor as any).debug_get_order_book(marketId, BigInt(maxLevels));
+  return {
+    yesBids: result.yesBids.map((l: any) => ({
+      price: Number(l.price),
+      totalSize: Number(l.totalSize),
+      orderCount: Number(l.orderCount),
+    })),
+    noBids: result.noBids.map((l: any) => ({
+      price: Number(l.price),
+      totalSize: Number(l.totalSize),
+      orderCount: Number(l.orderCount),
+    })),
+    bestYesBid: Number(result.bestYesBid),
+    bestNoBid: Number(result.bestNoBid),
+    impliedYesAsk: Number(result.impliedYesAsk),
+    impliedNoAsk: Number(result.impliedNoAsk),
+    spread: Number(result.spread),
+  };
+};
+
+// ─── Direct Candid Trading ───────────────────────────────────────────────────
+
+export interface PlaceOrderResult {
+  orderId: string;
+  status: string;
+  filled: number;
+  remaining: number;
+  fills: { tradeId: string; price: number; size: number }[];
+}
+
+export const placeOrderCandid = async (
+  identity: any,
+  marketId: string,
+  outcome: string,
+  price: number,
+  size: number,
+): Promise<PlaceOrderResult> => {
+  const actor = await getFinalScoreActor(identity);
+  const result = await (actor as any).place_order(marketId, outcome, price, BigInt(size));
+  if ('err' in result) throw new Error(result.err);
+  const ok = result.ok;
+  return {
+    orderId: ok.orderId,
+    status: ok.status,
+    filled: Number(ok.filled),
+    remaining: Number(ok.remaining),
+    fills: ok.fills.map((f: any) => ({
+      tradeId: f.tradeId,
+      price: Number(f.price),
+      size: Number(f.size),
+    })),
+  };
+};
+
+export const cancelOrderCandid = async (
+  identity: any,
+  orderId: string,
+): Promise<string> => {
+  const actor = await getFinalScoreActor(identity);
+  const result = await (actor as any).cancel_order(orderId);
+  if ('err' in result) throw new Error(result.err);
+  return result.ok;
+};
+
+// ─── User Orders & Positions (Candid queries) ────────────────────────────────
+
+export interface UserOrder {
+  orderId: string;
+  marketId: string;
+  outcome: string;
+  price: number;
+  size: number;
+  filledSize: number;
+  status: string;
+  timestamp: number;
+}
+
+export const getMyOrders = async (
+  identity: any,
+  statusFilter?: string,
+  marketFilter?: string,
+): Promise<UserOrder[]> => {
+  const actor = await getFinalScoreActor(identity);
+  const result = await (actor as any).my_orders(
+    statusFilter ? [statusFilter] : [],
+    marketFilter ? [marketFilter] : [],
+  );
+  return result.map((o: any) => ({
+    orderId: o.orderId,
+    marketId: o.marketId,
+    outcome: o.outcome,
+    price: Number(o.price),
+    size: Number(o.size),
+    filledSize: Number(o.filledSize),
+    status: o.status,
+    timestamp: Number(o.timestamp),
+  }));
+};
+
+export interface UserPosition {
+  positionId: string;
+  marketId: string;
+  question: string;
+  outcome: string;
+  shares: number;
+  costBasis: number;
+  averagePrice: number;
+  currentPrice: number;
+  marketStatus: string;
+}
+
+export const getMyPositions = async (
+  identity: any,
+  marketFilter?: string,
+): Promise<UserPosition[]> => {
+  const actor = await getFinalScoreActor(identity);
+  const result = await (actor as any).my_positions(
+    marketFilter ? [marketFilter] : [],
+  );
+  return result.map((p: any) => ({
+    positionId: p.positionId,
+    marketId: p.marketId,
+    question: p.question,
+    outcome: p.outcome,
+    shares: Number(p.shares),
+    costBasis: Number(p.costBasis),
+    averagePrice: Number(p.averagePrice),
+    currentPrice: Number(p.currentPrice),
+    marketStatus: p.marketStatus,
+  }));
+};
+
+// ─── Event Markets ────────────────────────────────────────────────────────────
+
+export const getEventMarkets = async (
+  polymarketSlug: string,
+): Promise<MarketInfo[]> => {
+  const actor = await getFinalScoreActor();
+  const result = await (actor as any).get_event_markets(polymarketSlug);
+  return result.map((m: any) => ({
+    marketId: m.marketId,
+    question: m.question,
+    eventTitle: m.eventTitle,
+    sport: m.sport,
+    status: m.status,
+    polymarketSlug: m.polymarketSlug,
+    endDate: m.endDate,
+    totalVolume: m.totalVolume,
+    lastYesPrice: m.lastYesPrice,
+    lastNoPrice: m.lastNoPrice,
+  }));
 };

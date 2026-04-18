@@ -43,22 +43,47 @@ export interface McpServer {
   /**
    * / Admin: cancel a market and refund all
    */
-  'admin_cancel_market' : ActorMethod<[string], Result_2>,
+  'admin_cancel_market' : ActorMethod<[string], Result_3>,
+  'admin_clear_markets' : ActorMethod<[], Result_3>,
   /**
-   * / Admin: manually create a market (for testing before Polymarket sync is implemented)
+   * / Admin: create an API key for any principal (for testing / market maker)
+   */
+  'admin_create_api_key' : ActorMethod<
+    [Principal, string, Array<string>],
+    Result_3
+  >,
+  /**
+   * / Admin: create a market (called by off-chain sync script)
    */
   'admin_create_market' : ActorMethod<
     [string, string, string, string, string, bigint, bigint, bigint],
-    Result_2
+    Result_3
   >,
+  /**
+   * / Admin: clear all markets and reset sync state (nuclear option for re-sync)
+   * / Admin: delete a specific market (only if it has zero volume and no open orders)
+   */
+  'admin_delete_market' : ActorMethod<[string], Result_3>,
   /**
    * / Admin: drain stuck funds from a market subaccount
    */
-  'admin_drain_market_subaccount' : ActorMethod<[string], Result_2>,
+  'admin_drain_market_subaccount' : ActorMethod<[string], Result_3>,
   /**
    * / Admin: manually resolve a market
    */
-  'admin_resolve_market' : ActorMethod<[string, string], Result_2>,
+  'admin_resolve_market' : ActorMethod<[string, string], Result_3>,
+  /**
+   * / Admin: manually trigger resolution check (bypasses timer)
+   */
+  'admin_trigger_resolution_check' : ActorMethod<[], Result_3>,
+  /**
+   * / Admin: manually trigger Polymarket sync (bypasses timer)
+   */
+  'admin_trigger_sync' : ActorMethod<[], Result_3>,
+  /**
+   * / Cancel an order (authenticated by wallet)
+   */
+  'cancel_order' : ActorMethod<[string], Result_3>,
   'create_my_api_key' : ActorMethod<[string, Array<string>], string>,
   /**
    * / Debug: get a specific market
@@ -79,6 +104,81 @@ export interface McpServer {
         'marketId' : string,
       }
     ]
+  >,
+  /**
+   * / Debug: get order book depth for a market
+   */
+  'debug_get_order_book' : ActorMethod<
+    [string, bigint],
+    {
+      'impliedNoAsk' : bigint,
+      'noBids' : Array<
+        { 'totalSize' : bigint, 'orderCount' : bigint, 'price' : bigint }
+      >,
+      'bestYesBid' : bigint,
+      'yesBids' : Array<
+        { 'totalSize' : bigint, 'orderCount' : bigint, 'price' : bigint }
+      >,
+      'impliedYesAsk' : bigint,
+      'bestNoBid' : bigint,
+      'spread' : bigint,
+    }
+  >,
+  /**
+   * / Debug: list markets with optional sport filter, paginated
+   */
+  'debug_list_markets' : ActorMethod<
+    [[] | [string], bigint, bigint],
+    {
+      'total' : bigint,
+      'markets' : Array<
+        {
+          'status' : string,
+          'polymarketSlug' : string,
+          'question' : string,
+          'sport' : string,
+          'eventTitle' : string,
+          'marketId' : string,
+          'noPrice' : bigint,
+          'yesPrice' : bigint,
+        }
+      >,
+      'returned' : bigint,
+    }
+  >,
+  /**
+   * / Debug: breakdown of synced markets by sport + queue status
+   */
+  'debug_sync_stats' : ActorMethod<
+    [],
+    {
+      'totalMarkets' : bigint,
+      'nextMarketId' : bigint,
+      'totalSlugs' : bigint,
+      'sportTagCount' : bigint,
+      'syncQueueRemaining' : bigint,
+      'sportBreakdown' : Array<{ 'count' : bigint, 'sport' : string }>,
+    }
+  >,
+  /**
+   * / Get all markets that belong to the same event (share polymarketSlug)
+   */
+  'get_event_markets' : ActorMethod<
+    [string],
+    Array<
+      {
+        'status' : string,
+        'polymarketSlug' : string,
+        'endDate' : bigint,
+        'totalVolume' : bigint,
+        'question' : string,
+        'lastYesPrice' : bigint,
+        'lastNoPrice' : bigint,
+        'sport' : string,
+        'eventTitle' : string,
+        'marketId' : string,
+      }
+    >
   >,
   /**
    * / Leaderboard by net profit
@@ -123,6 +223,44 @@ export interface McpServer {
   'http_request_update' : ActorMethod<[HttpRequest], HttpResponse>,
   'icrc120_upgrade_finished' : ActorMethod<[], UpgradeFinishedResult>,
   'list_my_api_keys' : ActorMethod<[], Array<ApiKeyMetadata>>,
+  /**
+   * / List the caller's orders
+   */
+  'my_orders' : ActorMethod<
+    [[] | [string], [] | [string]],
+    Array<
+      {
+        'status' : string,
+        'size' : bigint,
+        'orderId' : string,
+        'marketId' : string,
+        'timestamp' : bigint,
+        'price' : bigint,
+        'outcome' : string,
+        'filledSize' : bigint,
+      }
+    >
+  >,
+  'my_positions' : ActorMethod<
+    [[] | [string]],
+    Array<
+      {
+        'currentPrice' : bigint,
+        'shares' : bigint,
+        'question' : string,
+        'averagePrice' : bigint,
+        'marketStatus' : string,
+        'positionId' : string,
+        'marketId' : string,
+        'costBasis' : bigint,
+        'outcome' : string,
+      }
+    >
+  >,
+  /**
+   * / Place a limit order (authenticated by wallet — msg.caller is the user)
+   */
+  'place_order' : ActorMethod<[string, string, number, bigint], Result_2>,
   'revoke_my_api_key' : ActorMethod<[string], undefined>,
   'set_owner' : ActorMethod<[Principal], Result_1>,
   'transformJwksResponse' : ActorMethod<
@@ -139,7 +277,19 @@ export type Result = { 'ok' : bigint } |
   { 'err' : TreasuryError };
 export type Result_1 = { 'ok' : null } |
   { 'err' : TreasuryError };
-export type Result_2 = { 'ok' : string } |
+export type Result_2 = {
+    'ok' : {
+      'fills' : Array<
+        { 'size' : bigint, 'tradeId' : string, 'price' : bigint }
+      >,
+      'status' : string,
+      'orderId' : string,
+      'filled' : bigint,
+      'remaining' : bigint,
+    }
+  } |
+  { 'err' : string };
+export type Result_3 = { 'ok' : string } |
   { 'err' : string };
 export type StreamingCallback = ActorMethod<
   [StreamingToken],

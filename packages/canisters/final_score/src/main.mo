@@ -68,9 +68,16 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
   var owner : Principal = Option.get(do ? { args!.owner! }, deployer);
 
-  let tokenLedger : Principal = Option.get(
+  // Debug mode — set to false in production to save cycles
+  var debugMode : Bool = false;
+
+  func debugLog(msg : Text) {
+    if (debugMode) Debug.print(msg);
+  };
+
+  var tokenLedger : Principal = Option.get(
     do ? { args!.tokenLedger! },
-    Principal.fromText("53nhb-haaaa-aaaar-qbn5q-cai"), // USDC mainnet
+    Principal.fromText("3jkp5-oyaaa-aaaaj-azwqa-cai"), // Test faucet ICRC-1 ledger
   );
 
   // ═══════════════════════════════════════════════════════════
@@ -83,9 +90,17 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   var trades = Map.new<Text, ToolContext.Trade>();
   var positions = Map.new<Text, ToolContext.Position>();
   var userPositionIds = Map.new<Principal, [Text]>();
-  var userBalances = Map.new<Principal, Nat>();
+  var userOrderIds = Map.new<Principal, [Text]>();
+  var userBalances = Map.new<Principal, Nat>(); // Legacy — kept for stable memory compat
   var userStats = Map.new<Principal, ToolContext.UserStats>();
   var positionHistory = Map.new<Principal, [ToolContext.HistoricalPosition]>();
+
+  // Track resolution check failures to avoid infinite retry loops
+  var resolutionFailures = Map.new<Text, Nat>();
+
+  // Rate limiting: 2-second cooldown between orders per user
+  var lastOrderTime = Map.new<Principal, Int>();
+  let ORDER_COOLDOWN_NS : Int = 2_000_000_000; // 2 seconds in nanoseconds
 
   // Polymarket sync tracking
   var knownPolySlugs = Map.new<Text, [Text]>();
@@ -615,12 +630,27 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
   func checkResolutions() : async () {
     let now = Time.now();
+    var checked = 0;
+    let MAX_PER_CYCLE = 3; // max HTTP outcalls per timer tick
 
     for ((marketId, market) in Map.entries(markets)) {
-      // Only check #Closed markets (past deadline, awaiting resolution)
+      if (checked >= MAX_PER_CYCLE) return;
+
       switch (market.status) {
         case (#Closed) {
-          if (market.polymarketSlug != "" and market.polymarketConditionId != "") {
+          // Skip if event hasn't ended yet
+          if (now < market.endDate) {}
+          // Skip if we've already failed too many times
+          else if (
+            switch (Map.get(resolutionFailures, thash, marketId)) {
+              case (?n) n >= 5;
+              case null false;
+            }
+          ) {}
+          // Skip if missing Polymarket data
+          else if (market.polymarketSlug == "" or market.polymarketConditionId == "") {}
+          else {
+            checked += 1;
             try {
               let url = "https://gamma-api.polymarket.com/events/slug/"
                 # market.polymarketSlug;
@@ -630,11 +660,26 @@ shared ({ caller = deployer }) persistent actor class McpServer(
               switch (parsed) {
                 case (#ok(eventJson)) {
                   // Find our specific market by conditionId
+                  // Split markets have "-a" or "-b" suffix — strip it for matching
                   let pmMarkets = jsonGetArray(eventJson, "markets");
+                  let cid = market.polymarketConditionId;
+                  let cidLen = cid.size();
+                  let isSplitA = Text.endsWith(cid, #text "-a");
+                  let isSplitB = Text.endsWith(cid, #text "-b");
+                  let baseCid = if (isSplitA or isSplitB) {
+                    let chars = Text.toIter(cid);
+                    var result = "";
+                    var i = 0;
+                    for (c in chars) {
+                      if (i + 2 < cidLen) { result #= Text.fromChar(c) };
+                      i += 1;
+                    };
+                    result;
+                  } else { cid };
 
                   for (pm in pmMarkets.vals()) {
                     let condId = jsonGetText(pm, "conditionId");
-                    if (condId == market.polymarketConditionId) {
+                    if (condId == baseCid) {
                       let isClosed = jsonGetBool(pm, "closed");
 
                       if (isClosed) {
@@ -660,13 +705,17 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
                             // Winner: price near 10000 ($1.00)
                             // Cancelled/void: both near 5000
-                            if (yesPrice > 7500) {
-                              // Yes won
-                              Debug.print("Auto-resolving market " # marketId # " as Yes (Polymarket resolved)");
+                            // For split markets: "-a" = Team A = Yes side, "-b" = Team B = No side
+                            // If this is a "-b" market, the Polymarket "Yes" outcome means
+                            // Team A won, which means Team B LOST — so we invert.
+                            let effectiveYes = if (isSplitB) { noPrice } else { yesPrice };
+                            let effectiveNo = if (isSplitB) { yesPrice } else { noPrice };
+
+                            if (effectiveYes > 7500) {
+                              Debug.print("Auto-resolving market " # marketId # " as Yes (closed=" # (if isClosed "true" else "false") # " yesPrice=" # Nat.toText(yesPrice) # " split=" # (if isSplitA "a" else if isSplitB "b" else "none") # ")");
                               ignore await admin_resolve_market_internal(marketId, #Yes);
-                            } else if (noPrice > 7500) {
-                              // No won
-                              Debug.print("Auto-resolving market " # marketId # " as No (Polymarket resolved)");
+                            } else if (effectiveNo > 7500) {
+                              Debug.print("Auto-resolving market " # marketId # " as No (closed=" # (if isClosed "true" else "false") # " noPrice=" # Nat.toText(noPrice) # " split=" # (if isSplitA "a" else if isSplitB "b" else "none") # ")");
                               ignore await admin_resolve_market_internal(marketId, #No);
                             } else if (yesPrice > 4000 and yesPrice < 6000 and noPrice > 4000 and noPrice < 6000) {
                               // Both near 50% — voided/cancelled
@@ -686,11 +735,16 @@ shared ({ caller = deployer }) persistent actor class McpServer(
                 };
               };
             } catch (e) {
-              Debug.print("Resolution check failed for market " # marketId # ": " # Error.message(e));
+              let prev = switch (Map.get(resolutionFailures, thash, marketId)) {
+                case (?n) n;
+                case null 0;
+              };
+              Map.set(resolutionFailures, thash, marketId, prev + 1);
+              Debug.print("Resolution check failed for market " # marketId # " (attempt " # Nat.toText(prev + 1) # "/5): " # Error.message(e));
             };
-          };
+          }; // else — eligible for resolution check
         };
-        case _ {}; // skip non-Closed markets
+        case _ {};
       };
     };
   };
@@ -763,6 +817,9 @@ shared ({ caller = deployer }) persistent actor class McpServer(
               payout;
               resolvedAt = Int.abs(Time.now() / 1_000_000_000);
             });
+
+            // Zero out resolved position to prevent unbounded growth in queries
+            Map.set(positions, thash, posId, { position with shares = 0; costBasis = 0 });
           };
         };
 
@@ -800,7 +857,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     trades;
     positions;
     userPositionIds;
-    userBalances;
+    userOrderIds;
     userStats;
     positionHistory;
     knownPolySlugs;
@@ -813,6 +870,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   transient let placeContext : order_place.PlaceContext = {
     toolContext;
     orderBooks;
+    lastOrderTime;
+    orderCooldownNs = ORDER_COOLDOWN_NS;
   };
 
   transient let cancelContext : order_cancel.CancelContext = {
@@ -952,6 +1011,469 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
   system func postupgrade() {
     HttpAssets.postupgrade(http_assets);
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // Direct Candid Trading Endpoints (for frontend wallet auth)
+  // ═══════════════════════════════════════════════════════════
+
+  /// Place a limit order (authenticated by wallet — msg.caller is the user)
+  public shared (msg) func place_order(
+    marketId : Text,
+    outcomeText : Text,
+    price : Float,
+    size : Nat,
+  ) : async Result.Result<{
+    orderId : Text;
+    status : Text;
+    filled : Nat;
+    remaining : Nat;
+    fills : [{ tradeId : Text; price : Nat; size : Nat }];
+  }, Text> {
+    let caller = msg.caller;
+    if (Principal.isAnonymous(caller)) return #err("Authentication required");
+
+    // Rate limit: 2-second cooldown per user
+    let now = Time.now();
+    switch (Map.get(lastOrderTime, Map.phash, caller)) {
+      case (?last) {
+        if (now - last < ORDER_COOLDOWN_NS) {
+          return #err("Rate limited. Wait 2 seconds between orders.");
+        };
+      };
+      case null {};
+    };
+    Map.set(lastOrderTime, Map.phash, caller, now);
+
+    let outcome = switch (ToolContext.parseOutcome(outcomeText)) {
+      case (?o) o;
+      case null return #err("Invalid outcome. Use 'yes' or 'no'.");
+    };
+
+    let priceBps : Nat = Int.abs(Float.toInt(price * 10000.0));
+    if (not ToolContext.isValidPrice(priceBps)) {
+      return #err("Invalid price. Must be 0.01 to 0.99 in $0.01 increments.");
+    };
+
+    if (size == 0) return #err("Size must be at least 1 share");
+
+    let cost = ToolContext.orderCost(priceBps, size);
+    if (cost < ToolContext.MINIMUM_COST) {
+      return #err("Order too small. Minimum cost is 0.10 USDC.");
+    };
+
+    // Check market exists and is open (no pre-flight balance/allowance check —
+    // icrc2_transfer_from will fail with a descriptive error if insufficient)
+    let ledger = actor (Principal.toText(tokenLedger)) : actor {
+      icrc2_transfer_from : (ICRC2.TransferFromArgs) -> async ICRC2.TransferFromResult;
+      icrc1_transfer : (ICRC2.TransferArgs) -> async ICRC2.TransferResult;
+    };
+
+    let market = switch (Map.get(markets, thash, marketId)) {
+      case (?m) m;
+      case null return #err("Market not found: " # marketId);
+    };
+
+    switch (market.status) {
+      case (#Open) {};
+      case _ return #err("Market is not open for trading");
+    };
+
+    let orderId = ToolContext.getNextOrderId(toolContext);
+
+    let order : ToolContext.Order = {
+      orderId;
+      marketId;
+      user = caller;
+      side = #Buy;
+      outcome;
+      price = priceBps;
+      size;
+      filledSize = 0;
+      status = #Open;
+      timestamp = now;
+    };
+
+    // Track order under user for O(1) locked balance lookup
+    ToolContext.trackUserOrder(toolContext, caller, orderId);
+
+    let book = switch (Map.get(orderBooks, thash, marketId)) {
+      case (?b) b;
+      case null OrderBook.emptyBook();
+    };
+
+    let result = OrderBook.matchOrder(book, order);
+
+    // Process fills — pull real tokens from wallets into market subaccount
+    // ATOMIC PER-FILL: update book incrementally so trap after fill N is safe
+    var fillsResult : [{ tradeId : Text; price : Nat; size : Nat }] = [];
+    let marketAccount = ToolContext.getMarketAccount(Principal.fromActor(self), marketId);
+    var currentBook = book;
+
+    for (fill in result.fills.vals()) {
+      let tradeId = ToolContext.getNextTradeId(toolContext);
+
+      let takerCostPerShare = (order.price * ToolContext.SHARE_VALUE) / ToolContext.BPS_DENOM;
+      let takerCost = takerCostPerShare * fill.size;
+      let makerCostPerShare = (fill.price * ToolContext.SHARE_VALUE) / ToolContext.BPS_DENOM;
+      let makerCost = makerCostPerShare * fill.size;
+      let fee = ToolContext.takerFee(order.price, fill.size);
+
+      // Pull taker funds: user wallet → market subaccount
+      let takerTotal = takerCost + fee;
+      let takerOk = try {
+        let takerResult = await ledger.icrc2_transfer_from({
+          spender_subaccount = null;
+          from = { owner = fill.taker; subaccount = null };
+          to = marketAccount;
+          amount = takerTotal;
+          fee = ?ToolContext.TRANSFER_FEE;
+          memo = null;
+          created_at_time = null;
+        });
+        switch (takerResult) {
+          case (#Err(err)) {
+            Debug.print("Taker transfer failed: " # debug_show(err));
+            false;
+          };
+          case (#Ok(_)) true;
+        };
+      } catch (e) {
+        Debug.print("Taker transfer exception: " # Error.message(e));
+        false;
+      };
+
+      // Skip this fill entirely if taker transfer failed
+      if (not takerOk) {
+        // Don't create positions, don't record trade — just skip
+        debugLog("Skipping fill — taker transfer failed for order " # order.orderId);
+      } else {
+        // Pull maker funds: maker wallet → market subaccount
+        let makerOk = try {
+          let makerResult = await ledger.icrc2_transfer_from({
+            spender_subaccount = null;
+            from = { owner = fill.maker; subaccount = null };
+            to = marketAccount;
+            amount = makerCost;
+            fee = ?ToolContext.TRANSFER_FEE;
+            memo = null;
+            created_at_time = null;
+          });
+          switch (makerResult) {
+            case (#Err(err)) {
+              Debug.print("Maker transfer failed: " # debug_show(err));
+              false;
+            };
+            case (#Ok(_)) true;
+          };
+        } catch (e) {
+          Debug.print("Maker transfer exception: " # Error.message(e));
+          false;
+        };
+
+        if (not makerOk) {
+          // Refund the taker — maker couldn't pay
+          try {
+            ignore await ledger.icrc1_transfer({
+              from_subaccount = ?ToolContext.marketSubaccount(marketId);
+              to = { owner = fill.taker; subaccount = null };
+              amount = takerTotal - ToolContext.TRANSFER_FEE;
+              fee = ?ToolContext.TRANSFER_FEE;
+              memo = null;
+              created_at_time = null;
+            });
+          } catch (e) {
+            Debug.print("Taker refund failed: " # Error.message(e));
+          };
+          // Restore maker's order to the book (it was consumed by matchOrder)
+          switch (Map.get(toolContext.orders, Map.thash, fill.makerOrderId)) {
+            case (?makerOrder) {
+              currentBook := OrderBook.insertOrder(currentBook, makerOrder);
+              Map.set(orderBooks, thash, marketId, currentBook);
+              debugLog("Restored maker order " # fill.makerOrderId # " to book");
+            };
+            case null {};
+          };
+          debugLog("Skipping fill — maker transfer failed, taker refunded");
+        } else {
+          // Both transfers succeeded — commit the fill
+          let trade : ToolContext.Trade = {
+            tradeId;
+            marketId;
+            makerOrderId = fill.makerOrderId;
+            takerOrderId = fill.takerOrderId;
+            maker = fill.maker;
+            taker = fill.taker;
+            outcome = fill.outcome;
+            price = fill.price;
+            size = fill.size;
+            timestamp = now;
+          };
+          Map.set(toolContext.trades, Map.thash, tradeId, trade);
+
+          // Create/update positions
+          ignore ToolContext.upsertPosition(toolContext, fill.taker, marketId, outcome, fill.size, takerCost + fee, order.price);
+          let makerOutcome : ToolContext.Outcome = switch (outcome) {
+            case (#Yes) #No;
+            case (#No) #Yes;
+          };
+          ignore ToolContext.upsertPosition(toolContext, fill.maker, marketId, makerOutcome, fill.size, makerCost, fill.price);
+
+          ToolContext.recordTrade(toolContext, fill.taker, takerCost);
+          ToolContext.recordTrade(toolContext, fill.maker, makerCost);
+
+          // ATOMIC: update maker order status immediately
+          switch (Map.get(toolContext.orders, Map.thash, fill.makerOrderId)) {
+            case (?makerOrder) {
+              let newFilled = makerOrder.filledSize + fill.size;
+              let newStatus = if (newFilled >= makerOrder.size) #Filled else #PartiallyFilled;
+              Map.set(toolContext.orders, Map.thash, fill.makerOrderId, {
+                makerOrder with filledSize = newFilled; status = newStatus;
+              });
+            };
+            case null {};
+          };
+
+          // ATOMIC: remove consumed maker order from book per-fill
+          currentBook := OrderBook.removeOrder(currentBook, fill.makerOrderId, makerOutcome);
+          Map.set(orderBooks, thash, marketId, currentBook);
+
+          fillsResult := Array.append(fillsResult, [{
+            tradeId;
+            price = fill.price;
+            size = fill.size;
+          }]);
+        };
+      };
+    };
+
+    // Net opposing positions for all users involved in fills
+    // 1 Yes + 1 No = 1 complete set → redeem $1.00 from market subaccount
+    // SAFETY: check overlap first, transfer, THEN delete positions
+    var nettedUsers = Map.new<Principal, Bool>();
+    for (fill in result.fills.vals()) {
+      Map.set(nettedUsers, Map.phash, fill.taker, true);
+      Map.set(nettedUsers, Map.phash, fill.maker, true);
+    };
+    for ((user, _) in Map.entries(nettedUsers)) {
+      let overlap = ToolContext.getNetOverlap(toolContext, user, marketId);
+      if (overlap > 0) {
+        let payout = overlap * ToolContext.SHARE_VALUE;
+        if (payout > ToolContext.TRANSFER_FEE) {
+          let refundOk = try {
+            let refundResult = await ledger.icrc1_transfer({
+              from_subaccount = ?ToolContext.marketSubaccount(marketId);
+              to = { owner = user; subaccount = null };
+              amount = payout - ToolContext.TRANSFER_FEE;
+              fee = ?ToolContext.TRANSFER_FEE;
+              memo = null;
+              created_at_time = null;
+            });
+            switch (refundResult) {
+              case (#Ok(_)) true;
+              case (#Err(_)) false;
+            };
+          } catch (_e) { false };
+
+          if (refundOk) {
+            // Only NOW delete the positions
+            ignore ToolContext.netPositions(toolContext, user, marketId);
+          } else {
+            debugLog("Netting refund failed for " # Principal.toText(user) # " — positions preserved for retry");
+          };
+        };
+      };
+    };
+
+    // Insert remainder (if any) into the already-updated book
+    var finalBook = currentBook;
+
+    let finalOrder = switch (result.remainingOrder) {
+      case (?remaining) {
+        finalBook := OrderBook.insertOrder(finalBook, remaining);
+        Map.set(toolContext.orders, Map.thash, orderId, remaining);
+        remaining;
+      };
+      case null {
+        let filled = { order with filledSize = order.size; status = #Filled };
+        Map.set(toolContext.orders, Map.thash, orderId, filled);
+        filled;
+      };
+    };
+
+    Map.set(orderBooks, thash, marketId, finalBook);
+
+    // Update market last price
+    if (result.fills.size() > 0) {
+      let lastFill = result.fills[result.fills.size() - 1];
+      switch (outcome) {
+        case (#Yes) {
+          let yesPrice = ToolContext.BPS_DENOM - lastFill.price;
+          Map.set(markets, thash, marketId, {
+            market with lastYesPrice = yesPrice; lastNoPrice = lastFill.price; totalVolume = market.totalVolume + cost;
+          });
+        };
+        case (#No) {
+          let noPrice = ToolContext.BPS_DENOM - lastFill.price;
+          Map.set(markets, thash, marketId, {
+            market with lastYesPrice = lastFill.price; lastNoPrice = noPrice; totalVolume = market.totalVolume + cost;
+          });
+        };
+      };
+    };
+
+    #ok({
+      orderId;
+      status = ToolContext.orderStatusToText(finalOrder.status);
+      filled = finalOrder.filledSize;
+      remaining = finalOrder.size - finalOrder.filledSize;
+      fills = fillsResult;
+    });
+  };
+
+  /// Cancel an order (authenticated by wallet)
+  public shared (msg) func cancel_order(orderId : Text) : async Result.Result<Text, Text> {
+    let caller = msg.caller;
+    if (Principal.isAnonymous(caller)) return #err("Authentication required");
+
+    switch (Map.get(toolContext.orders, Map.thash, orderId)) {
+      case (?order) {
+        if (not Principal.equal(order.user, caller)) return #err("Not your order");
+        if (order.status != #Open and order.status != #PartiallyFilled) return #err("Order is not open");
+
+        Map.set(toolContext.orders, Map.thash, orderId, { order with status = #Cancelled });
+
+        let book = switch (Map.get(orderBooks, thash, order.marketId)) {
+          case (?b) b;
+          case null OrderBook.emptyBook();
+        };
+        Map.set(orderBooks, thash, order.marketId, OrderBook.removeOrder(book, orderId, order.outcome));
+
+        #ok("Order " # orderId # " cancelled");
+      };
+      case null #err("Order not found: " # orderId);
+    };
+  };
+
+  /// List the caller's orders
+  public query (msg) func my_orders(statusFilter : ?Text, marketFilter : ?Text) : async [{
+    orderId : Text;
+    marketId : Text;
+    outcome : Text;
+    price : Nat;
+    size : Nat;
+    filledSize : Nat;
+    status : Text;
+    timestamp : Int;
+  }] {
+    let caller = msg.caller;
+    var result : [{
+      orderId : Text;
+      marketId : Text;
+      outcome : Text;
+      price : Nat;
+      size : Nat;
+      filledSize : Nat;
+      status : Text;
+      timestamp : Int;
+    }] = [];
+
+    for ((_, order) in Map.entries(toolContext.orders)) {
+      if (Principal.equal(order.user, caller)) {
+        let statusText = ToolContext.orderStatusToText(order.status);
+        let shouldInclude = switch (statusFilter) {
+          case (?f) f == statusText or f == "all";
+          case null statusText == "Open" or statusText == "PartiallyFilled";
+        };
+        let marketMatch = switch (marketFilter) {
+          case (?m) order.marketId == m;
+          case null true;
+        };
+        if (shouldInclude and marketMatch) {
+          result := Array.append(result, [{
+            orderId = order.orderId;
+            marketId = order.marketId;
+            outcome = ToolContext.outcomeToText(order.outcome);
+            price = order.price;
+            size = order.size;
+            filledSize = order.filledSize;
+            status = statusText;
+            timestamp = order.timestamp;
+          }]);
+        };
+      };
+    };
+    result;
+  };
+
+  // ═══════════════════════════════════════════════════════════
+  // My Positions (Candid query for frontend)
+  // ═══════════════════════════════════════════════════════════
+
+  public query (msg) func my_positions(marketFilter : ?Text) : async [{
+    positionId : Text;
+    marketId : Text;
+    question : Text;
+    outcome : Text;
+    shares : Nat;
+    costBasis : Nat;
+    averagePrice : Nat;
+    currentPrice : Nat;
+    marketStatus : Text;
+  }] {
+    let caller = msg.caller;
+    let posIds = switch (Map.get(toolContext.userPositionIds, Map.phash, caller)) {
+      case (?ids) ids;
+      case null [];
+    };
+
+    var result : [{
+      positionId : Text;
+      marketId : Text;
+      question : Text;
+      outcome : Text;
+      shares : Nat;
+      costBasis : Nat;
+      averagePrice : Nat;
+      currentPrice : Nat;
+      marketStatus : Text;
+    }] = [];
+
+    for (posId in posIds.vals()) {
+      switch (Map.get(toolContext.positions, Map.thash, posId)) {
+        case (?pos) {
+          let shouldInclude = switch (marketFilter) {
+            case (?m) pos.marketId == m;
+            case null true;
+          };
+          if (shouldInclude and pos.shares > 0) {
+            let (question, currentPrice, status) = switch (Map.get(toolContext.markets, Map.thash, pos.marketId)) {
+              case (?m) {
+                let price = switch (pos.outcome) {
+                  case (#Yes) m.lastYesPrice;
+                  case (#No) m.lastNoPrice;
+                };
+                (m.question, price, ToolContext.marketStatusToText(m.status));
+              };
+              case null ("Unknown", 5000, "Unknown");
+            };
+            result := Array.append(result, [{
+              positionId = pos.positionId;
+              marketId = pos.marketId;
+              question = question;
+              outcome = ToolContext.outcomeToText(pos.outcome);
+              shares = pos.shares;
+              costBasis = pos.costBasis;
+              averagePrice = pos.averagePrice;
+              currentPrice = currentPrice;
+              marketStatus = status;
+            }]);
+          };
+        };
+        case null {};
+      };
+    };
+    result;
   };
 
   // ═══════════════════════════════════════════════════════════
@@ -1151,6 +1673,18 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   public shared ({ caller }) func admin_drain_market_subaccount(marketId : Text) : async Result.Result<Text, Text> {
     if (caller != owner) return #err("Unauthorized: owner only");
 
+    // Only allow draining resolved or cancelled markets
+    switch (Map.get(markets, thash, marketId)) {
+      case (?market) {
+        switch (market.status) {
+          case (#Resolved(_)) {}; // OK
+          case (#Cancelled) {};   // OK
+          case _ return #err("Cannot drain active market. Status: " # ToolContext.marketStatusToText(market.status));
+        };
+      };
+      case null {}; // Market not found — allow drain (could be leftover from cleared markets)
+    };
+
     let ledger = actor (Principal.toText(tokenLedger)) : actor {
       icrc1_balance_of : (ICRC2.Account) -> async Nat;
       icrc1_transfer : (ICRC2.TransferArgs) -> async ICRC2.TransferResult;
@@ -1278,6 +1812,51 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
   };
 
+  /// Get all markets that belong to the same event (share polymarketSlug)
+  public query func get_event_markets(polymarketSlug : Text) : async [{
+    marketId : Text;
+    question : Text;
+    eventTitle : Text;
+    sport : Text;
+    status : Text;
+    lastYesPrice : Nat;
+    lastNoPrice : Nat;
+    totalVolume : Nat;
+    endDate : Int;
+    polymarketSlug : Text;
+  }] {
+    var result : [{
+      marketId : Text;
+      question : Text;
+      eventTitle : Text;
+      sport : Text;
+      status : Text;
+      lastYesPrice : Nat;
+      lastNoPrice : Nat;
+      totalVolume : Nat;
+      endDate : Int;
+      polymarketSlug : Text;
+    }] = [];
+
+    for ((_, m) in Map.entries(markets)) {
+      if (m.polymarketSlug == polymarketSlug) {
+        result := Array.append(result, [{
+          marketId = m.marketId;
+          question = m.question;
+          eventTitle = m.eventTitle;
+          sport = m.sport;
+          status = ToolContext.marketStatusToText(m.status);
+          lastYesPrice = m.lastYesPrice;
+          lastNoPrice = m.lastNoPrice;
+          totalVolume = m.totalVolume;
+          endDate = m.endDate;
+          polymarketSlug = m.polymarketSlug;
+        }]);
+      };
+    };
+    result;
+  };
+
   /// Admin: manually trigger Polymarket sync (bypasses timer)
   public shared ({ caller }) func admin_trigger_sync() : async Result.Result<Text, Text> {
     if (caller != owner) return #err("Unauthorized: owner only");
@@ -1295,15 +1874,26 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   };
 
   /// Admin: clear all markets and reset sync state (nuclear option for re-sync)
-  public shared ({ caller }) func admin_clear_markets() : async Result.Result<Text, Text> {
+  /// Admin: delete a specific market (only if it has zero volume and no open orders)
+  public shared ({ caller }) func admin_delete_market(marketId : Text) : async Result.Result<Text, Text> {
     if (caller != owner) return #err("Unauthorized: owner only");
 
-    // Safety: refuse if any market has orders or positions
-    for ((_, market) in Map.entries(markets)) {
-      if (market.totalVolume > 0) {
-        return #err("Cannot clear: market " # market.marketId # " has volume. Resolve/cancel first.");
+    switch (Map.get(markets, thash, marketId)) {
+      case null return #err("Market not found: " # marketId);
+      case (?market) {
+        if (market.totalVolume > 0) {
+          return #err("Cannot delete: market " # marketId # " has volume");
+        };
+        // Remove market and its order book
+        ignore Map.remove(markets, thash, marketId);
+        ignore Map.remove(orderBooks, thash, marketId);
+        #ok("Deleted market " # marketId);
       };
     };
+  };
+
+  public shared ({ caller }) func admin_clear_markets() : async Result.Result<Text, Text> {
+    if (caller != owner) return #err("Unauthorized: owner only");
 
     let oldCount = Map.size(markets);
     markets := Map.new<Text, ToolContext.Market>();
@@ -1313,7 +1903,16 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     syncQueue := [];
     nextMarketId := 0;
 
-    #ok("Cleared " # Nat.toText(oldCount) # " markets. Ready for re-sync.");
+    // Also clear orders, positions, trades since they reference old markets
+    orders := Map.new<Text, ToolContext.Order>();
+    trades := Map.new<Text, ToolContext.Trade>();
+    positions := Map.new<Text, ToolContext.Position>();
+    userPositionIds := Map.new<Principal, [Text]>();
+    nextOrderId := 0;
+    nextTradeId := 0;
+    nextPositionId := 0;
+
+    #ok("Cleared " # Nat.toText(oldCount) # " markets + all orders/positions/trades. Ready for re-sync.");
   };
 
   /// Debug: list markets with optional sport filter, paginated
@@ -1426,6 +2025,69 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
   };
 
+  /// Admin: create an API key for any principal (for testing / market maker)
+  public shared ({ caller }) func admin_create_api_key(
+    user : Principal,
+    name : Text,
+    scopes : [Text],
+  ) : async Result.Result<Text, Text> {
+    if (caller != owner) return #err("Unauthorized: owner only");
+    switch (authContext) {
+      case null #err("Authentication is not enabled on this canister.");
+      case (?ctx) {
+        let rawKey = await ApiKey.create_my_api_key(ctx, user, name, scopes);
+        #ok(rawKey);
+      };
+    };
+  };
+
+  /// Debug: get order book depth for a market
+  public query func debug_get_order_book(marketId : Text, maxLevels : Nat) : async {
+    yesBids : [{ price : Nat; totalSize : Nat; orderCount : Nat }];
+    noBids : [{ price : Nat; totalSize : Nat; orderCount : Nat }];
+    bestYesBid : Nat;
+    bestNoBid : Nat;
+    impliedYesAsk : Nat;
+    impliedNoAsk : Nat;
+    spread : Nat;
+  } {
+    let limit = if (maxLevels == 0) 20 else if (maxLevels > 50) 50 else maxLevels;
+    switch (Map.get(orderBooks, thash, marketId)) {
+      case (?book) {
+        let d = OrderBook.depth(book, limit);
+        let bp = OrderBook.bestPrices(book);
+        {
+          yesBids = Array.map<OrderBook.DepthLevel, { price : Nat; totalSize : Nat; orderCount : Nat }>(
+            d.yesBids, func(l : OrderBook.DepthLevel) : { price : Nat; totalSize : Nat; orderCount : Nat } {
+              { price = l.price; totalSize = l.totalSize; orderCount = l.orderCount }
+            }
+          );
+          noBids = Array.map<OrderBook.DepthLevel, { price : Nat; totalSize : Nat; orderCount : Nat }>(
+            d.noBids, func(l : OrderBook.DepthLevel) : { price : Nat; totalSize : Nat; orderCount : Nat } {
+              { price = l.price; totalSize = l.totalSize; orderCount = l.orderCount }
+            }
+          );
+          bestYesBid = bp.bestYesBid;
+          bestNoBid = bp.bestNoBid;
+          impliedYesAsk = bp.impliedYesAsk;
+          impliedNoAsk = bp.impliedNoAsk;
+          spread = bp.spread;
+        };
+      };
+      case null {
+        {
+          yesBids = [];
+          noBids = [];
+          bestYesBid = 0;
+          bestNoBid = 0;
+          impliedYesAsk = 10000;
+          impliedNoAsk = 10000;
+          spread = 10000;
+        };
+      };
+    };
+  };
+
   // ═══════════════════════════════════════════════════════════
   // Timers (must be after all function definitions)
   // ═══════════════════════════════════════════════════════════
@@ -1433,9 +2095,9 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   // Market sync is handled off-chain via cron script calling admin_create_market.
   // This avoids ICP instruction limits on JSON parsing of Polymarket responses.
 
-  // Check resolutions every 5 minutes (lightweight — only checks #Closed markets)
+  // Check resolutions every hour (lightweight — only checks #Closed markets)
   ignore Timer.recurringTimer<system>(
-    #seconds(5 * 60),
+    #seconds(60 * 60),
     func() : async () { await checkResolutions() },
   );
 };

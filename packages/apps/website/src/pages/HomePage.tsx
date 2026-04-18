@@ -2,7 +2,8 @@ import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { usePlatformStats, useMarketCount, useMarketsList } from '../hooks/useMarkets';
+import { usePlatformStats, useMarketCount, useSportCounts } from '../hooks/useMarkets';
+import type { SportCategory } from '../hooks/useMarkets';
 import {
   TrendingUp,
   Users,
@@ -15,62 +16,50 @@ import {
 } from 'lucide-react';
 
 // Sport categories that map to Polymarket sport slugs
-const SPORTS = [
+const SPORTS: (SportCategory & { name: string; emoji: string })[] = [
   {
     slug: 'basketball',
     name: 'Basketball',
     emoji: '🏀',
-    polymarketSports: ['nba', 'wnba'],
+    codes: ['nba', 'wnba'],
   },
   {
     slug: 'football',
     name: 'Football',
     emoji: '⚽',
-    polymarketSports: ['epl', 'lal', 'bun', 'fl1', 'sea', 'ucl'],
+    codes: ['epl', 'lal', 'bun', 'fl1', 'sea', 'ucl'],
   },
   {
     slug: 'cricket',
     name: 'Cricket',
     emoji: '🏏',
-    polymarketSports: ['cricipl', 'ipl'],
+    codes: ['cricipl', 'ipl'],
   },
   {
     slug: 'baseball',
     name: 'Baseball',
     emoji: '⚾',
-    polymarketSports: ['mlb', 'kbo'],
+    codes: ['mlb', 'kbo'],
   },
   {
     slug: 'hockey',
     name: 'Hockey',
     emoji: '🏒',
-    polymarketSports: ['nhl'],
+    codes: ['nhl'],
   },
   {
     slug: 'american-football',
     name: 'American Football',
     emoji: '🏈',
-    polymarketSports: ['nfl'],
+    codes: ['nfl'],
   },
 ];
 
 export default function HomePage() {
   const { data: stats, isLoading: statsLoading } = usePlatformStats();
   const { data: marketCount, isLoading: countLoading } = useMarketCount();
-  // Fetch all markets to compute per-sport counts
-  const { data: allMarkets } = useMarketsList(undefined, 0, 100);
-
-  // Compute per-sport-category counts from actual market data
-  const sportCounts: Record<string, number> = {};
-  if (allMarkets?.markets) {
-    for (const m of allMarkets.markets) {
-      for (const sport of SPORTS) {
-        if (sport.polymarketSports.includes(m.sport)) {
-          sportCounts[sport.slug] = (sportCounts[sport.slug] || 0) + 1;
-        }
-      }
-    }
-  }
+  // Fetch per-sport counts efficiently (one lightweight query per sport code)
+  const { data: sportCounts } = useSportCounts(SPORTS);
 
   return (
     <div className="min-h-screen">
@@ -164,7 +153,7 @@ export default function HomePage() {
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4">
           {SPORTS.map((sport) => {
-            const count = sportCounts[sport.slug] || 0;
+            const count = sportCounts?.[sport.slug] || 0;
             return (
               <Link key={sport.slug} to={`/sport/${sport.slug}`}>
                 <Card className="hover:border-primary/50 transition-all duration-200 hover:shadow-lg hover:shadow-primary/5 cursor-pointer group">

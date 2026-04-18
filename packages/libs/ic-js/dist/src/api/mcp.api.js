@@ -47,7 +47,7 @@ export async function callMcpTool(apiKey, toolName, args = {}, canisterIdOverrid
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${apiKey}`,
+            'x-api-key': apiKey,
         },
         body: JSON.stringify(body),
     });
@@ -95,6 +95,7 @@ export async function getMarketDetail(apiKey, marketId) {
 }
 /**
  * Place an order on a market.
+ * Price is in dollars (0.01 to 0.99). Size is number of shares.
  */
 export async function placeOrder(apiKey, args) {
     const result = await callMcpTool(apiKey, 'order_place', args);

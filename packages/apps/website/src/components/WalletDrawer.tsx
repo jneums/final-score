@@ -45,6 +45,23 @@ export function WalletDrawer() {
               {balanceLoading ? '—' : `$${Number(balance ?? 0).toFixed(2)}`}{' '}
               <span className="text-lg text-muted-foreground">USDC</span>
             </div>
+            {!balanceLoading && Number(balance ?? 0) === 0 && (
+              <div className="p-3 bg-blue-950/30 border border-blue-800/50 rounded-lg text-sm">
+                <p className="font-medium text-blue-400">No USDC balance</p>
+                <p className="text-muted-foreground mt-1">
+                  This platform uses test USDC tokens. Visit the{' '}
+                  <a
+                    href="https://3jkp5-oyaaa-aaaaj-azwqa-cai.icp0.io"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-400 underline"
+                  >
+                    faucet
+                  </a>
+                  {' '}to get some, then set an allowance below.
+                </p>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

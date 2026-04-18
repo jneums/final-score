@@ -81,9 +81,10 @@ module OrderBook {
     var remainingSize : Nat = order.size - order.filledSize;
     var updatedContraLevels : [PriceLevel] = [];
     var doneMatching = false;
+    var fillCount : Nat = 0;
 
     for (level in contraLevels.vals()) {
-      if (doneMatching or remainingSize == 0) {
+      if (doneMatching or remainingSize == 0 or fillCount >= ToolContext.MAX_FILLS_PER_ORDER) {
         // Keep remaining levels unchanged
         updatedContraLevels := Array.append(updatedContraLevels, [level]);
       } else {
@@ -99,40 +100,38 @@ module OrderBook {
           var updatedOrders : [ToolContext.Order] = [];
 
           for (resting in level.orders.vals()) {
-            if (remainingSize == 0) {
+            if (remainingSize == 0 or fillCount >= ToolContext.MAX_FILLS_PER_ORDER) {
               // Keep unmatched resting orders
               updatedOrders := Array.append(updatedOrders, [resting]);
             } else {
-              // Self-trade prevention
-              if (Principal.equal(order.user, resting.user)) {
-                updatedOrders := Array.append(updatedOrders, [resting]);
-              } else {
-                let restingRemaining = resting.size - resting.filledSize;
-                let fillSize = Nat.min(remainingSize, restingRemaining);
+              // No self-trade prevention — opposite-outcome self-matching
+              // is valid in prediction markets (hedging, closing positions).
+              let restingRemaining = resting.size - resting.filledSize;
+              let fillSize = Nat.min(remainingSize, restingRemaining);
 
-                let fill : Fill = {
-                  makerOrderId = resting.orderId;
-                  takerOrderId = order.orderId;
-                  maker = resting.user;
-                  taker = order.user;
-                  outcome = order.outcome;
-                  price = level.price; // maker's resting price (for maker's side)
-                  size = fillSize;
-                };
-
-                fills := Array.append(fills, [fill]);
-                remainingSize -= fillSize;
-
-                // If resting order still has remaining, keep it
-                if (restingRemaining > fillSize) {
-                  updatedOrders := Array.append(updatedOrders, [{
-                    resting with
-                    filledSize = resting.filledSize + fillSize;
-                    status = #PartiallyFilled;
-                  }]);
-                };
-                // If fully filled, drop it from the book
+              let fill : Fill = {
+                makerOrderId = resting.orderId;
+                takerOrderId = order.orderId;
+                maker = resting.user;
+                taker = order.user;
+                outcome = order.outcome;
+                price = level.price; // maker's resting price (for maker's side)
+                size = fillSize;
               };
+
+              fills := Array.append(fills, [fill]);
+              remainingSize -= fillSize;
+              fillCount += 1;
+
+              // If resting order still has remaining, keep it
+              if (restingRemaining > fillSize) {
+                updatedOrders := Array.append(updatedOrders, [{
+                  resting with
+                  filledSize = resting.filledSize + fillSize;
+                  status = #PartiallyFilled;
+                }]);
+              };
+              // If fully filled, drop it from the book
             };
           };
 

@@ -33,6 +33,25 @@ WHITELIST = [
     "kbo",
 ]
 
+# Hardcoded sport → tag_id mapping (from Polymarket /sports API).
+# Each tag is the most specific for that sport to avoid cross-contamination.
+SPORT_TAGS = {
+    "bun": "1494",
+    "cricipl": "517",
+    "epl": "306",
+    "fl1": "102070",
+    "ipl": "101977",
+    "kbo": "102668",
+    "lal": "780",
+    "mlb": "100381",
+    "nba": "745",
+    "nfl": "450",
+    "nhl": "899",
+    "sea": "101962",
+    "ucl": "100977",
+    "wnba": "100254",
+}
+
 
 def fetch_json(url: str) -> any:
     """Fetch JSON from a URL."""
@@ -179,9 +198,9 @@ def escape_candid(s: str) -> str:
 def main():
     print(f"[{datetime.now(timezone.utc).isoformat()}] Starting Polymarket sync...")
 
-    # 1. Get sport → tag mapping
-    sport_tags = get_sport_tags()
-    print(f"  Mapped {len(sport_tags)} whitelisted sports to tags")
+    # 1. Use hardcoded sport → tag mapping
+    sport_tags = SPORT_TAGS
+    print(f"  Using {len(sport_tags)} hardcoded sport tags")
 
     created = 0
     skipped = 0
@@ -218,7 +237,7 @@ def main():
 
                 matched_in_event = 0
                 for mkt in markets:
-                    if matched_in_event >= 3:  # moneyline = max 3 (home/away/draw)
+                    if matched_in_event >= 6:  # moneyline: 2 per matchup (split), or 3 for soccer
                         break
                     question = mkt.get("question", "")
                     condition_id = mkt.get("conditionId", "")
@@ -237,12 +256,18 @@ def main():
 
                     # Check for bare matchup title (US sports moneyline)
                     # These have "vs." or "vs" and NO colon, spread, O/U, or player props
+                    # Must NOT already be a per-outcome question (starts with "Will", contains "draw", etc.)
                     is_bare_matchup = (
                         (" vs " in q_lower or " vs. " in q_lower)
                         and ":" not in q_stripped
                         and "spread" not in q_lower
                         and "o/u" not in q_lower
                         and "moneyline" not in q_lower
+                        and not q_lower.startswith("will ")
+                        and "draw" not in q_lower
+                        and "win on " not in q_lower
+                        and "win in " not in q_lower
+                        and "who wins" not in q_lower
                     )
 
                     is_moneyline = (
@@ -265,10 +290,45 @@ def main():
                     except json.JSONDecodeError:
                         prices = []
 
-                    yes_price = parse_price_to_bps(prices[0]) if len(prices) >= 1 else 5000
-                    no_price = parse_price_to_bps(prices[1]) if len(prices) >= 2 else 5000
+                    yes_price = 5000
+                    no_price = 5000
 
-                    # Create on canister
+                    # ── Split bare matchups into per-team markets ──
+                    # US sports have "Team A vs. Team B" as a single market.
+                    # We split this into two markets: "Will Team A win?" and
+                    # "Will Team B win?" with independent order books.
+                    if is_bare_matchup:
+                        teams = re.split(r" vs\.? ", question, maxsplit=1)
+                        if len(teams) == 2:
+                            team_a, team_b = teams[0].strip(), teams[1].strip()
+                            for team, tp, np, cid_suffix in [
+                                (team_a, yes_price, no_price, "-a"),
+                                (team_b, no_price, yes_price, "-b"),
+                            ]:
+                                team_question = f"Will {team} win?"
+                                team_cid = condition_id + cid_suffix
+                                ok, msg = create_market_dfx(
+                                    question=escape_candid(team_question),
+                                    event_title=escape_candid(title),
+                                    sport=sport,
+                                    slug=slug,
+                                    condition_id=team_cid,
+                                    end_date_seconds=end_secs,
+                                    yes_price=tp,
+                                    no_price=np,
+                                )
+                                if ok:
+                                    created += 1
+                                    matched_in_event += 1
+                                    print(f"    + {team_question}")
+                                elif msg == "duplicate":
+                                    skipped += 1
+                                else:
+                                    errors += 1
+                                    print(f"    ! ERROR: {team_question[:40]}: {msg[:80]}")
+                            continue  # done with this market
+
+                    # ── Regular per-outcome markets (soccer, cricket, etc.) ──
                     ok, msg = create_market_dfx(
                         question=escape_candid(question),
                         event_title=escape_candid(title),

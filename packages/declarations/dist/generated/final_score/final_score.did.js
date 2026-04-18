@@ -1,5 +1,5 @@
 export const idlFactory = ({ IDL }) => {
-  const Result_2 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
+  const Result_3 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
   const UserStats = IDL.Record({
     'totalTrades' : IDL.Nat,
     'marketsWon' : IDL.Nat,
@@ -61,6 +61,22 @@ export const idlFactory = ({ IDL }) => {
     'info' : ApiKeyInfo,
     'hashed_key' : HashedApiKey,
   });
+  const Result_2 = IDL.Variant({
+    'ok' : IDL.Record({
+      'fills' : IDL.Vec(
+        IDL.Record({
+          'size' : IDL.Nat,
+          'tradeId' : IDL.Text,
+          'price' : IDL.Nat,
+        })
+      ),
+      'status' : IDL.Text,
+      'orderId' : IDL.Text,
+      'filled' : IDL.Nat,
+      'remaining' : IDL.Nat,
+    }),
+    'err' : IDL.Text,
+  });
   const Timestamp = IDL.Nat64;
   const TransferError = IDL.Variant({
     'GenericError' : IDL.Record({
@@ -94,7 +110,13 @@ export const idlFactory = ({ IDL }) => {
   });
   const Result = IDL.Variant({ 'ok' : IDL.Nat, 'err' : TreasuryError });
   const McpServer = IDL.Service({
-    'admin_cancel_market' : IDL.Func([IDL.Text], [Result_2], []),
+    'admin_cancel_market' : IDL.Func([IDL.Text], [Result_3], []),
+    'admin_clear_markets' : IDL.Func([], [Result_3], []),
+    'admin_create_api_key' : IDL.Func(
+        [IDL.Principal, IDL.Text, IDL.Vec(IDL.Text)],
+        [Result_3],
+        [],
+      ),
     'admin_create_market' : IDL.Func(
         [
           IDL.Text,
@@ -106,11 +128,15 @@ export const idlFactory = ({ IDL }) => {
           IDL.Nat,
           IDL.Nat,
         ],
-        [Result_2],
+        [Result_3],
         [],
       ),
-    'admin_drain_market_subaccount' : IDL.Func([IDL.Text], [Result_2], []),
-    'admin_resolve_market' : IDL.Func([IDL.Text, IDL.Text], [Result_2], []),
+    'admin_delete_market' : IDL.Func([IDL.Text], [Result_3], []),
+    'admin_drain_market_subaccount' : IDL.Func([IDL.Text], [Result_3], []),
+    'admin_resolve_market' : IDL.Func([IDL.Text, IDL.Text], [Result_3], []),
+    'admin_trigger_resolution_check' : IDL.Func([], [Result_3], []),
+    'admin_trigger_sync' : IDL.Func([], [Result_3], []),
+    'cancel_order' : IDL.Func([IDL.Text], [Result_3], []),
     'create_my_api_key' : IDL.Func(
         [IDL.Text, IDL.Vec(IDL.Text)],
         [IDL.Text],
@@ -120,6 +146,91 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Text],
         [
           IDL.Opt(
+            IDL.Record({
+              'status' : IDL.Text,
+              'polymarketSlug' : IDL.Text,
+              'endDate' : IDL.Int,
+              'totalVolume' : IDL.Nat,
+              'question' : IDL.Text,
+              'lastYesPrice' : IDL.Nat,
+              'lastNoPrice' : IDL.Nat,
+              'sport' : IDL.Text,
+              'eventTitle' : IDL.Text,
+              'marketId' : IDL.Text,
+            })
+          ),
+        ],
+        ['query'],
+      ),
+    'debug_get_order_book' : IDL.Func(
+        [IDL.Text, IDL.Nat],
+        [
+          IDL.Record({
+            'impliedNoAsk' : IDL.Nat,
+            'noBids' : IDL.Vec(
+              IDL.Record({
+                'totalSize' : IDL.Nat,
+                'orderCount' : IDL.Nat,
+                'price' : IDL.Nat,
+              })
+            ),
+            'bestYesBid' : IDL.Nat,
+            'yesBids' : IDL.Vec(
+              IDL.Record({
+                'totalSize' : IDL.Nat,
+                'orderCount' : IDL.Nat,
+                'price' : IDL.Nat,
+              })
+            ),
+            'impliedYesAsk' : IDL.Nat,
+            'bestNoBid' : IDL.Nat,
+            'spread' : IDL.Nat,
+          }),
+        ],
+        ['query'],
+      ),
+    'debug_list_markets' : IDL.Func(
+        [IDL.Opt(IDL.Text), IDL.Nat, IDL.Nat],
+        [
+          IDL.Record({
+            'total' : IDL.Nat,
+            'markets' : IDL.Vec(
+              IDL.Record({
+                'status' : IDL.Text,
+                'polymarketSlug' : IDL.Text,
+                'question' : IDL.Text,
+                'sport' : IDL.Text,
+                'eventTitle' : IDL.Text,
+                'marketId' : IDL.Text,
+                'noPrice' : IDL.Nat,
+                'yesPrice' : IDL.Nat,
+              })
+            ),
+            'returned' : IDL.Nat,
+          }),
+        ],
+        ['query'],
+      ),
+    'debug_sync_stats' : IDL.Func(
+        [],
+        [
+          IDL.Record({
+            'totalMarkets' : IDL.Nat,
+            'nextMarketId' : IDL.Nat,
+            'totalSlugs' : IDL.Nat,
+            'sportTagCount' : IDL.Nat,
+            'syncQueueRemaining' : IDL.Nat,
+            'sportBreakdown' : IDL.Vec(
+              IDL.Record({ 'count' : IDL.Nat, 'sport' : IDL.Text })
+            ),
+          }),
+        ],
+        ['query'],
+      ),
+    'get_event_markets' : IDL.Func(
+        [IDL.Text],
+        [
+          IDL.Vec(
             IDL.Record({
               'status' : IDL.Text,
               'polymarketSlug' : IDL.Text,
@@ -178,6 +289,48 @@ export const idlFactory = ({ IDL }) => {
     'http_request_update' : IDL.Func([HttpRequest], [HttpResponse], []),
     'icrc120_upgrade_finished' : IDL.Func([], [UpgradeFinishedResult], []),
     'list_my_api_keys' : IDL.Func([], [IDL.Vec(ApiKeyMetadata)], ['query']),
+    'my_orders' : IDL.Func(
+        [IDL.Opt(IDL.Text), IDL.Opt(IDL.Text)],
+        [
+          IDL.Vec(
+            IDL.Record({
+              'status' : IDL.Text,
+              'size' : IDL.Nat,
+              'orderId' : IDL.Text,
+              'marketId' : IDL.Text,
+              'timestamp' : IDL.Int,
+              'price' : IDL.Nat,
+              'outcome' : IDL.Text,
+              'filledSize' : IDL.Nat,
+            })
+          ),
+        ],
+        ['query'],
+      ),
+    'my_positions' : IDL.Func(
+        [IDL.Opt(IDL.Text)],
+        [
+          IDL.Vec(
+            IDL.Record({
+              'currentPrice' : IDL.Nat,
+              'shares' : IDL.Nat,
+              'question' : IDL.Text,
+              'averagePrice' : IDL.Nat,
+              'marketStatus' : IDL.Text,
+              'positionId' : IDL.Text,
+              'marketId' : IDL.Text,
+              'costBasis' : IDL.Nat,
+              'outcome' : IDL.Text,
+            })
+          ),
+        ],
+        ['query'],
+      ),
+    'place_order' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Float64, IDL.Nat],
+        [Result_2],
+        [],
+      ),
     'revoke_my_api_key' : IDL.Func([IDL.Text], [], []),
     'set_owner' : IDL.Func([IDL.Principal], [Result_1], []),
     'transformJwksResponse' : IDL.Func(

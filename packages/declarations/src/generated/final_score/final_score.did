@@ -54,10 +54,26 @@ type StreamingCallbackResponse =
  };
 type StreamingCallback = func (StreamingToken) ->
                           (opt StreamingCallbackResponse) query;
-type Result_2 = 
+type Result_3 = 
  variant {
    err: text;
    ok: text;
+ };
+type Result_2 = 
+ variant {
+   err: text;
+   ok:
+    record {
+      filled: nat;
+      fills: vec record {
+                   price: nat;
+                   size: nat;
+                   tradeId: text;
+                 };
+      orderId: text;
+      remaining: nat;
+      status: text;
+    };
  };
 type Result_1 = 
  variant {
@@ -72,19 +88,97 @@ type Result =
 type McpServer = 
  service {
    /// Admin: cancel a market and refund all
-   admin_cancel_market: (marketId: text) -> (Result_2);
-   /// Admin: manually create a market (for testing before Polymarket sync is implemented)
+   admin_cancel_market: (marketId: text) -> (Result_3);
+   admin_clear_markets: () -> (Result_3);
+   /// Admin: create an API key for any principal (for testing / market maker)
+   admin_create_api_key: (user: principal, name: text, scopes: vec text) ->
+    (Result_3);
+   /// Admin: create a market (called by off-chain sync script)
    admin_create_market: (question: text, eventTitle: text, sport: text,
     polymarketSlug: text, polymarketConditionId: text, endDateSeconds: 
-    int, yesPrice: nat, noPrice: nat) -> (Result_2);
+    int, yesPrice: nat, noPrice: nat) -> (Result_3);
+   /// Admin: clear all markets and reset sync state (nuclear option for re-sync)
+   /// Admin: delete a specific market (only if it has zero volume and no open orders)
+   admin_delete_market: (marketId: text) -> (Result_3);
    /// Admin: drain stuck funds from a market subaccount
-   admin_drain_market_subaccount: (marketId: text) -> (Result_2);
+   admin_drain_market_subaccount: (marketId: text) -> (Result_3);
    /// Admin: manually resolve a market
-   admin_resolve_market: (marketId: text, winnerText: text) -> (Result_2);
+   admin_resolve_market: (marketId: text, winnerText: text) -> (Result_3);
+   /// Admin: manually trigger resolution check (bypasses timer)
+   admin_trigger_resolution_check: () -> (Result_3);
+   /// Admin: manually trigger Polymarket sync (bypasses timer)
+   admin_trigger_sync: () -> (Result_3);
+   /// Cancel an order (authenticated by wallet)
+   cancel_order: (orderId: text) -> (Result_3);
    create_my_api_key: (name: text, scopes: vec text) -> (text);
    /// Debug: get a specific market
    debug_get_market: (marketId: text) ->
     (opt
+      record {
+        endDate: int;
+        eventTitle: text;
+        lastNoPrice: nat;
+        lastYesPrice: nat;
+        marketId: text;
+        polymarketSlug: text;
+        question: text;
+        sport: text;
+        status: text;
+        totalVolume: nat;
+      }) query;
+   /// Debug: get order book depth for a market
+   debug_get_order_book: (marketId: text, maxLevels: nat) ->
+    (record {
+       bestNoBid: nat;
+       bestYesBid: nat;
+       impliedNoAsk: nat;
+       impliedYesAsk: nat;
+       noBids: vec record {
+                     orderCount: nat;
+                     price: nat;
+                     totalSize: nat;
+                   };
+       spread: nat;
+       yesBids: vec record {
+                      orderCount: nat;
+                      price: nat;
+                      totalSize: nat;
+                    };
+     }) query;
+   /// Debug: list markets with optional sport filter, paginated
+   debug_list_markets: (sportFilter: opt text, offset: nat, limit: nat) ->
+    (record {
+       markets:
+        vec
+         record {
+           eventTitle: text;
+           marketId: text;
+           noPrice: nat;
+           polymarketSlug: text;
+           question: text;
+           sport: text;
+           status: text;
+           yesPrice: nat;
+         };
+       returned: nat;
+       total: nat;
+     }) query;
+   /// Debug: breakdown of synced markets by sport + queue status
+   debug_sync_stats: () ->
+    (record {
+       nextMarketId: nat;
+       sportBreakdown: vec record {
+                             count: nat;
+                             sport: text;
+                           };
+       sportTagCount: nat;
+       syncQueueRemaining: nat;
+       totalMarkets: nat;
+       totalSlugs: nat;
+     }) query;
+   /// Get all markets that belong to the same event (share polymarketSlug)
+   get_event_markets: (polymarketSlug: text) ->
+    (vec
       record {
         endDate: int;
         eventTitle: text;
@@ -126,6 +220,35 @@ type McpServer =
    http_request_update: (req: HttpRequest) -> (HttpResponse);
    icrc120_upgrade_finished: () -> (UpgradeFinishedResult);
    list_my_api_keys: () -> (vec ApiKeyMetadata) query;
+   /// List the caller's orders
+   my_orders: (statusFilter: opt text, marketFilter: opt text) ->
+    (vec
+      record {
+        filledSize: nat;
+        marketId: text;
+        orderId: text;
+        outcome: text;
+        price: nat;
+        size: nat;
+        status: text;
+        timestamp: int;
+      }) query;
+   my_positions: (marketFilter: opt text) ->
+    (vec
+      record {
+        averagePrice: nat;
+        costBasis: nat;
+        currentPrice: nat;
+        marketId: text;
+        marketStatus: text;
+        outcome: text;
+        positionId: text;
+        question: text;
+        shares: nat;
+      }) query;
+   /// Place a limit order (authenticated by wallet — msg.caller is the user)
+   place_order: (marketId: text, outcomeText: text, price: float64, size:
+    nat) -> (Result_2);
    revoke_my_api_key: (key_id: text) -> ();
    set_owner: (new_owner: principal) -> (Result_1);
    transformJwksResponse:
