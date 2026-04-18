@@ -9,6 +9,7 @@ Designed to run as a cron job every 30 minutes.
 """
 
 import json
+import re
 import subprocess
 import sys
 import urllib.request
@@ -20,19 +21,14 @@ CANISTER_ID = "ilyol-uqaaa-aaaai-q34kq-cai"
 NETWORK = "ic"
 GAMMA_API = "https://gamma-api.polymarket.com"
 
-# Whitelisted sports — only sync these
+# Whitelisted sports — keep tight for launch
 WHITELIST = [
-    # Football/Soccer
-    "epl", "lal", "bun", "fl1", "sea", "ere", "mls", "spl", "elc",
-    "ucl", "uel", "afc", "lib", "cdr",
+    # Football/Soccer — top 5 leagues + UCL
+    "epl", "lal", "bun", "fl1", "sea", "ucl",
     # Cricket
-    "cricipl", "ipl", "cricpsl", "crictbcl",
+    "cricipl", "ipl",
     # US Sports
     "nba", "wnba", "mlb", "nfl", "nhl",
-    # Tennis
-    "atp", "wta",
-    # Esports
-    "lol", "cs2", "val", "dota2",
     # Other
     "kbo",
 ]
@@ -207,7 +203,23 @@ def main():
                 end_secs = iso_to_unix(end_date)
                 markets = event.get("markets", [])
 
+                # Only sync match-day events (slug contains a date like 2026-04-18)
+                # This filters out season props, outright winners, top scorer, etc.
+                if not re.search(r"\d{4}-\d{2}-\d{2}", slug):
+                    continue
+
+                # Skip prop events (toss, sixes, batter, more-markets, etc.)
+                PROP_SUFFIXES = [
+                    "-more-markets", "-toss", "-most-sixes", "-team-top-batter",
+                    "-most-fours", "-most-wickets", "-top-scorer",
+                ]
+                if any(slug.endswith(s) or s + "-" in slug for s in PROP_SUFFIXES):
+                    continue
+
+                matched_in_event = 0
                 for mkt in markets:
+                    if matched_in_event >= 3:  # moneyline = max 3 (home/away/draw)
+                        break
                     question = mkt.get("question", "")
                     condition_id = mkt.get("conditionId", "")
                     closed = mkt.get("closed", False)
@@ -215,12 +227,35 @@ def main():
                     if not condition_id or closed:
                         continue
 
-                    # Skip non-moneyline markets
-                    if any(kw in question for kw in [
-                        "Spread", "O/U", "Exact Score", "halftime",
-                        "leading at", "Most", "Top Batter", "Toss",
-                        "Sixes", "Fours", "Wickets", "Runs",
-                    ]):
+                    # WHITELIST: only moneyline questions
+                    # Soccer: "Will X win on 2026-04-18?", "end in a draw?"
+                    # Cricket: "League: Team A vs Team B" (event title as question)
+                    #          "League: ... - Who wins", "Completed Match"
+                    # US Sports (NBA/MLB/NHL): "Team A vs. Team B" (bare matchup, no qualifiers)
+                    q_lower = question.lower()
+                    q_stripped = question.strip()
+
+                    # Check for bare matchup title (US sports moneyline)
+                    # These have "vs." or "vs" and NO colon, spread, O/U, or player props
+                    is_bare_matchup = (
+                        (" vs " in q_lower or " vs. " in q_lower)
+                        and ":" not in q_stripped
+                        and "spread" not in q_lower
+                        and "o/u" not in q_lower
+                        and "moneyline" not in q_lower
+                    )
+
+                    is_moneyline = (
+                        ("win" in q_lower and ("on 20" in q_lower or "in 20" in q_lower))
+                        or "end in a draw" in q_lower
+                        or "draw?" in q_lower
+                        or (" vs " in q_lower and ":" in question and "spread" not in q_lower
+                            and "o/u" not in q_lower and "moneyline" not in q_lower)
+                        or "who wins" in q_lower
+                        or "completed match" in q_lower
+                        or is_bare_matchup
+                    )
+                    if not is_moneyline:
                         continue
 
                     # Parse prices
@@ -247,6 +282,7 @@ def main():
 
                     if ok:
                         created += 1
+                        matched_in_event += 1
                         print(f"    + {question[:60]}")
                     elif msg == "duplicate":
                         skipped += 1

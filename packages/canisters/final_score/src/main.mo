@@ -363,17 +363,12 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       // Whitelist: only sync sports with known active markets
       // Update this list periodically as seasons change
       let whitelist : [Text] = [
-        // Football/Soccer — top leagues + cups
-        "epl", "lal", "bun", "fl1", "sea", "ere", "mls", "spl", "elc",
-        "ucl", "uel", "afc", "lib", "cdr",
+        // Football/Soccer — top 5 leagues + UCL
+        "epl", "lal", "bun", "fl1", "sea", "ucl",
         // Cricket
-        "cricipl", "ipl", "cricpsl", "crictbcl",
+        "cricipl", "ipl",
         // US Sports
         "nba", "wnba", "mlb", "nfl", "nhl",
-        // Tennis
-        "atp", "wta",
-        // Esports
-        "lol", "cs2", "val", "dota2",
         // Other
         "kbo",
       ];
