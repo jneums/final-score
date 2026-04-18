@@ -215,8 +215,12 @@ def main():
                     if not condition_id or closed:
                         continue
 
-                    # Skip non-moneyline (Spread, O/U)
-                    if "Spread" in question or "O/U" in question:
+                    # Skip non-moneyline markets
+                    if any(kw in question for kw in [
+                        "Spread", "O/U", "Exact Score", "halftime",
+                        "leading at", "Most", "Top Batter", "Toss",
+                        "Sixes", "Fours", "Wickets", "Runs",
+                    ]):
                         continue
 
                     # Parse prices
