@@ -171,7 +171,45 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     context = _ : Blob;
     response : IC.HttpRequestResult;
   }) : async IC.HttpRequestResult {
-    { response with headers = [] };
+    // Strip Polymarket event JSON to only the fields we need:
+    //   markets[].conditionId, markets[].closed, markets[].outcomePrices
+    // This cuts response size by ~97% (84KB → 3KB for a typical event)
+    // and prevents instruction limit exceeded on the update call.
+    switch (Text.decodeUtf8(response.body)) {
+      case (?text) {
+        switch (Json.parse(text)) {
+          case (#ok(eventJson)) {
+            let pmMarkets = jsonGetArray(eventJson, "markets");
+            var stripped : Text = "{\"markets\":[";
+            var first = true;
+            for (pm in pmMarkets.vals()) {
+              let cid = jsonGetText(pm, "conditionId");
+              let closed = jsonGetBool(pm, "closed");
+              let prices = jsonGetText(pm, "outcomePrices");
+              if (not first) { stripped #= "," };
+              first := false;
+              // outcomePrices is a JSON-encoded array string like: ["0.95","0.05"]
+              // Re-serialize it as a JSON string value (escape inner quotes)
+              let escapedPrices = Text.replace(prices, #char '\"', "\\\"");
+              stripped #= "{\"conditionId\":\"" # cid # "\",\"closed\":" # (if closed "true" else "false") # ",\"outcomePrices\":\"" # escapedPrices # "\"}";
+            };
+            stripped #= "]}";
+            {
+              status = response.status;
+              headers = [];
+              body = Text.encodeUtf8(stripped);
+            };
+          };
+          case (#err(_)) {
+            // Parse failed — return as-is, let the update call handle the error
+            { response with headers = [] };
+          };
+        };
+      };
+      case null {
+        { response with headers = [] };
+      };
+    };
   };
 
   // ═══════════════════════════════════════════════════════════
