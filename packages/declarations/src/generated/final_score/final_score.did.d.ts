@@ -69,6 +69,10 @@ export interface McpServer {
    */
   'admin_drain_market_subaccount' : ActorMethod<[string], Result_3>,
   /**
+   * / Admin: reset resolution failure counts (unblocks blacklisted markets)
+   */
+  'admin_reset_resolution_failures' : ActorMethod<[[] | [string]], Result_3>,
+  /**
    * / Admin: manually resolve a market
    */
   'admin_resolve_market' : ActorMethod<[string, string], Result_3>,
@@ -144,6 +148,20 @@ export interface McpServer {
         }
       >,
       'returned' : bigint,
+    }
+  >,
+  /**
+   * / Query: get resolution diagnostics for debugging
+   */
+  'debug_resolution_status' : ActorMethod<
+    [],
+    {
+      'failures' : Array<[string, bigint]>,
+      'totalMarkets' : bigint,
+      'eligibleForCheck' : bigint,
+      'cursor' : string,
+      'closedMarkets' : bigint,
+      'blacklisted' : bigint,
     }
   >,
   /**

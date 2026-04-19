@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: final-score-sync
+    runtime: node
+    plan: starter
+    region: oregon
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: DFX_IDENTITY_PEM
+        sync: false  # Set manually in Render dashboard (base64-encoded PEM)
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /
+    autoDeploy: true

@@ -102,6 +102,8 @@ type McpServer =
    admin_delete_market: (marketId: text) -> (Result_3);
    /// Admin: drain stuck funds from a market subaccount
    admin_drain_market_subaccount: (marketId: text) -> (Result_3);
+   /// Admin: reset resolution failure counts (unblocks blacklisted markets)
+   admin_reset_resolution_failures: (marketIdOpt: opt text) -> (Result_3);
    /// Admin: manually resolve a market
    admin_resolve_market: (marketId: text, winnerText: text) -> (Result_3);
    /// Admin: manually trigger resolution check (bypasses timer)
@@ -162,6 +164,19 @@ type McpServer =
          };
        returned: nat;
        total: nat;
+     }) query;
+   /// Query: get resolution diagnostics for debugging
+   debug_resolution_status: () ->
+    (record {
+       blacklisted: nat;
+       closedMarkets: nat;
+       cursor: text;
+       eligibleForCheck: nat;
+       failures: vec record {
+                       text;
+                       nat;
+                     };
+       totalMarkets: nat;
      }) query;
    /// Debug: breakdown of synced markets by sport + queue status
    debug_sync_stats: () ->

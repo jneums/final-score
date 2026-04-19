@@ -133,6 +133,11 @@ export const idlFactory = ({ IDL }) => {
       ),
     'admin_delete_market' : IDL.Func([IDL.Text], [Result_3], []),
     'admin_drain_market_subaccount' : IDL.Func([IDL.Text], [Result_3], []),
+    'admin_reset_resolution_failures' : IDL.Func(
+        [IDL.Opt(IDL.Text)],
+        [Result_3],
+        [],
+      ),
     'admin_resolve_market' : IDL.Func([IDL.Text, IDL.Text], [Result_3], []),
     'admin_trigger_resolution_check' : IDL.Func([], [Result_3], []),
     'admin_trigger_sync' : IDL.Func([], [Result_3], []),
@@ -207,6 +212,20 @@ export const idlFactory = ({ IDL }) => {
               })
             ),
             'returned' : IDL.Nat,
+          }),
+        ],
+        ['query'],
+      ),
+    'debug_resolution_status' : IDL.Func(
+        [],
+        [
+          IDL.Record({
+            'failures' : IDL.Vec(IDL.Tuple(IDL.Text, IDL.Nat)),
+            'totalMarkets' : IDL.Nat,
+            'eligibleForCheck' : IDL.Nat,
+            'cursor' : IDL.Text,
+            'closedMarkets' : IDL.Nat,
+            'blacklisted' : IDL.Nat,
           }),
         ],
         ['query'],

@@ -15,6 +15,7 @@ import Iter "mo:base/Iter";
 import Nat64 "mo:base/Nat64";
 import Nat32 "mo:base/Nat32";
 import Char "mo:base/Char";
+import Buffer "mo:base/Buffer";
 
 import Json "mo:json";
 import ICCall "mo:ic/Call";
@@ -97,6 +98,9 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
   // Track resolution check failures to avoid infinite retry loops
   var resolutionFailures = Map.new<Text, Nat>();
+
+  // Round-robin cursor for resolution checks — tracks last checked marketId
+  var resolutionCursor : Text = "";
 
   // Rate limiting: 2-second cooldown between orders per user
   var lastOrderTime = Map.new<Principal, Int>();
@@ -631,122 +635,155 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   func checkResolutions() : async () {
     let now = Time.now();
     var checked = 0;
-    let MAX_PER_CYCLE = 3; // max HTTP outcalls per timer tick
+    let MAX_PER_CYCLE = 5; // max HTTP outcalls per timer tick
 
+    // Pre-filter: only markets that are Closed, past endDate, have Polymarket data, and not blacklisted
+    var eligible = Buffer.Buffer<(Text, ToolContext.Market)>(16);
+    var skippedBlacklist = 0;
+    var skippedNoData = 0;
     for ((marketId, market) in Map.entries(markets)) {
-      if (checked >= MAX_PER_CYCLE) return;
-
       switch (market.status) {
         case (#Closed) {
-          // Skip if event hasn't ended yet
-          if (now < market.endDate) {}
-          // Skip if we've already failed too many times
-          else if (
-            switch (Map.get(resolutionFailures, thash, marketId)) {
-              case (?n) n >= 5;
+          if (now < market.endDate) {
+            // Event hasn't ended — not eligible yet
+          } else if (market.polymarketSlug == "" or market.polymarketConditionId == "") {
+            skippedNoData += 1;
+          } else {
+            let blacklisted = switch (Map.get(resolutionFailures, thash, marketId)) {
+              case (?n) n >= 10;
               case null false;
-            }
-          ) {}
-          // Skip if missing Polymarket data
-          else if (market.polymarketSlug == "" or market.polymarketConditionId == "") {}
-          else {
-            checked += 1;
-            try {
-              let url = "https://gamma-api.polymarket.com/events/slug/"
-                # market.polymarketSlug;
-              let responseText = await httpGet(url);
-              let parsed = Json.parse(responseText);
-
-              switch (parsed) {
-                case (#ok(eventJson)) {
-                  // Find our specific market by conditionId
-                  // Split markets have "-a" or "-b" suffix — strip it for matching
-                  let pmMarkets = jsonGetArray(eventJson, "markets");
-                  let cid = market.polymarketConditionId;
-                  let cidLen = cid.size();
-                  let isSplitA = Text.endsWith(cid, #text "-a");
-                  let isSplitB = Text.endsWith(cid, #text "-b");
-                  let baseCid = if (isSplitA or isSplitB) {
-                    let chars = Text.toIter(cid);
-                    var result = "";
-                    var i = 0;
-                    for (c in chars) {
-                      if (i + 2 < cidLen) { result #= Text.fromChar(c) };
-                      i += 1;
-                    };
-                    result;
-                  } else { cid };
-
-                  for (pm in pmMarkets.vals()) {
-                    let condId = jsonGetText(pm, "conditionId");
-                    if (condId == baseCid) {
-                      let isClosed = jsonGetBool(pm, "closed");
-
-                      if (isClosed) {
-                        // Parse final prices to determine winner
-                        let pricesStr = jsonGetText(pm, "outcomePrices");
-                        let pricesResult = Json.parse(pricesStr);
-
-                        switch (pricesResult) {
-                          case (#ok(#array(prices))) {
-                            let yesPrice = if (prices.size() >= 1) {
-                              switch (prices[0]) {
-                                case (#string(s)) parsePriceToBps(s);
-                                case _ 5000;
-                              };
-                            } else { 5000 };
-
-                            let noPrice = if (prices.size() >= 2) {
-                              switch (prices[1]) {
-                                case (#string(s)) parsePriceToBps(s);
-                                case _ 5000;
-                              };
-                            } else { 5000 };
-
-                            // Winner: price near 10000 ($1.00)
-                            // Cancelled/void: both near 5000
-                            // For split markets: "-a" = Team A = Yes side, "-b" = Team B = No side
-                            // If this is a "-b" market, the Polymarket "Yes" outcome means
-                            // Team A won, which means Team B LOST — so we invert.
-                            let effectiveYes = if (isSplitB) { noPrice } else { yesPrice };
-                            let effectiveNo = if (isSplitB) { yesPrice } else { noPrice };
-
-                            if (effectiveYes > 7500) {
-                              Debug.print("Auto-resolving market " # marketId # " as Yes (closed=" # (if isClosed "true" else "false") # " yesPrice=" # Nat.toText(yesPrice) # " split=" # (if isSplitA "a" else if isSplitB "b" else "none") # ")");
-                              ignore await admin_resolve_market_internal(marketId, #Yes);
-                            } else if (effectiveNo > 7500) {
-                              Debug.print("Auto-resolving market " # marketId # " as No (closed=" # (if isClosed "true" else "false") # " noPrice=" # Nat.toText(noPrice) # " split=" # (if isSplitA "a" else if isSplitB "b" else "none") # ")");
-                              ignore await admin_resolve_market_internal(marketId, #No);
-                            } else if (yesPrice > 4000 and yesPrice < 6000 and noPrice > 4000 and noPrice < 6000) {
-                              // Both near 50% — voided/cancelled
-                              Debug.print("Auto-cancelling market " # marketId # " (Polymarket voided)");
-                              ignore await admin_cancel_market(marketId);
-                            };
-                            // else: inconclusive, skip and retry next cycle
-                          };
-                          case _ {};
-                        };
-                      };
-                    };
-                  };
-                };
-                case (#err(_)) {
-                  Debug.print("Failed to parse event JSON for " # market.polymarketSlug);
-                };
-              };
-            } catch (e) {
-              let prev = switch (Map.get(resolutionFailures, thash, marketId)) {
-                case (?n) n;
-                case null 0;
-              };
-              Map.set(resolutionFailures, thash, marketId, prev + 1);
-              Debug.print("Resolution check failed for market " # marketId # " (attempt " # Nat.toText(prev + 1) # "/5): " # Error.message(e));
             };
-          }; // else — eligible for resolution check
+            if (blacklisted) { skippedBlacklist += 1 }
+            else { eligible.add((marketId, market)) };
+          };
         };
         case _ {};
       };
     };
+
+    let total = eligible.size();
+
+    // Process eligible markets from cursor position
+    var startIdx : Nat = 0;
+    if (resolutionCursor != "") {
+      label findCursor for (i in Iter.range(0, total - 1)) {
+        let (mid, _) = eligible.get(i);
+        if (mid == resolutionCursor) {
+          startIdx := (i + 1) % total;
+          break findCursor;
+        };
+      };
+    };
+
+    var visited = 0;
+    while (visited < total and checked < MAX_PER_CYCLE) {
+      let idx = (startIdx + visited) % total;
+      visited += 1;
+      let (marketId, market) = eligible.get(idx);
+
+      checked += 1;
+      resolutionCursor := marketId;
+      try {
+        let url = "https://gamma-api.polymarket.com/events/slug/"
+          # market.polymarketSlug;
+        let responseText = await httpGet(url);
+        let parsed = Json.parse(responseText);
+
+        switch (parsed) {
+          case (#ok(eventJson)) {
+            // Find our specific market by conditionId
+            // Split markets have "-a" or "-b" suffix — strip it for matching
+            let pmMarkets = jsonGetArray(eventJson, "markets");
+            let cid = market.polymarketConditionId;
+            let cidLen = cid.size();
+            let isSplitA = Text.endsWith(cid, #text "-a");
+            let isSplitB = Text.endsWith(cid, #text "-b");
+            let baseCid = if (isSplitA or isSplitB) {
+              let chars = Text.toIter(cid);
+              var result = "";
+              var i = 0;
+              for (c in chars) {
+                if (i + 2 < cidLen) { result #= Text.fromChar(c) };
+                i += 1;
+              };
+              result;
+            } else { cid };
+
+            var matched = false;
+            for (pm in pmMarkets.vals()) {
+              let condId = jsonGetText(pm, "conditionId");
+              if (condId == baseCid) {
+                matched := true;
+                let isClosed = jsonGetBool(pm, "closed");
+
+                if (not isClosed) {
+                  Debug.print("Resolution WAITING (Polymarket not closed): market " # marketId # " slug=" # market.polymarketSlug);
+                } else {
+                  // Polymarket has closed this market — determine winner from final prices
+                  let pricesStr = jsonGetText(pm, "outcomePrices");
+                  let pricesResult = Json.parse(pricesStr);
+
+                  switch (pricesResult) {
+                    case (#ok(#array(prices))) {
+                      let yesPrice = if (prices.size() >= 1) {
+                        switch (prices[0]) {
+                          case (#string(s)) parsePriceToBps(s);
+                          case _ 5000;
+                        };
+                      } else { 5000 };
+
+                      let noPrice = if (prices.size() >= 2) {
+                        switch (prices[1]) {
+                          case (#string(s)) parsePriceToBps(s);
+                          case _ 5000;
+                        };
+                      } else { 5000 };
+
+                      // For split markets: "-a" = Team A = Yes side, "-b" = Team B = No side
+                      // If this is a "-b" market, the Polymarket "Yes" outcome means
+                      // Team A won, which means Team B LOST — so we invert.
+                      let effectiveYes = if (isSplitB) { noPrice } else { yesPrice };
+                      let effectiveNo = if (isSplitB) { yesPrice } else { noPrice };
+
+                      // Polymarket closed=true is authoritative. Higher price wins.
+                      if (effectiveYes > effectiveNo) {
+                        Debug.print("Auto-resolving market " # marketId # " as YES (yesPrice=" # Nat.toText(yesPrice) # " noPrice=" # Nat.toText(noPrice) # " split=" # (if isSplitA "a" else if isSplitB "b" else "none") # ")");
+                        ignore await admin_resolve_market_internal(marketId, #Yes);
+                      } else if (effectiveNo > effectiveYes) {
+                        Debug.print("Auto-resolving market " # marketId # " as NO (yesPrice=" # Nat.toText(yesPrice) # " noPrice=" # Nat.toText(noPrice) # " split=" # (if isSplitA "a" else if isSplitB "b" else "none") # ")");
+                        ignore await admin_resolve_market_internal(marketId, #No);
+                      } else {
+                        // Equal prices — voided/cancelled on Polymarket
+                        Debug.print("Auto-cancelling market " # marketId # " (Polymarket voided, equal prices: " # Nat.toText(yesPrice) # ")");
+                        ignore await admin_cancel_market(marketId);
+                      };
+                    };
+                    case _ {
+                      Debug.print("Resolution SKIP (failed to parse outcomePrices): market " # marketId # " pricesStr=" # jsonGetText(pm, "outcomePrices"));
+                    };
+                  };
+                };
+              };
+            };
+            if (not matched) {
+              Debug.print("Resolution SKIP (conditionId not found in event): market " # marketId # " baseCid=" # baseCid # " slug=" # market.polymarketSlug # " pmMarkets.size=" # Nat.toText(pmMarkets.size()));
+            };
+          };
+          case (#err(_)) {
+            Debug.print("Resolution SKIP (JSON parse failed): market " # marketId # " slug=" # market.polymarketSlug);
+          };
+        };
+      } catch (e) {
+        let prev = switch (Map.get(resolutionFailures, thash, marketId)) {
+          case (?n) n;
+          case null 0;
+        };
+        Map.set(resolutionFailures, thash, marketId, prev + 1);
+        Debug.print("Resolution FAILED for market " # marketId # " (attempt " # Nat.toText(prev + 1) # "/10): " # Error.message(e));
+      };
+    };
+
+    Debug.print("Resolution tick: checked=" # Nat.toText(checked) # "/" # Nat.toText(total) # " eligible (blacklisted=" # Nat.toText(skippedBlacklist) # " noData=" # Nat.toText(skippedNoData) # ")");
   };
 
   /// Internal resolution (shared by admin and auto-resolution)
@@ -1873,6 +1910,68 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     #ok("Resolution check complete");
   };
 
+  /// Admin: reset resolution failure counts (unblocks blacklisted markets)
+  public shared ({ caller }) func admin_reset_resolution_failures(marketIdOpt : ?Text) : async Result.Result<Text, Text> {
+    if (caller != owner) return #err("Unauthorized: owner only");
+    switch (marketIdOpt) {
+      case (?marketId) {
+        ignore Map.remove(resolutionFailures, thash, marketId);
+        #ok("Reset failures for market " # marketId);
+      };
+      case null {
+        let count = Map.size(resolutionFailures);
+        resolutionFailures := Map.new<Text, Nat>();
+        #ok("Reset failures for " # Nat.toText(count) # " markets");
+      };
+    };
+  };
+
+  /// Query: get resolution diagnostics for debugging
+  public query func debug_resolution_status() : async {
+    cursor : Text;
+    totalMarkets : Nat;
+    closedMarkets : Nat;
+    eligibleForCheck : Nat;
+    blacklisted : Nat;
+    failures : [(Text, Nat)];
+  } {
+    let now = Time.now();
+    var closed : Nat = 0;
+    var eligible : Nat = 0;
+    var blacklisted : Nat = 0;
+
+    for ((marketId, market) in Map.entries(markets)) {
+      switch (market.status) {
+        case (#Closed) {
+          closed += 1;
+          if (now >= market.endDate and market.polymarketSlug != "" and market.polymarketConditionId != "") {
+            let blocked = switch (Map.get(resolutionFailures, thash, marketId)) {
+              case (?n) n >= 10;
+              case null false;
+            };
+            if (blocked) { blacklisted += 1 }
+            else { eligible += 1 };
+          };
+        };
+        case _ {};
+      };
+    };
+
+    var failureList = Buffer.Buffer<(Text, Nat)>(8);
+    for ((mid, count) in Map.entries(resolutionFailures)) {
+      failureList.add((mid, count));
+    };
+
+    {
+      cursor = resolutionCursor;
+      totalMarkets = Map.size(markets);
+      closedMarkets = closed;
+      eligibleForCheck = eligible;
+      blacklisted;
+      failures = Buffer.toArray(failureList);
+    };
+  };
+
   /// Admin: clear all markets and reset sync state (nuclear option for re-sync)
   /// Admin: delete a specific market (only if it has zero volume and no open orders)
   public shared ({ caller }) func admin_delete_market(marketId : Text) : async Result.Result<Text, Text> {
@@ -2095,9 +2194,9 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   // Market sync is handled off-chain via cron script calling admin_create_market.
   // This avoids ICP instruction limits on JSON parsing of Polymarket responses.
 
-  // Check resolutions every hour (lightweight — only checks #Closed markets)
+  // Check resolutions every 15 minutes (only checks eligible markets: Closed + past endDate)
   ignore Timer.recurringTimer<system>(
-    #seconds(60 * 60),
+    #seconds(15 * 60),
     func() : async () { await checkResolutions() },
   );
 };
