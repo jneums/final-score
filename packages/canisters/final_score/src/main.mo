@@ -386,7 +386,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     let response = await ICCall.httpRequest({
       url;
       method = #get;
-      max_response_bytes = ?2_000_000; // 2MB max
+      max_response_bytes = ?500_000; // 500KB max — transform strips to ~3KB
       body = null;
       transform = ?{
         function = transformPolymarket;
@@ -693,7 +693,12 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     // Fetch from Polymarket
     let url = "https://gamma-api.polymarket.com/events/slug/"
       # market.polymarketSlug;
-    let responseText = await httpGet(url);
+    let responseText = try {
+      await httpGet(url);
+    } catch (e) {
+      return #err("HTTP outcall failed for slug " # market.polymarketSlug # ": " # Error.message(e));
+    };
+    Debug.print("try_resolve " # marketId # " slug=" # market.polymarketSlug # " response=" # Nat.toText(responseText.size()) # " bytes");
     let parsed = Json.parse(responseText);
 
     switch (parsed) {
