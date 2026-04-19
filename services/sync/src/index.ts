@@ -13,7 +13,7 @@ let lastSync: Date | null = null;
 let lastResolve: Date | null = null;
 let lastMaker: Date | null = null;
 let lastSyncResult: { created: number; skipped: number; errors: number } | null = null;
-let lastResolveResult: { resolved: number; cancelled: number; waiting: number; errors: number; total: number } | null = null;
+let lastResolveResult: { resolved: number; cancelled: number; waiting: number; errors: number; slugsChecked: number; total: number } | null = null;
 let lastMakerResult: {
   marketsChecked: number; marketsQuoted: number; marketsSkipped: number;
   ordersPlaced: number; ordersCancelled: number; ordersKept: number;

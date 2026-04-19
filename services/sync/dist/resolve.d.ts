@@ -3,6 +3,7 @@ interface ResolveResult {
     cancelled: number;
     waiting: number;
     errors: number;
+    slugsChecked: number;
     total: number;
 }
 export declare function getResolveLogs(): string[];
