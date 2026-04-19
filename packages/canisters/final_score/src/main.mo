@@ -96,10 +96,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   var userStats = Map.new<Principal, ToolContext.UserStats>();
   var positionHistory = Map.new<Principal, [ToolContext.HistoricalPosition]>();
 
-  // Track resolution check failures to avoid infinite retry loops
+  // Legacy — kept for stable memory compat (on-chain resolution timer removed)
   var resolutionFailures = Map.new<Text, Nat>();
-
-  // Round-robin cursor for resolution checks — tracks last checked marketId
   var resolutionCursor : Text = "";
 
   // Rate limiting: 2-second cooldown between orders per user
@@ -776,70 +774,6 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
   };
 
-  /// On-chain fallback timer — checks Closed markets past endDate.
-  /// Primary resolution is via try_resolve_market (called by off-chain services).
-  func checkResolutions() : async () {
-    var checked = 0;
-    let MAX_PER_CYCLE = 5;
-    let now = Time.now();
-
-    var eligible = Buffer.Buffer<(Text, ToolContext.Market)>(16);
-    var skippedBlacklist = 0;
-    for ((marketId, market) in Map.entries(markets)) {
-      switch (market.status) {
-        case (#Closed) {
-          if (now >= market.endDate and market.polymarketSlug != "" and market.polymarketConditionId != "") {
-            let blacklisted = switch (Map.get(resolutionFailures, thash, marketId)) {
-              case (?n) n >= 10;
-              case null false;
-            };
-            if (blacklisted) { skippedBlacklist += 1 }
-            else { eligible.add((marketId, market)) };
-          };
-        };
-        case _ {};
-      };
-    };
-
-    let total = eligible.size();
-
-    var startIdx : Nat = 0;
-    if (resolutionCursor != "") {
-      label findCursor for (i in Iter.range(0, total - 1)) {
-        let (mid, _) = eligible.get(i);
-        if (mid == resolutionCursor) {
-          startIdx := (i + 1) % total;
-          break findCursor;
-        };
-      };
-    };
-
-    var visited = 0;
-    while (visited < total and checked < MAX_PER_CYCLE) {
-      let idx = (startIdx + visited) % total;
-      visited += 1;
-      let (marketId, _) = eligible.get(idx);
-
-      checked += 1;
-      resolutionCursor := marketId;
-      try {
-        let result = await try_resolve_market(marketId);
-        switch (result) {
-          case (#ok(msg)) Debug.print("Timer resolved " # marketId # ": " # msg);
-          case (#err(msg)) Debug.print("Timer skip " # marketId # ": " # msg);
-        };
-      } catch (e) {
-        let prev = switch (Map.get(resolutionFailures, thash, marketId)) {
-          case (?n) n;
-          case null 0;
-        };
-        Map.set(resolutionFailures, thash, marketId, prev + 1);
-        Debug.print("Resolution FAILED for market " # marketId # " (attempt " # Nat.toText(prev + 1) # "/10): " # Error.message(e));
-      };
-    };
-
-    Debug.print("Resolution tick: checked=" # Nat.toText(checked) # "/" # Nat.toText(total) # " eligible (blacklisted=" # Nat.toText(skippedBlacklist) # ")");
-  };
 
   /// Internal resolution (shared by admin and auto-resolution)
   func admin_resolve_market_internal(marketId : Text, winner : ToolContext.Outcome) : async Result.Result<Text, Text> {
@@ -1963,74 +1897,6 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     #ok("Sync step complete. Total markets: " # Nat.toText(count) # ". Queue remaining: " # Nat.toText(remaining) # ". Call again to process more.");
   };
 
-  /// Admin: manually trigger resolution check (bypasses timer)
-  public shared ({ caller }) func admin_trigger_resolution_check() : async Result.Result<Text, Text> {
-    if (caller != owner) return #err("Unauthorized: owner only");
-    await checkResolutions();
-    #ok("Resolution check complete");
-  };
-
-  /// Admin: reset resolution failure counts (unblocks blacklisted markets)
-  public shared ({ caller }) func admin_reset_resolution_failures(marketIdOpt : ?Text) : async Result.Result<Text, Text> {
-    if (caller != owner) return #err("Unauthorized: owner only");
-    switch (marketIdOpt) {
-      case (?marketId) {
-        ignore Map.remove(resolutionFailures, thash, marketId);
-        #ok("Reset failures for market " # marketId);
-      };
-      case null {
-        let count = Map.size(resolutionFailures);
-        resolutionFailures := Map.new<Text, Nat>();
-        #ok("Reset failures for " # Nat.toText(count) # " markets");
-      };
-    };
-  };
-
-  /// Query: get resolution diagnostics for debugging
-  public query func debug_resolution_status() : async {
-    cursor : Text;
-    totalMarkets : Nat;
-    closedMarkets : Nat;
-    eligibleForCheck : Nat;
-    blacklisted : Nat;
-    failures : [(Text, Nat)];
-  } {
-    let now = Time.now();
-    var closed : Nat = 0;
-    var eligible : Nat = 0;
-    var blacklisted : Nat = 0;
-
-    for ((marketId, market) in Map.entries(markets)) {
-      switch (market.status) {
-        case (#Closed) {
-          closed += 1;
-          if (now >= market.endDate and market.polymarketSlug != "" and market.polymarketConditionId != "") {
-            let blocked = switch (Map.get(resolutionFailures, thash, marketId)) {
-              case (?n) n >= 10;
-              case null false;
-            };
-            if (blocked) { blacklisted += 1 }
-            else { eligible += 1 };
-          };
-        };
-        case _ {};
-      };
-    };
-
-    var failureList = Buffer.Buffer<(Text, Nat)>(8);
-    for ((mid, count) in Map.entries(resolutionFailures)) {
-      failureList.add((mid, count));
-    };
-
-    {
-      cursor = resolutionCursor;
-      totalMarkets = Map.size(markets);
-      closedMarkets = closed;
-      eligibleForCheck = eligible;
-      blacklisted;
-      failures = Buffer.toArray(failureList);
-    };
-  };
 
   /// Admin: clear all markets and reset sync state (nuclear option for re-sync)
   /// Admin: delete a specific market (only if it has zero volume and no open orders)
@@ -2283,12 +2149,6 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   // Timers (must be after all function definitions)
   // ═══════════════════════════════════════════════════════════
 
-  // Market sync is handled off-chain via cron script calling admin_create_market.
-  // This avoids ICP instruction limits on JSON parsing of Polymarket responses.
-
-  // Check resolutions every 15 minutes (only checks eligible markets: Closed + past endDate)
-  ignore Timer.recurringTimer<system>(
-    #seconds(15 * 60),
-    func() : async () { await checkResolutions() },
-  );
+  // Market sync and resolution are handled entirely off-chain via the Render service.
+  // See services/sync/ — sync loop (30min), resolve loop (15min), maker loop (5min).
 };
