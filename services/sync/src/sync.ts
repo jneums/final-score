@@ -1,5 +1,6 @@
 import { CONFIG } from "./config.js";
 import { createMarket } from "./agent.js";
+import { setPrice } from "./priceCache.js";
 
 // ─── Types ─────────────────────────────────────────────────
 
@@ -181,6 +182,9 @@ export async function runSync(): Promise<{ created: number; skipped: number; err
           const yesPrice = prices.length >= 1 ? parsePriceToBps(prices[0]) : 5000;
           const noPrice = prices.length >= 2 ? parsePriceToBps(prices[1]) : 5000;
 
+          // Cache Polymarket prices for the market maker
+          setPrice(conditionId, slug, yesPrice, noPrice);
+
           // Split bare matchups (US sports: "Team A vs. Team B")
           if (bareMatchup) {
             const teams = question.split(/\s+vs\.?\s+/, 2);
@@ -191,6 +195,8 @@ export async function runSync(): Promise<{ created: number; skipped: number; err
               ] as [string, number, number, string][]) {
                 const teamQ = `Will ${team} win?`;
                 const teamCid = conditionId + suffix;
+                // Cache per-team prices for the market maker
+                setPrice(teamCid, slug, tp, np);
                 const result = await createMarket(
                   escapeCandid(teamQ), escapeCandid(title),
                   sport, slug, teamCid, endSecs, tp, np,
