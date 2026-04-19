@@ -27,7 +27,12 @@ export function getMakerLogs() {
 let makerCursor = "";
 // ─── Helpers ─────────────────────────────────────────────────
 function bpsToFloat(bps) {
-    return Math.round(bps) / 10000;
+    // Convert basis points to a float price for the canister's place_order(price: Float).
+    // The canister does Float.toInt(price * 10000.0) and checks priceBps % 100 == 0.
+    // To avoid IEEE754 drift (e.g., 0.43 * 10000 = 4299.999...), we snap to
+    // the nearest cent and add a tiny epsilon so truncation lands on the right integer.
+    const cents = Math.round(bps / 100);
+    return cents / 100 + 1e-9; // 0.4300000001 * 10000 = 4300.000001 → truncates to 4300 ✓
 }
 /** Calculate desired orders for a market given reference prices. */
 function calculateDesiredOrders(yesPriceBps, noPriceBps) {
@@ -224,7 +229,7 @@ export async function runMaker() {
                 const res = await placeOrder(market.marketId, order.outcome, order.price, order.size);
                 if (res.ok) {
                     result.ordersPlaced++;
-                    log("place", "success", `${market.marketId} Buy ${order.outcome.toUpperCase()} @ $${order.price.toFixed(2)} x${order.size}`);
+                    log("place", "success", `${market.marketId} Buy ${order.outcome.toUpperCase()} @ $${order.price.toFixed(4)} x${order.size}`);
                 }
                 else {
                     // Rate limit is not an error — just skip
@@ -233,7 +238,7 @@ export async function runMaker() {
                         await sleep(mc.ORDER_DELAY_MS);
                     }
                     else {
-                        log("place", "error", `${market.marketId}: ${res.message.slice(0, 100)}`);
+                        log("place", "error", `${market.marketId} ${order.outcome}@${order.price.toFixed(4)}: ${res.message.slice(0, 100)}`);
                         result.errors++;
                     }
                 }
