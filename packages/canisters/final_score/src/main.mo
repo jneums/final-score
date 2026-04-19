@@ -169,45 +169,107 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     context = _ : Blob;
     response : IC.HttpRequestResult;
   }) : async IC.HttpRequestResult {
-    // Strip Polymarket event JSON to only the fields we need:
+    // Strip Polymarket event JSON to only the fields try_resolve_market needs:
     //   markets[].conditionId, markets[].closed, markets[].outcomePrices
-    // This cuts response size by ~97% (84KB → 3KB for a typical event)
-    // and prevents instruction limit exceeded on the update call.
-    switch (Text.decodeUtf8(response.body)) {
-      case (?text) {
-        switch (Json.parse(text)) {
-          case (#ok(eventJson)) {
-            let pmMarkets = jsonGetArray(eventJson, "markets");
-            var stripped : Text = "{\"markets\":[";
-            var first = true;
-            for (pm in pmMarkets.vals()) {
-              let cid = jsonGetText(pm, "conditionId");
-              let closed = jsonGetBool(pm, "closed");
-              let prices = jsonGetText(pm, "outcomePrices");
-              if (not first) { stripped #= "," };
-              first := false;
-              // outcomePrices is a JSON-encoded array string like: ["0.95","0.05"]
-              // Re-serialize it as a JSON string value (escape inner quotes)
-              let escapedPrices = Text.replace(prices, #char '\"', "\\\"");
-              stripped #= "{\"conditionId\":\"" # cid # "\",\"closed\":" # (if closed "true" else "false") # ",\"outcomePrices\":\"" # escapedPrices # "\"}";
-            };
-            stripped #= "]}";
-            {
-              status = response.status;
-              headers = [];
-              body = Text.encodeUtf8(stripped);
-            };
-          };
-          case (#err(_)) {
-            // Parse failed — return as-is, let the update call handle the error
-            { response with headers = [] };
-          };
+    //
+    // IMPORTANT: Uses text scanning instead of Json.parse to stay within the
+    // 5B instruction limit. MLB events have 20+ markets × 80+ fields = 100KB+
+    // JSON which blows the query instruction budget when parsed via mo:json.
+    //
+    // Strategy: scan for "conditionId":"...", "closed":true/false, and
+    // "outcomePrices":"..." patterns and reconstruct a minimal JSON.
+    { response with headers = []; body = stripPolymarketJson(response.body) };
+  };
+
+  /// Text-scan extraction of conditionId, closed, outcomePrices from raw JSON.
+  /// Avoids full JSON parse to stay within query instruction limits.
+  func stripPolymarketJson(body : Blob) : Blob {
+    let text = switch (Text.decodeUtf8(body)) {
+      case (?t) t;
+      case null return body;
+    };
+
+    // Find each "conditionId" occurrence and extract nearby closed + outcomePrices
+    var result = "{\"markets\":[";
+    var first = true;
+
+    // Split on "conditionId":" to find each market's conditionId field
+    let segments = Text.split(text, #text "\"conditionId\":\"");
+    var segIdx = 0;
+    for (seg in segments) {
+      if (segIdx > 0) {
+        // seg starts right after "conditionId":" — extract until next "
+        let cid = extractUntilQuote(seg);
+
+        // Find "closed":true or "closed":false in the surrounding context
+        // We need to look in a window around this conditionId
+        // The conditionId field might be before or after closed in the JSON object
+        // Search backward in the original text or forward in current segment
+        let closed = if (textContains(seg, "\"closed\":true")) { true }
+                     else { false };
+
+        // Extract outcomePrices — find "outcomePrices":"..." in segment
+        let prices = extractField(seg, "outcomePrices");
+
+        if (cid != "") {
+          if (not first) { result #= "," };
+          first := false;
+          result #= "{\"conditionId\":\"" # cid # "\",\"closed\":" #
+            (if closed "true" else "false") # ",\"outcomePrices\":\"" #
+            escapeQuotes(prices) # "\"}";
         };
       };
-      case null {
-        { response with headers = [] };
+      segIdx += 1;
+    };
+    result #= "]}";
+    Text.encodeUtf8(result);
+  };
+
+  /// Extract text from start until the next unescaped double-quote
+  func extractUntilQuote(text : Text) : Text {
+    var result = "";
+    var escaped = false;
+    for (c in text.chars()) {
+      if (escaped) {
+        result #= Text.fromChar(c);
+        escaped := false;
+      } else if (c == '\\') {
+        result #= Text.fromChar(c);
+        escaped := true;
+      } else if (c == '\"') {
+        return result;
+      } else {
+        result #= Text.fromChar(c);
       };
     };
+    result;
+  };
+
+  /// Extract the string value of a JSON field like "fieldName":"value"
+  func extractField(text : Text, fieldName : Text) : Text {
+    let needle = "\"" # fieldName # "\":\"";
+    let parts = Text.split(text, #text needle);
+    var idx = 0;
+    for (part in parts) {
+      if (idx > 0) {
+        return extractUntilQuote(part);
+      };
+      idx += 1;
+    };
+    "";
+  };
+
+  /// Check if text contains a substring
+  func textContains(text : Text, sub : Text) : Bool {
+    let parts = Text.split(text, #text sub);
+    var count = 0;
+    for (_ in parts) { count += 1 };
+    count > 1;
+  };
+
+  /// Escape double-quotes for JSON string embedding
+  func escapeQuotes(text : Text) : Text {
+    Text.replace(text, #char '\"', "\\\"");
   };
 
   // ═══════════════════════════════════════════════════════════
