@@ -8,8 +8,8 @@
  * from admin actions.
  */
 import { CONFIG } from "./config.js";
-import { placeOrder, cancelOrder, getMyOrders, listMarkets, } from "./agent.js";
-import { cacheSize } from "./priceCache.js";
+import { placeOrder, cancelOrder, getMyOrders, listMarkets, getUnresolvedMarkets, } from "./agent.js";
+import { getPrice, isStale, cacheSize } from "./priceCache.js";
 // ─── Logging ─────────────────────────────────────────────────
 const makerLogs = [];
 const MAX_LOGS = 300;
@@ -96,9 +96,11 @@ export async function runMaker() {
         return result;
     }
     log("start", "info", `Price cache has ${cacheSize()} entries`);
-    // 1. Fetch all open markets from canister
+    // 1. Fetch all open markets from canister (with conditionId for price cache lookup)
     let allMarkets = [];
+    const conditionIdMap = new Map(); // marketId → conditionId
     try {
+        // Get open markets
         let offset = 0;
         const pageSize = 100;
         while (true) {
@@ -108,6 +110,11 @@ export async function runMaker() {
             if (Number(page.returned) < pageSize)
                 break;
             offset += pageSize;
+        }
+        // Get conditionIds from unresolved markets query
+        const unresolved = await getUnresolvedMarkets();
+        for (const m of unresolved) {
+            conditionIdMap.set(m.marketId, m.polymarketConditionId);
         }
     }
     catch (e) {
@@ -153,17 +160,24 @@ export async function runMaker() {
         const idx = (startIdx + i) % allMarkets.length;
         const market = allMarkets[idx];
         result.marketsChecked++;
-        // Get Polymarket reference price from cache
-        // The canister stores polymarketConditionId — we need to look it up
-        // Since debug_list_markets doesn't return conditionId, we use slug-based lookup
-        // Actually, the price cache is keyed by conditionId. We need to match somehow.
-        // The market has polymarketSlug — we can search the cache for matching slug.
-        // But that's O(n). Better approach: use the canister's lastYesPrice/lastNoPrice
-        // as the reference (set at creation time from Polymarket).
-        // For MVP: use the canister's stored yesPrice/noPrice as reference.
-        // These were set from Polymarket at sync time and are good enough.
-        const yesPriceBps = Number(market.yesPrice);
-        const noPriceBps = Number(market.noPrice);
+        // Get Polymarket reference price from the live price cache (updated by sync)
+        const conditionId = conditionIdMap.get(market.marketId);
+        if (!conditionId) {
+            result.marketsSkipped++;
+            continue;
+        }
+        const cached = getPrice(conditionId);
+        if (!cached) {
+            result.marketsSkipped++;
+            continue;
+        }
+        // Skip stale prices (older than max age)
+        if (isStale(conditionId, mc.MAX_PRICE_AGE_MS)) {
+            result.marketsSkipped++;
+            continue;
+        }
+        const yesPriceBps = cached.yesPrice;
+        const noPriceBps = cached.noPrice;
         // Skip if no meaningful price signal
         if (yesPriceBps === 0 && noPriceBps === 0) {
             result.marketsSkipped++;
