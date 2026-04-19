@@ -9,8 +9,11 @@ export const CONFIG = {
   // Polymarket API
   GAMMA_API: "https://gamma-api.polymarket.com",
 
-  // Sync interval (30 minutes)
+  // Sync interval (30 minutes) — market discovery
   SYNC_INTERVAL: 30 * 60 * 1000,
+
+  // Resolve interval (15 minutes) — check Polymarket for closed markets
+  RESOLVE_INTERVAL: 15 * 60 * 1000,
 
   // Server port
   PORT: process.env.PORT || 3000,

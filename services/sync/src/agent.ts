@@ -3,9 +3,15 @@ import { Secp256k1KeyIdentity } from "@dfinity/identity-secp256k1";
 import { IDL } from "@dfinity/candid";
 import { CONFIG } from "./config.js";
 
-// Candid interface for admin_create_market
+// Candid interface
 const idlFactory = ({ IDL }: { IDL: any }) => {
   const Result = IDL.Variant({ ok: IDL.Text, err: IDL.Text });
+  const UnresolvedMarket = IDL.Record({
+    marketId: IDL.Text,
+    polymarketSlug: IDL.Text,
+    polymarketConditionId: IDL.Text,
+    status: IDL.Text,
+  });
   return IDL.Service({
     admin_create_market: IDL.Func(
       [
@@ -21,8 +27,25 @@ const idlFactory = ({ IDL }: { IDL: any }) => {
       [Result],
       []
     ),
+    try_resolve_market: IDL.Func(
+      [IDL.Text], // marketId
+      [Result],
+      []
+    ),
+    get_unresolved_markets: IDL.Func(
+      [],
+      [IDL.Vec(UnresolvedMarket)],
+      ["query"]
+    ),
   });
 };
+
+interface UnresolvedMarket {
+  marketId: string;
+  polymarketSlug: string;
+  polymarketConditionId: string;
+  status: string;
+}
 
 interface AdminActor {
   admin_create_market(
@@ -35,14 +58,16 @@ interface AdminActor {
     yesPrice: bigint,
     noPrice: bigint,
   ): Promise<{ ok: string } | { err: string }>;
+  try_resolve_market(
+    marketId: string,
+  ): Promise<{ ok: string } | { err: string }>;
+  get_unresolved_markets(): Promise<UnresolvedMarket[]>;
 }
 
 let cachedActor: AdminActor | null = null;
 
 function decodePem(pemOrBase64: string): string {
-  // If it looks like a raw PEM, return as-is
   if (pemOrBase64.includes("BEGIN")) return pemOrBase64;
-  // Otherwise, base64-decode it
   return Buffer.from(pemOrBase64, "base64").toString("utf-8");
 }
 
@@ -103,4 +128,26 @@ export async function createMarket(
   } catch (e) {
     return { ok: false, message: String(e).slice(0, 200) };
   }
+}
+
+export async function tryResolveMarket(
+  marketId: string,
+): Promise<{ ok: boolean; message: string }> {
+  const actor = await getActor();
+
+  try {
+    const result = await actor.try_resolve_market(marketId);
+    if ("ok" in result) {
+      return { ok: true, message: result.ok };
+    } else {
+      return { ok: false, message: result.err };
+    }
+  } catch (e) {
+    return { ok: false, message: String(e).slice(0, 200) };
+  }
+}
+
+export async function getUnresolvedMarkets(): Promise<UnresolvedMarket[]> {
+  const actor = await getActor();
+  return actor.get_unresolved_markets();
 }
