@@ -721,7 +721,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
                   return await admin_resolve_market_internal(marketId, #No);
                 } else {
                   Debug.print("Cancelling market " # marketId # " (equal prices: " # Nat.toText(yesPrice) # ")");
-                  return await admin_cancel_market(marketId);
+                  return await admin_cancel_market_internal(marketId);
                 };
               };
               case _ {
@@ -1676,6 +1676,11 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   /// Admin: cancel a market and refund all
   public shared ({ caller }) func admin_cancel_market(marketId : Text) : async Result.Result<Text, Text> {
     if (caller != owner) return #err("Unauthorized: owner only");
+    await admin_cancel_market_internal(marketId);
+  };
+
+  /// Internal cancel — no auth check, called by try_resolve_market and admin_cancel_market
+  func admin_cancel_market_internal(marketId : Text) : async Result.Result<Text, Text> {
 
     switch (Map.get(markets, thash, marketId)) {
       case (?market) {
