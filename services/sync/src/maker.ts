@@ -199,7 +199,7 @@ async function processRequoteQueue() {
   isRequoteRunning = false;
 }
 
-/** Re-quote a single market. Shared logic used by both full loop and reactive re-quote. */
+/** Re-quote a single market. Cancel-all-then-replace: no diffing, no accumulation. */
 async function requoteMarket(
   marketId: string,
   conditionId: string,
@@ -220,39 +220,12 @@ async function requoteMarket(
   const desired = calculateDesiredOrders(yesPriceBps, noPriceBps);
   if (desired.length === 0) return null;
 
-  // Diff: find orders to cancel (stale) and orders to place (missing)
-  const toCancel: OrderRecord[] = [];
-  const matched = new Set<number>();
-  let kept = 0;
-
-  for (const existing of myMarketOrders) {
-    let found = false;
-    for (let d = 0; d < desired.length; d++) {
-      if (matched.has(d)) continue;
-      if (orderMatches(existing, desired[d], mc.REFRESH_THRESHOLD_BPS)) {
-        matched.add(d);
-        found = true;
-        kept++;
-        break;
-      }
-    }
-    if (!found) {
-      toCancel.push(existing);
-    }
-  }
-
-  const toPlace = desired.filter((_, i) => !matched.has(i));
-
-  if (toCancel.length === 0 && toPlace.length === 0) {
-    return { cancelled: 0, placed: 0, kept: myMarketOrders.length, errors: 0 };
-  }
-
   let cancelled = 0;
   let placed = 0;
   let errors = 0;
 
-  // Cancel stale orders
-  for (const order of toCancel) {
+  // Cancel ALL existing orders for this market — no diffing, no accumulation
+  for (const order of myMarketOrders) {
     try {
       const res = await cancelOrder(order.orderId);
       if (res.ok) {
@@ -268,8 +241,8 @@ async function requoteMarket(
     await sleep(mc.ORDER_DELAY_MS);
   }
 
-  // Place new orders
-  for (const order of toPlace) {
+  // Place fresh orders
+  for (const order of desired) {
     try {
       const res = await placeOrder(
         marketId,
@@ -296,7 +269,7 @@ async function requoteMarket(
     await sleep(mc.ORDER_DELAY_MS);
   }
 
-  return { cancelled, placed, kept, errors };
+  return { cancelled, placed, kept: 0, errors };
 }
 
 // ─── Main maker loop ────────────────────────────────────────
@@ -415,25 +388,27 @@ export async function runMaker(): Promise<MakerResult> {
 
     const myMarketOrders = ordersByMarket.get(market.marketId) || [];
 
-    // Quick check: if all orders match, skip without calling requoteMarket
-    let allMatch = true;
-    const tempMatched = new Set<number>();
-    for (const existing of myMarketOrders) {
-      let found = false;
-      for (let d = 0; d < desired.length; d++) {
-        if (tempMatched.has(d)) continue;
-        if (orderMatches(existing, desired[d], mc.REFRESH_THRESHOLD_BPS)) {
-          tempMatched.add(d);
-          found = true;
-          break;
+    // Quick check: if order count matches desired and all prices align, skip
+    if (myMarketOrders.length === desired.length) {
+      let allMatch = true;
+      const tempMatched = new Set<number>();
+      for (const existing of myMarketOrders) {
+        let found = false;
+        for (let d = 0; d < desired.length; d++) {
+          if (tempMatched.has(d)) continue;
+          if (orderMatches(existing, desired[d], mc.REFRESH_THRESHOLD_BPS)) {
+            tempMatched.add(d);
+            found = true;
+            break;
+          }
         }
+        if (!found) { allMatch = false; break; }
       }
-      if (!found) { allMatch = false; break; }
-    }
-    if (allMatch && tempMatched.size === desired.length) {
-      result.ordersKept += myMarketOrders.length;
-      result.marketsSkipped++;
-      continue;
+      if (allMatch && tempMatched.size === desired.length) {
+        result.ordersKept += myMarketOrders.length;
+        result.marketsSkipped++;
+        continue;
+      }
     }
 
     processed++;
