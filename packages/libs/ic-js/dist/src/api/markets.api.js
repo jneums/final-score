@@ -54,6 +54,8 @@ export const queryMarkets = async (sportFilter, offset = 0, limit = 50) => {
             status: m.status,
             yesPrice: Number(m.yesPrice),
             noPrice: Number(m.noPrice),
+            impliedYesAsk: Number(m.impliedYesAsk),
+            impliedNoAsk: Number(m.impliedNoAsk),
             polymarketSlug: m.polymarketSlug,
             endDate: m.endDate,
             totalVolume: m.totalVolume,

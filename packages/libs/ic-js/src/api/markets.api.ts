@@ -84,6 +84,8 @@ export interface MarketListItem {
   status: string;
   yesPrice: number;
   noPrice: number;
+  impliedYesAsk: number;
+  impliedNoAsk: number;
   polymarketSlug: string;
   endDate: bigint;
   totalVolume: bigint;
@@ -117,6 +119,8 @@ export const queryMarkets = async (
       status: m.status,
       yesPrice: Number(m.yesPrice),
       noPrice: Number(m.noPrice),
+      impliedYesAsk: Number(m.impliedYesAsk),
+      impliedNoAsk: Number(m.impliedNoAsk),
       polymarketSlug: m.polymarketSlug,
       endDate: m.endDate,
       totalVolume: m.totalVolume,

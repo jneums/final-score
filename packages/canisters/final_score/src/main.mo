@@ -2149,6 +2149,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       status : Text;
       yesPrice : Nat;
       noPrice : Nat;
+      impliedYesAsk : Nat;
+      impliedNoAsk : Nat;
       polymarketSlug : Text;
       endDate : Int;
       totalVolume : Nat;
@@ -2163,6 +2165,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       status : Text;
       yesPrice : Nat;
       noPrice : Nat;
+      impliedYesAsk : Nat;
+      impliedNoAsk : Nat;
       polymarketSlug : Text;
       endDate : Int;
       totalVolume : Nat;
@@ -2174,6 +2178,16 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         case null true;
       };
       if (shouldInclude) {
+        let bp : OrderBook.BestPrices = switch (Map.get(orderBooks, thash, m.marketId)) {
+          case (?book) OrderBook.bestPrices(book);
+          case null ({
+            bestYesBid = 0;
+            bestNoBid = 0;
+            impliedYesAsk = 10000;
+            impliedNoAsk = 10000;
+            spread = 0;
+          });
+        };
         all := Array.append(all, [{
           marketId = m.marketId;
           question = m.question;
@@ -2182,6 +2196,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           status = ToolContext.marketStatusToText(m.status);
           yesPrice = m.lastYesPrice;
           noPrice = m.lastNoPrice;
+          impliedYesAsk = bp.impliedYesAsk;
+          impliedNoAsk = bp.impliedNoAsk;
           polymarketSlug = m.polymarketSlug;
           endDate = m.endDate;
           totalVolume = m.totalVolume;
@@ -2201,6 +2217,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         status : Text;
         yesPrice : Nat;
         noPrice : Nat;
+        impliedYesAsk : Nat;
+        impliedNoAsk : Nat;
         polymarketSlug : Text;
         endDate : Int;
         totalVolume : Nat;
@@ -2214,6 +2232,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         status : Text;
         yesPrice : Nat;
         noPrice : Nat;
+        impliedYesAsk : Nat;
+        impliedNoAsk : Nat;
         polymarketSlug : Text;
         endDate : Int;
         totalVolume : Nat;

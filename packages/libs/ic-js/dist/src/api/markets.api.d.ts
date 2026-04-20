@@ -47,6 +47,8 @@ export interface MarketListItem {
     status: string;
     yesPrice: number;
     noPrice: number;
+    impliedYesAsk: number;
+    impliedNoAsk: number;
     polymarketSlug: string;
     endDate: bigint;
     totalVolume: bigint;

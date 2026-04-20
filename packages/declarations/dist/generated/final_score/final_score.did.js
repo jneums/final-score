@@ -202,6 +202,8 @@ export const idlFactory = ({ IDL }) => {
                 'question' : IDL.Text,
                 'sport' : IDL.Text,
                 'eventTitle' : IDL.Text,
+                'impliedYesAsk' : IDL.Nat,
+                'impliedNoAsk' : IDL.Nat,
                 'marketId' : IDL.Text,
                 'noPrice' : IDL.Nat,
                 'yesPrice' : IDL.Nat,

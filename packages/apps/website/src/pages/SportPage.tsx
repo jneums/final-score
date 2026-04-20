@@ -198,8 +198,13 @@ export default function SportPage() {
               const outcomes = eventMarkets.filter(m => !/end in a draw/i.test(m.question));
               const hasDraw = eventMarkets.length > outcomes.length;
 
-              // Compute total yes price for normalization
-              const totalYes = outcomes.reduce((sum, m) => sum + m.yesPrice, 0);
+              // Use order book implied ask prices (what you'd actually pay)
+              // Fall back to lastYesPrice if no book liquidity (impliedYesAsk == 10000 means empty)
+              const getDisplayPrice = (m: typeof outcomes[0]) => {
+                const bookPrice = m.impliedYesAsk;
+                return (bookPrice > 0 && bookPrice < 10000) ? bookPrice : m.yesPrice;
+              };
+              const totalPrice = outcomes.reduce((sum, m) => sum + getDisplayPrice(m), 0);
 
               return (
                 <Link key={eventSlug} to={`/event/${first.marketId}`}>
@@ -229,7 +234,8 @@ export default function SportPage() {
                       <div className="space-y-2.5 flex-1">
                         {outcomes.map((m, i) => {
                           const name = extractOutcomeName(m.question);
-                          const percent = totalYes > 0 ? Math.round((m.yesPrice / totalYes) * 100) : 50;
+                          const price = getDisplayPrice(m);
+                          const percent = totalPrice > 0 ? Math.round((price / totalPrice) * 100) : 50;
                           const color = OUTCOME_COLORS[i % OUTCOME_COLORS.length];
 
                           return (

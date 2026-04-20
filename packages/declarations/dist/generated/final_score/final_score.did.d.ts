@@ -136,6 +136,8 @@ export interface McpServer {
           'question' : string,
           'sport' : string,
           'eventTitle' : string,
+          'impliedYesAsk' : bigint,
+          'impliedNoAsk' : bigint,
           'marketId' : string,
           'noPrice' : bigint,
           'yesPrice' : bigint,

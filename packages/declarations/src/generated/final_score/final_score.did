@@ -151,6 +151,8 @@ type McpServer =
          record {
            endDate: int;
            eventTitle: text;
+           impliedNoAsk: nat;
+           impliedYesAsk: nat;
            marketId: text;
            noPrice: nat;
            polymarketSlug: text;
