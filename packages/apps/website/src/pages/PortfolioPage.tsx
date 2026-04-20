@@ -66,11 +66,31 @@ export default function PortfolioPage() {
     }
   };
 
-  // Compute portfolio value
-  const totalCostBasis = positions?.reduce((sum, p) => sum + p.costBasis, 0) ?? 0;
-  const totalCurrentValue = positions?.reduce((sum, p) => {
+  // Aggregate positions by market + outcome
+  const aggregatedPositions = (() => {
+    if (!positions) return [];
+    const grouped = new Map<string, typeof positions[0]>();
+    for (const pos of positions) {
+      const key = `${pos.marketId}:${pos.outcome}`;
+      const existing = grouped.get(key);
+      if (existing) {
+        grouped.set(key, {
+          ...existing,
+          shares: existing.shares + pos.shares,
+          costBasis: existing.costBasis + pos.costBasis,
+        });
+      } else {
+        grouped.set(key, { ...pos });
+      }
+    }
+    return [...grouped.values()].filter(p => p.shares > 0);
+  })();
+
+  // Compute portfolio value from aggregated positions
+  const totalCostBasis = aggregatedPositions.reduce((sum, p) => sum + p.costBasis, 0);
+  const totalCurrentValue = aggregatedPositions.reduce((sum, p) => {
     return sum + positionCurrentValue(p.shares, p.currentPrice);
-  }, 0) ?? 0;
+  }, 0);
   const totalPnl = totalCurrentValue - totalCostBasis;
 
   return (
@@ -163,7 +183,7 @@ export default function PortfolioPage() {
         <Tabs defaultValue="positions">
           <TabsList className="grid w-full grid-cols-3 max-w-md">
             <TabsTrigger value="positions">
-              Positions {positions && positions.length > 0 && `(${positions.length})`}
+              Positions {aggregatedPositions.length > 0 && `(${aggregatedPositions.length})`}
             </TabsTrigger>
             <TabsTrigger value="orders">
               Open Orders {orders && orders.length > 0 && `(${orders.length})`}
@@ -193,7 +213,7 @@ export default function PortfolioPage() {
                             <Loader2 className="w-6 h-6 mx-auto animate-spin text-muted-foreground" />
                           </td>
                         </tr>
-                      ) : !positions || positions.length === 0 ? (
+                      ) : aggregatedPositions.length === 0 ? (
                         <tr>
                           <td colSpan={6} className="text-center py-12 text-muted-foreground">
                             <FileText className="w-8 h-8 mx-auto mb-2 opacity-30" />
@@ -201,11 +221,11 @@ export default function PortfolioPage() {
                           </td>
                         </tr>
                       ) : (
-                        positions.map((pos) => {
+                        aggregatedPositions.map((pos) => {
                           const currentValue = positionCurrentValue(pos.shares, pos.currentPrice);
                           const pnl = currentValue - pos.costBasis;
                           return (
-                            <tr key={pos.positionId} className="border-b border-border/50 hover:bg-muted/30">
+                            <tr key={`${pos.marketId}:${pos.outcome}`} className="border-b border-border/50 hover:bg-muted/30">
                               <td className="p-4">
                                 <Link to={`/event/${pos.marketId}`} className="hover:text-primary transition-colors">
                                   {pos.question.length > 50 ? pos.question.slice(0, 50) + '…' : pos.question}
@@ -271,8 +291,8 @@ export default function PortfolioPage() {
                         orders.map((order) => (
                           <tr key={order.orderId} className="border-b border-border/50 hover:bg-muted/30">
                             <td className="p-4">
-                              <Link to={`/event/${order.marketId}`} className="hover:text-primary transition-colors font-mono text-xs">
-                                {order.marketId.slice(0, 12)}…
+                              <Link to={`/event/${order.marketId}`} className="hover:text-primary transition-colors">
+                                {order.question.length > 50 ? order.question.slice(0, 50) + '…' : order.question}
                               </Link>
                             </td>
                             <td className="p-4">
@@ -342,8 +362,8 @@ export default function PortfolioPage() {
                         allOrders.map((order) => (
                           <tr key={order.orderId} className="border-b border-border/50 hover:bg-muted/30">
                             <td className="p-4">
-                              <Link to={`/event/${order.marketId}`} className="hover:text-primary transition-colors font-mono text-xs">
-                                {order.marketId.slice(0, 12)}…
+                              <Link to={`/event/${order.marketId}`} className="hover:text-primary transition-colors">
+                                {order.question.length > 50 ? order.question.slice(0, 50) + '…' : order.question}
                               </Link>
                             </td>
                             <td className="p-4">

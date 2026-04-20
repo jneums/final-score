@@ -114,6 +114,7 @@ export const getMyOrders = async (identity, statusFilter, marketFilter) => {
     return result.map((o) => ({
         orderId: o.orderId,
         marketId: o.marketId,
+        question: o.question,
         outcome: o.outcome,
         price: Number(o.price),
         size: Number(o.size),

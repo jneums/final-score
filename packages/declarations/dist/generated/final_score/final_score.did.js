@@ -324,6 +324,7 @@ export const idlFactory = ({ IDL }) => {
           IDL.Vec(
             IDL.Record({
               'status' : IDL.Text,
+              'question' : IDL.Text,
               'size' : IDL.Nat,
               'orderId' : IDL.Text,
               'marketId' : IDL.Text,

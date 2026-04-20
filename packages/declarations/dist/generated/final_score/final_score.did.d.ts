@@ -258,6 +258,7 @@ export interface McpServer {
     Array<
       {
         'status' : string,
+        'question' : string,
         'size' : bigint,
         'orderId' : string,
         'marketId' : string,

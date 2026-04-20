@@ -250,6 +250,7 @@ type McpServer =
         orderId: text;
         outcome: text;
         price: nat;
+        question: text;
         size: nat;
         status: text;
         timestamp: int;

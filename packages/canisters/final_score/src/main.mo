@@ -1546,6 +1546,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   public query (msg) func my_orders(statusFilter : ?Text, marketFilter : ?Text) : async [{
     orderId : Text;
     marketId : Text;
+    question : Text;
     outcome : Text;
     price : Nat;
     size : Nat;
@@ -1557,6 +1558,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     var result : [{
       orderId : Text;
       marketId : Text;
+      question : Text;
       outcome : Text;
       price : Nat;
       size : Nat;
@@ -1577,9 +1579,14 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           case null true;
         };
         if (shouldInclude and marketMatch) {
+          let question = switch (Map.get(toolContext.markets, Map.thash, order.marketId)) {
+            case (?m) m.question;
+            case null "Unknown";
+          };
           result := Array.append(result, [{
             orderId = order.orderId;
             marketId = order.marketId;
+            question = question;
             outcome = ToolContext.outcomeToText(order.outcome);
             price = order.price;
             size = order.size;
@@ -2031,7 +2038,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     }] = [];
 
     for ((_, m) in Map.entries(markets)) {
-      if (m.polymarketSlug == polymarketSlug) {
+      if (m.polymarketSlug == polymarketSlug and m.status != #Cancelled) {
         result := Array.append(result, [{
           marketId = m.marketId;
           question = m.question;

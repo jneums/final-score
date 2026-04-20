@@ -90,6 +90,7 @@ export declare const cancelOrderCandid: (identity: Identity, orderId: string) =>
 export interface UserOrder {
     orderId: string;
     marketId: string;
+    question: string;
     outcome: string;
     price: number;
     size: number;

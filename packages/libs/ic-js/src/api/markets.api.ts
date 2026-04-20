@@ -222,6 +222,7 @@ export const cancelOrderCandid = async (
 export interface UserOrder {
   orderId: string;
   marketId: string;
+  question: string;
   outcome: string;
   price: number;
   size: number;
@@ -243,6 +244,7 @@ export const getMyOrders = async (
   return result.map((o) => ({
     orderId: o.orderId,
     marketId: o.marketId,
+    question: o.question,
     outcome: o.outcome,
     price: Number(o.price),
     size: Number(o.size),
