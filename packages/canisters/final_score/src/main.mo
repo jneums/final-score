@@ -2150,6 +2150,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       yesPrice : Nat;
       noPrice : Nat;
       polymarketSlug : Text;
+      endDate : Int;
+      totalVolume : Nat;
     }];
   } {
     let maxLimit = if (limit > 100) 100 else if (limit == 0) 20 else limit;
@@ -2162,6 +2164,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       yesPrice : Nat;
       noPrice : Nat;
       polymarketSlug : Text;
+      endDate : Int;
+      totalVolume : Nat;
     }] = [];
 
     for ((_, m) in Map.entries(markets)) {
@@ -2179,6 +2183,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           yesPrice = m.lastYesPrice;
           noPrice = m.lastNoPrice;
           polymarketSlug = m.polymarketSlug;
+          endDate = m.endDate;
+          totalVolume = m.totalVolume;
         }]);
       };
     };
@@ -2196,6 +2202,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         yesPrice : Nat;
         noPrice : Nat;
         polymarketSlug : Text;
+        endDate : Int;
+        totalVolume : Nat;
       }];
     } else {
       Array.tabulate<{
@@ -2207,6 +2215,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         yesPrice : Nat;
         noPrice : Nat;
         polymarketSlug : Text;
+        endDate : Int;
+        totalVolume : Nat;
       }>(end - start, func(i) { all[start + i] });
     };
 

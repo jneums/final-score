@@ -42,6 +42,17 @@ function bpsToPercent(bps: number): number {
   return Math.round(bps / 100);
 }
 
+/** Parse "Resolved:Yes" / "Resolved:No" → winner side, or null if not resolved */
+function parseResolution(status: string): 'yes' | 'no' | null {
+  if (status.startsWith('Resolved:Yes')) return 'yes';
+  if (status.startsWith('Resolved:No')) return 'no';
+  return null;
+}
+
+function isResolved(status: string): boolean {
+  return status.startsWith('Resolved');
+}
+
 function formatPnl(pnl: number): string {
   const abs = Math.abs(pnl / 1_000_000);
   return pnl >= 0 ? `+$${abs.toFixed(2)}` : `-$${abs.toFixed(2)}`;
@@ -267,6 +278,34 @@ function OrderForm({
           <BarChart3 className="w-8 h-8 mx-auto text-muted-foreground/30" />
           <p className="text-sm text-muted-foreground">
             Click <span className="text-green-400">Yes</span> or <span className="text-red-400">No</span> on an outcome to trade
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // Resolved market — show outcome, no trading
+  const marketWinner = parseResolution(activeMarket.status);
+  if (marketWinner) {
+    const outcomeName = extractOutcomeName(activeMarket.question);
+    return (
+      <Card className="py-0 gap-0">
+        <CardContent className="p-4 space-y-4">
+          <p className="text-sm font-medium truncate">{outcomeName}</p>
+          <div className="flex items-center justify-center gap-2 py-6">
+            <Badge
+              variant="outline"
+              className={`text-lg px-4 py-2 font-medium ${
+                marketWinner === 'yes'
+                  ? 'bg-green-600/20 text-green-400 border-green-500/50'
+                  : 'bg-red-600/20 text-red-400 border-red-500/50'
+              }`}
+            >
+              {marketWinner === 'yes' ? 'Yes' : 'No'} won
+            </Badge>
+          </div>
+          <p className="text-xs text-center text-muted-foreground">
+            This market has been resolved. Trading is closed.
           </p>
         </CardContent>
       </Card>
@@ -524,16 +563,25 @@ function OutcomeRow({
 }) {
   const [bookTab, setBookTab] = useState<'yes' | 'no'>('yes');
 
+  // Resolved markets: derive prices from the resolution outcome
+  const winner = parseResolution(market.status);
+  const resolved = winner !== null;
+
   // Use order book best ask (what you can buy at now) instead of last traded price
   // 10000 bps = $1.00 means empty book — treat as no price
   const { data: book } = useOrderBook(market.marketId);
-  const yesPrice = book && book.impliedYesAsk > 0 && book.impliedYesAsk < 10000
-    ? book.impliedYesAsk
-    : 0;
-  const noPrice = book && book.impliedNoAsk > 0 && book.impliedNoAsk < 10000
-    ? book.impliedNoAsk
-    : 0;
-  const percent = yesPrice > 0 ? bpsToPercent(yesPrice) : '—';
+
+  // For resolved markets: winner = 100¢, loser = 0¢ (like Kalshi)
+  // For active markets: use live order book
+  const yesPrice = resolved
+    ? (winner === 'yes' ? 10000 : 0)
+    : (book && book.impliedYesAsk > 0 && book.impliedYesAsk < 10000 ? book.impliedYesAsk : 0);
+  const noPrice = resolved
+    ? (winner === 'no' ? 10000 : 0)
+    : (book && book.impliedNoAsk > 0 && book.impliedNoAsk < 10000 ? book.impliedNoAsk : 0);
+  const percent = resolved
+    ? (winner === 'yes' ? 100 : 0)
+    : (yesPrice > 0 ? bpsToPercent(yesPrice) : '—');
   const outcomeName = extractOutcomeName(market.question);
 
   // Position indicator — aggregate same-outcome positions
@@ -597,8 +645,33 @@ function OutcomeRow({
           <p className="text-xl font-bold">{percent === '—' ? '—' : `${percent}%`}</p>
         </div>
 
-        {/* Right: Yes / No buttons */}
+        {/* Right: Yes / No buttons (or resolved badge) */}
         <div className="flex gap-2 shrink-0">
+          {resolved ? (
+            <>
+              <Badge
+                variant="outline"
+                className={`h-9 px-3 font-mono font-medium ${
+                  winner === 'yes'
+                    ? 'bg-green-600/20 text-green-400 border-green-500/50'
+                    : 'text-muted-foreground/50 border-border/30'
+                }`}
+              >
+                Yes {winner === 'yes' ? '100¢' : '0¢'}
+              </Badge>
+              <Badge
+                variant="outline"
+                className={`h-9 px-3 font-mono font-medium ${
+                  winner === 'no'
+                    ? 'bg-red-600/20 text-red-400 border-red-500/50'
+                    : 'text-muted-foreground/50 border-border/30'
+                }`}
+              >
+                No {winner === 'no' ? '100¢' : '0¢'}
+              </Badge>
+            </>
+          ) : (
+          <>
           <Button
             variant={isSelected && selectedSide === 'yes' ? 'default' : 'outline'}
             size="sm"
@@ -623,6 +696,8 @@ function OutcomeRow({
           >
             No {noPrice > 0 ? bpsToCents(noPrice) : ''}
           </Button>
+          </>
+          )}
         </div>
       </div>
 
@@ -678,9 +753,16 @@ export default function EventPage() {
 
   const statusColor = market?.status === 'Open'
     ? 'text-green-400 border-green-500/30'
-    : market?.status === 'Resolved'
+    : market?.status?.startsWith('Resolved')
       ? 'text-blue-400 border-blue-500/30'
-      : 'text-muted-foreground border-border';
+      : market?.status === 'Closed'
+        ? 'text-yellow-400 border-yellow-500/30'
+        : 'text-muted-foreground border-border';
+
+  // Human-friendly status label
+  const statusLabel = market?.status?.startsWith('Resolved')
+    ? 'Settled'
+    : market?.status ?? '';
 
   const totalVolume = eventMarkets?.reduce((sum, m) => sum + Number(m.totalVolume), 0) ?? 0;
 
@@ -709,7 +791,7 @@ export default function EventPage() {
                   {market.eventTitle}
                 </h1>
                 <Badge variant="outline" className={statusColor}>
-                  {market.status}
+                  {statusLabel}
                 </Badge>
               </div>
               <div className="flex flex-wrap gap-3 text-sm text-muted-foreground">

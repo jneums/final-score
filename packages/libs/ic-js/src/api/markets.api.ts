@@ -85,6 +85,8 @@ export interface MarketListItem {
   yesPrice: number;
   noPrice: number;
   polymarketSlug: string;
+  endDate: bigint;
+  totalVolume: bigint;
 }
 
 export interface MarketListResult {
@@ -116,6 +118,8 @@ export const queryMarkets = async (
       yesPrice: Number(m.yesPrice),
       noPrice: Number(m.noPrice),
       polymarketSlug: m.polymarketSlug,
+      endDate: m.endDate,
+      totalVolume: m.totalVolume,
     })),
   };
 };

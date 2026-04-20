@@ -3,7 +3,7 @@ import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { useSportMarkets } from '../hooks/useMarkets';
-import { ArrowLeft, Calendar, Loader2 } from 'lucide-react';
+import { ArrowLeft, Calendar, Loader2, TrendingUp } from 'lucide-react';
 
 // Map URL slugs to display names + which Polymarket sport codes to query
 const SPORT_CONFIG: Record<string, {
@@ -91,7 +91,7 @@ export default function SportPage() {
   // Fetch markets using server-side sport filter (one query per sport code)
   const { markets, isLoading } = useSportMarkets(config.polymarketSports);
 
-  // Group markets by event (polymarketSlug)
+  // Group markets by event (polymarketSlug), excluding fully-resolved events
   const eventGroups = new Map<string, typeof markets>();
   for (const m of markets) {
     const key = m.polymarketSlug;
@@ -99,10 +99,27 @@ export default function SportPage() {
     eventGroups.get(key)!.push(m);
   }
 
-  // Sort events by first market's eventTitle
-  const events = Array.from(eventGroups.entries()).sort((a, b) =>
-    (a[1][0]?.eventTitle ?? '').localeCompare(b[1][0]?.eventTitle ?? '')
+  // Filter out events where ALL markets are resolved or cancelled
+  const activeEvents = Array.from(eventGroups.entries()).filter(([, eventMarkets]) =>
+    eventMarkets.some(m => !m.status.startsWith('Resolved') && m.status !== 'Cancelled')
   );
+
+  // Sort events by date, soonest first
+  const events = activeEvents.sort((a, b) => {
+    const dateA = a[1].reduce(
+      (min, m) => (m.endDate > 0n && (min === 0n || m.endDate < min) ? m.endDate : min),
+      0n,
+    );
+    const dateB = b[1].reduce(
+      (min, m) => (m.endDate > 0n && (min === 0n || m.endDate < min) ? m.endDate : min),
+      0n,
+    );
+    // Events with no date go to the end
+    if (dateA === 0n && dateB === 0n) return 0;
+    if (dateA === 0n) return 1;
+    if (dateB === 0n) return -1;
+    return dateA < dateB ? -1 : dateA > dateB ? 1 : 0;
+  });
 
   return (
     <div className="min-h-screen">
@@ -126,7 +143,7 @@ export default function SportPage() {
               {events.length} Event{events.length !== 1 ? 's' : ''}
             </Badge>
             <Badge variant="outline" className="border-green-500/30 text-green-400">
-              {markets.length} Market{markets.length !== 1 ? 's' : ''}
+              {events.reduce((sum, [, ms]) => sum + ms.length, 0)} Market{events.reduce((sum, [, ms]) => sum + ms.length, 0) !== 1 ? 's' : ''}
             </Badge>
           </div>
         </div>
@@ -161,6 +178,21 @@ export default function SportPage() {
             {events.map(([eventSlug, eventMarkets]) => {
               const first = eventMarkets[0];
               const league = LEAGUE_NAMES[first.sport] || first.sport.toUpperCase();
+
+              // Event date — use earliest endDate across markets
+              const endDateNs = eventMarkets.reduce(
+                (min, m) => (m.endDate > 0n && (min === 0n || m.endDate < min) ? m.endDate : min),
+                0n,
+              );
+              const endDate = endDateNs > 0n
+                ? new Date(Number(endDateNs / 1_000_000n))
+                : null;
+
+              // Aggregate volume across all markets in the event
+              const totalVolume = eventMarkets.reduce(
+                (sum, m) => sum + Number(m.totalVolume),
+                0,
+              );
 
               // Filter to just outcome markets (exclude draws for the bar display)
               const outcomes = eventMarkets.filter(m => !/end in a draw/i.test(m.question));
@@ -222,10 +254,18 @@ export default function SportPage() {
 
                       {/* Footer */}
                       <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/50 text-xs text-muted-foreground">
-                        <span>
-                          {eventMarkets.length} market{eventMarkets.length !== 1 ? 's' : ''}
-                          {hasDraw ? ' · Draw' : ''}
+                        <span className="flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          {endDate
+                            ? endDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+                            : '—'}
                         </span>
+                        {totalVolume > 0 && (
+                          <span className="flex items-center gap-1">
+                            <TrendingUp className="w-3 h-3" />
+                            ${(totalVolume / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 0 })} vol
+                          </span>
+                        )}
                       </div>
                     </CardContent>
                   </Card>

@@ -86,10 +86,12 @@ function handleMessage(data) {
             const result = updatePriceFromWs(change.asset_id, priceBps);
             if (result) {
                 stats.priceUpdates++;
-                if (result.deltaBps >= CONFIG.MAKER.REFRESH_THRESHOLD_BPS) {
+                if (result.maxDeltaBps >= CONFIG.MAKER.REFRESH_THRESHOLD_BPS) {
                     stats.requotesTriggered++;
-                    log("price", "requote", `${result.conditionId} moved ${result.deltaBps}bps`);
-                    onRequote?.(result.conditionId);
+                    log("price", "requote", `${result.conditionIds.length} markets moved ${result.maxDeltaBps}bps`);
+                    for (const cid of result.conditionIds) {
+                        onRequote?.(cid);
+                    }
                 }
             }
         }
@@ -111,10 +113,12 @@ function handleMessage(data) {
         const result = updatePriceFromWs(bba.asset_id, priceBps);
         if (result) {
             stats.priceUpdates++;
-            if (result.deltaBps >= CONFIG.MAKER.REFRESH_THRESHOLD_BPS) {
+            if (result.maxDeltaBps >= CONFIG.MAKER.REFRESH_THRESHOLD_BPS) {
                 stats.requotesTriggered++;
-                log("price", "requote", `${result.conditionId} moved ${result.deltaBps}bps`);
-                onRequote?.(result.conditionId);
+                log("price", "requote", `${result.conditionIds.length} markets moved ${result.maxDeltaBps}bps`);
+                for (const cid of result.conditionIds) {
+                    onRequote?.(cid);
+                }
             }
         }
     }

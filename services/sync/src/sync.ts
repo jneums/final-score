@@ -204,14 +204,14 @@ export async function runSync(): Promise<{ created: number; skipped: number; err
           if (bareMatchup) {
             const teams = question.split(/\s+vs\.?\s+/, 2);
             if (teams.length === 2) {
-              for (const [team, tp, np, suffix] of [
-                [teams[0].trim(), yesPrice, noPrice, "-a"],
-                [teams[1].trim(), noPrice, yesPrice, "-b"],
-              ] as [string, number, number, string][]) {
+              for (const [team, tp, np, suffix, inv] of [
+                [teams[0].trim(), yesPrice, noPrice, "-a", false],
+                [teams[1].trim(), noPrice, yesPrice, "-b", true],
+              ] as [string, number, number, string, boolean][]) {
                 const teamQ = `Will ${team} win?`;
                 const teamCid = conditionId + suffix;
                 // Cache per-team prices for the market maker (split markets share same token IDs)
-                setPrice(teamCid, slug, tp, np, tokenIds);
+                setPrice(teamCid, slug, tp, np, tokenIds, inv);
                 const result = await createMarket(
                   escapeCandid(teamQ), escapeCandid(title),
                   sport, slug, teamCid, endSecs, tp, np,

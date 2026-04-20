@@ -149,6 +149,7 @@ type McpServer =
        markets:
         vec
          record {
+           endDate: int;
            eventTitle: text;
            marketId: text;
            noPrice: nat;
@@ -156,6 +157,7 @@ type McpServer =
            question: text;
            sport: text;
            status: text;
+           totalVolume: nat;
            yesPrice: nat;
          };
        returned: nat;

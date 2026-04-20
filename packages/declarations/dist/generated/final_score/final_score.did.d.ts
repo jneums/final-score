@@ -131,6 +131,8 @@ export interface McpServer {
         {
           'status' : string,
           'polymarketSlug' : string,
+          'endDate' : bigint,
+          'totalVolume' : bigint,
           'question' : string,
           'sport' : string,
           'eventTitle' : string,

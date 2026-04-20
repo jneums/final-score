@@ -48,6 +48,8 @@ export interface MarketListItem {
     yesPrice: number;
     noPrice: number;
     polymarketSlug: string;
+    endDate: bigint;
+    totalVolume: bigint;
 }
 export interface MarketListResult {
     total: number;

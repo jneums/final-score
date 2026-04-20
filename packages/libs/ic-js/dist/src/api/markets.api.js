@@ -55,6 +55,8 @@ export const queryMarkets = async (sportFilter, offset = 0, limit = 50) => {
             yesPrice: Number(m.yesPrice),
             noPrice: Number(m.noPrice),
             polymarketSlug: m.polymarketSlug,
+            endDate: m.endDate,
+            totalVolume: m.totalVolume,
         })),
     };
 };

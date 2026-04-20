@@ -12,11 +12,13 @@ export interface PriceEntry {
     clobTokenIds?: [string, string];
 }
 /** Update or insert a price entry. Called by sync after parsing Polymarket events. */
-export declare function setPrice(conditionId: string, slug: string, yesPrice: number, noPrice: number, clobTokenIds?: [string, string]): void;
-/** Update price for a single side from a WebSocket event. Returns the price delta in bps, or 0 if no change. */
+export declare function setPrice(conditionId: string, slug: string, yesPrice: number, noPrice: number, clobTokenIds?: [string, string], inverted?: boolean): void;
+/** Update price for a single side from a WebSocket event.
+ * Fans out to ALL conditionIds sharing this asset (base + split markets).
+ * Returns all affected conditionIds that exceeded the threshold. */
 export declare function updatePriceFromWs(assetId: string, newPriceBps: number): {
-    conditionId: string;
-    deltaBps: number;
+    conditionIds: string[];
+    maxDeltaBps: number;
 } | null;
 /** Get price for a conditionId. Returns undefined if not cached. */
 export declare function getPrice(conditionId: string): PriceEntry | undefined;
@@ -26,7 +28,7 @@ export declare function getAllPrices(): Map<string, PriceEntry>;
 export declare function cacheSize(): number;
 /** Check if a price is stale (older than maxAgeMs). */
 export declare function isStale(conditionId: string, maxAgeMs: number): boolean;
-/** Look up conditionId from an asset ID. */
+/** Look up conditionId from an asset ID. Returns first (non-inverted) mapping. */
 export declare function lookupAsset(assetId: string): {
     conditionId: string;
     side: "yes" | "no";
