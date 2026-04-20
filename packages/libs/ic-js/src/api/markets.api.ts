@@ -101,12 +101,14 @@ export const queryMarkets = async (
   sportFilter?: string,
   offset: number = 0,
   limit: number = 50,
+  statusFilter?: string,
 ): Promise<MarketListResult> => {
   const actor = await getFinalScoreActor();
   const result = await actor.debug_list_markets(
     sportFilter ? [sportFilter] : [],
     BigInt(offset),
     BigInt(limit),
+    statusFilter ? [statusFilter] : [],
   );
   return {
     total: Number(result.total),

@@ -189,21 +189,21 @@ export const idlFactory = ({ IDL }) => {
         ['query'],
       ),
     'debug_list_markets' : IDL.Func(
-        [IDL.Opt(IDL.Text), IDL.Nat, IDL.Nat],
+        [IDL.Opt(IDL.Text), IDL.Nat, IDL.Nat, IDL.Opt(IDL.Text)],
         [
           IDL.Record({
             'total' : IDL.Nat,
             'markets' : IDL.Vec(
               IDL.Record({
+                'impliedNoAsk' : IDL.Nat,
                 'status' : IDL.Text,
                 'polymarketSlug' : IDL.Text,
                 'endDate' : IDL.Int,
                 'totalVolume' : IDL.Nat,
                 'question' : IDL.Text,
+                'impliedYesAsk' : IDL.Nat,
                 'sport' : IDL.Text,
                 'eventTitle' : IDL.Text,
-                'impliedYesAsk' : IDL.Nat,
-                'impliedNoAsk' : IDL.Nat,
                 'marketId' : IDL.Text,
                 'noPrice' : IDL.Nat,
                 'yesPrice' : IDL.Nat,

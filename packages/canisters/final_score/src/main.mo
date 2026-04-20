@@ -2133,11 +2133,12 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     result;
   };
 
-  /// Debug: list markets with optional sport filter, paginated
+  /// Debug: list markets with optional sport and status filters, paginated
   public query func debug_list_markets(
     sportFilter : ?Text,
     offset : Nat,
     limit : Nat,
+    statusFilter : ?Text,
   ) : async {
     total : Nat;
     returned : Nat;
@@ -2173,11 +2174,16 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     }] = [];
 
     for ((_, m) in Map.entries(markets)) {
-      let shouldInclude = switch (sportFilter) {
+      let sportMatch = switch (sportFilter) {
         case (?s) { m.sport == s };
         case null true;
       };
-      if (shouldInclude) {
+      let statusText = ToolContext.marketStatusToText(m.status);
+      let statusMatch = switch (statusFilter) {
+        case (?s) { statusText == s or Text.startsWith(statusText, #text s) };
+        case null true;
+      };
+      if (sportMatch and statusMatch) {
         let bp : OrderBook.BestPrices = switch (Map.get(orderBooks, thash, m.marketId)) {
           case (?book) OrderBook.bestPrices(book);
           case null ({
@@ -2193,7 +2199,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           question = m.question;
           eventTitle = m.eventTitle;
           sport = m.sport;
-          status = ToolContext.marketStatusToText(m.status);
+          status = statusText;
           yesPrice = m.lastYesPrice;
           noPrice = m.lastNoPrice;
           impliedYesAsk = bp.impliedYesAsk;

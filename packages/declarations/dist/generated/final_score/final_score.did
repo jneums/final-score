@@ -143,8 +143,9 @@ type McpServer =
                       totalSize: nat;
                     };
      }) query;
-   /// Debug: list markets with optional sport filter, paginated
-   debug_list_markets: (sportFilter: opt text, offset: nat, limit: nat) ->
+   /// Debug: list markets with optional sport and status filters, paginated
+   debug_list_markets: (sportFilter: opt text, offset: nat, limit: nat,
+    statusFilter: opt text) ->
     (record {
        markets:
         vec

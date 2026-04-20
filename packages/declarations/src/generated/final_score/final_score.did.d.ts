@@ -121,23 +121,23 @@ export interface McpServer {
     }
   >,
   /**
-   * / Debug: list markets with optional sport filter, paginated
+   * / Debug: list markets with optional sport and status filters, paginated
    */
   'debug_list_markets' : ActorMethod<
-    [[] | [string], bigint, bigint],
+    [[] | [string], bigint, bigint, [] | [string]],
     {
       'total' : bigint,
       'markets' : Array<
         {
+          'impliedNoAsk' : bigint,
           'status' : string,
           'polymarketSlug' : string,
           'endDate' : bigint,
           'totalVolume' : bigint,
           'question' : string,
+          'impliedYesAsk' : bigint,
           'sport' : string,
           'eventTitle' : string,
-          'impliedYesAsk' : bigint,
-          'impliedNoAsk' : bigint,
           'marketId' : string,
           'noPrice' : bigint,
           'yesPrice' : bigint,

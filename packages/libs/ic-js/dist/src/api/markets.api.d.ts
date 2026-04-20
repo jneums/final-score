@@ -58,7 +58,7 @@ export interface MarketListResult {
     returned: number;
     markets: MarketListItem[];
 }
-export declare const queryMarkets: (sportFilter?: string, offset?: number, limit?: number) => Promise<MarketListResult>;
+export declare const queryMarkets: (sportFilter?: string, offset?: number, limit?: number, statusFilter?: string) => Promise<MarketListResult>;
 export interface DepthLevel {
     price: number;
     totalSize: number;

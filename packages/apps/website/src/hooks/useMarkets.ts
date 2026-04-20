@@ -73,7 +73,7 @@ export function useMarketsList(sport?: string, offset = 0, limit = 50) {
  * Uses limit=0 so no market data is transferred — just the total.
  */
 async function fetchSportCount(sportCode: string): Promise<number> {
-  const result = await queryMarkets(sportCode, 0, 1);
+  const result = await queryMarkets(sportCode, 0, 1, 'Open');
   return result.total;
 }
 
@@ -136,8 +136,8 @@ export function useSportCounts(categories: SportCategory[]) {
 export function useSportMarkets(sportCodes: string[]) {
   const queries = useQueries({
     queries: sportCodes.map((code) => ({
-      queryKey: ['markets-list', code, 0, 100] as const,
-      queryFn: () => queryMarkets(code, 0, 100),
+      queryKey: ['markets-list', code, 0, 100, 'Open'] as const,
+      queryFn: () => queryMarkets(code, 0, 100, 'Open'),
       staleTime: 60 * 1000,
       refetchInterval: 120 * 1000,
     })),

@@ -40,9 +40,9 @@ export const getMarket = async (marketId) => {
         return null;
     return result[0] ?? null;
 };
-export const queryMarkets = async (sportFilter, offset = 0, limit = 50) => {
+export const queryMarkets = async (sportFilter, offset = 0, limit = 50, statusFilter) => {
     const actor = await getFinalScoreActor();
-    const result = await actor.debug_list_markets(sportFilter ? [sportFilter] : [], BigInt(offset), BigInt(limit));
+    const result = await actor.debug_list_markets(sportFilter ? [sportFilter] : [], BigInt(offset), BigInt(limit), statusFilter ? [statusFilter] : []);
     return {
         total: Number(result.total),
         returned: Number(result.returned),
