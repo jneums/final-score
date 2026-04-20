@@ -216,7 +216,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           first := false;
           result #= "{\"conditionId\":\"" # cid # "\",\"closed\":" #
             (if closed "true" else "false") # ",\"outcomePrices\":\"" #
-            escapeQuotes(prices) # "\"}";
+            prices # "\"}";
         };
       };
       segIdx += 1;
@@ -270,6 +270,19 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   /// Escape double-quotes for JSON string embedding
   func escapeQuotes(text : Text) : Text {
     Text.replace(text, #char '\"', "\\\"");
+  };
+
+  /// Take a slice of text (start inclusive, up to len chars)
+  func textSlice(text : Text, start : Nat, len : Nat) : Text {
+    var result = "";
+    var i = 0;
+    for (c in text.chars()) {
+      if (i >= start and i < start + len) {
+        result #= Text.fromChar(c);
+      };
+      i += 1;
+    };
+    result;
   };
 
   // ═══════════════════════════════════════════════════════════
@@ -761,6 +774,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       return #err("HTTP outcall failed for slug " # market.polymarketSlug # ": " # Error.message(e));
     };
     Debug.print("try_resolve " # marketId # " slug=" # market.polymarketSlug # " response=" # Nat.toText(responseText.size()) # " bytes");
+    Debug.print("try_resolve " # marketId # " body_preview=" # textSlice(responseText, 0, 300));
     let parsed = Json.parse(responseText);
 
     switch (parsed) {
