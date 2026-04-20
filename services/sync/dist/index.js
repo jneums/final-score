@@ -2,7 +2,8 @@ import express from "express";
 import { CONFIG } from "./config.js";
 import { runSync, getLogs } from "./sync.js";
 import { runResolve, getResolveLogs } from "./resolve.js";
-import { runMaker, getMakerLogs } from "./maker.js";
+import { runMaker, getMakerLogs, queueRequote } from "./maker.js";
+import { startWs, getWsLogs, getWsStats } from "./ws.js";
 const app = express();
 let isSyncRunning = false;
 let isResolveRunning = false;
@@ -65,6 +66,7 @@ async function main() {
                 isRunning: isMakerRunning,
                 config: CONFIG.MAKER,
             },
+            ws: getWsStats(),
         });
     });
     // Logs — sync
@@ -78,6 +80,10 @@ async function main() {
     // Logs — maker
     app.get("/logs/maker", (_req, res) => {
         res.json(getMakerLogs());
+    });
+    // Logs — WebSocket
+    app.get("/logs/ws", (_req, res) => {
+        res.json(getWsLogs());
     });
     // Manual trigger — sync
     app.post("/run", async (_req, res) => {
@@ -155,6 +161,7 @@ async function main() {
         console.log(`   Logs:    http://localhost:${CONFIG.PORT}/logs`);
         console.log(`   Resolve: http://localhost:${CONFIG.PORT}/logs/resolve`);
         console.log(`   Maker:   http://localhost:${CONFIG.PORT}/logs/maker`);
+        console.log(`   WS:      http://localhost:${CONFIG.PORT}/logs/ws`);
         console.log(`   Run:     POST http://localhost:${CONFIG.PORT}/run`);
         console.log(`   Resolve: POST http://localhost:${CONFIG.PORT}/resolve`);
         console.log(`   Maker:   POST http://localhost:${CONFIG.PORT}/maker\n`);
@@ -197,6 +204,11 @@ async function main() {
         };
         // Run sync immediately on startup
         await syncLoop();
+        // Start WebSocket for real-time price updates (after sync populates price cache)
+        if (CONFIG.MAKER_IDENTITY_PEM) {
+            startWs(queueRequote);
+            console.log("📡 WebSocket connected to Polymarket for real-time prices");
+        }
         // Then run resolve
         await resolveLoop();
         // Recurring loops

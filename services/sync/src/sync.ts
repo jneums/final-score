@@ -1,6 +1,7 @@
 import { CONFIG } from "./config.js";
 import { createMarket } from "./agent.js";
 import { setPrice } from "./priceCache.js";
+import { subscribeNewAssets } from "./ws.js";
 
 // ─── Types ─────────────────────────────────────────────────
 
@@ -182,8 +183,22 @@ export async function runSync(): Promise<{ created: number; skipped: number; err
           const yesPrice = prices.length >= 1 ? parsePriceToBps(prices[0]) : 5000;
           const noPrice = prices.length >= 2 ? parsePriceToBps(prices[1]) : 5000;
 
+          // Parse CLOB token IDs for WebSocket subscription
+          let tokenIds: [string, string] | undefined;
+          try {
+            const parsed = JSON.parse(mkt.clobTokenIds || "[]");
+            if (Array.isArray(parsed) && parsed.length >= 2) {
+              tokenIds = [String(parsed[0]), String(parsed[1])];
+            }
+          } catch { /* skip */ }
+
           // Cache Polymarket prices for the market maker
-          setPrice(conditionId, slug, yesPrice, noPrice);
+          setPrice(conditionId, slug, yesPrice, noPrice, tokenIds);
+
+          // Subscribe new assets to WebSocket for real-time price updates
+          if (tokenIds) {
+            subscribeNewAssets(tokenIds);
+          }
 
           // Split bare matchups (US sports: "Team A vs. Team B")
           if (bareMatchup) {
@@ -195,8 +210,8 @@ export async function runSync(): Promise<{ created: number; skipped: number; err
               ] as [string, number, number, string][]) {
                 const teamQ = `Will ${team} win?`;
                 const teamCid = conditionId + suffix;
-                // Cache per-team prices for the market maker
-                setPrice(teamCid, slug, tp, np);
+                // Cache per-team prices for the market maker (split markets share same token IDs)
+                setPrice(teamCid, slug, tp, np, tokenIds);
                 const result = await createMarket(
                   escapeCandid(teamQ), escapeCandid(title),
                   sport, slug, teamCid, endSecs, tp, np,

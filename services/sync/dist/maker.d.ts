@@ -18,4 +18,6 @@ export interface MakerResult {
     cursor: string;
 }
 export declare function getMakerLogs(): string[];
+/** Queue a conditionId for reactive re-quote (called from ws.ts). */
+export declare function queueRequote(conditionId: string): void;
 export declare function runMaker(): Promise<MakerResult>;

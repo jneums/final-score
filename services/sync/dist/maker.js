@@ -78,6 +78,152 @@ function orderMatches(existing, desired, thresholdBps) {
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
+// ─── Requote queue (fed by WebSocket price changes) ──────────
+const requoteQueue = new Set(); // conditionIds needing re-quote
+let isRequoteRunning = false;
+/** Queue a conditionId for reactive re-quote (called from ws.ts). */
+export function queueRequote(conditionId) {
+    requoteQueue.add(conditionId);
+    // Debounce — process the queue after a short delay
+    if (!isRequoteRunning) {
+        setTimeout(processRequoteQueue, 500);
+    }
+}
+/** Process all queued re-quotes. */
+async function processRequoteQueue() {
+    if (isRequoteRunning || requoteQueue.size === 0)
+        return;
+    isRequoteRunning = true;
+    const conditionIds = [...requoteQueue];
+    requoteQueue.clear();
+    log("requote", "info", `Processing ${conditionIds.length} reactive re-quote(s)`);
+    // Need the conditionId → marketId reverse map
+    // Fetch maker's current open orders once for all re-quotes
+    let existingOrders = [];
+    try {
+        existingOrders = await getMyOrders("Open");
+    }
+    catch (e) {
+        log("requote", "error", `Failed to fetch orders: ${String(e).slice(0, 100)}`);
+        isRequoteRunning = false;
+        return;
+    }
+    // We need conditionId → marketId mapping from the unresolved markets list
+    let conditionToMarketId;
+    try {
+        const unresolved = await getUnresolvedMarkets();
+        conditionToMarketId = new Map(unresolved.map((m) => [m.polymarketConditionId, m.marketId]));
+    }
+    catch (e) {
+        log("requote", "error", `Failed to fetch unresolved markets: ${String(e).slice(0, 100)}`);
+        isRequoteRunning = false;
+        return;
+    }
+    const ordersByMarket = new Map();
+    for (const order of existingOrders) {
+        const list = ordersByMarket.get(order.marketId) || [];
+        list.push(order);
+        ordersByMarket.set(order.marketId, list);
+    }
+    for (const conditionId of conditionIds) {
+        const marketId = conditionToMarketId.get(conditionId);
+        if (!marketId)
+            continue;
+        const myOrders = ordersByMarket.get(marketId) || [];
+        const stats = await requoteMarket(marketId, conditionId, myOrders);
+        if (stats) {
+            log("requote", "done", `${marketId}: cancelled=${stats.cancelled} placed=${stats.placed} kept=${stats.kept}`);
+        }
+    }
+    isRequoteRunning = false;
+}
+/** Re-quote a single market. Shared logic used by both full loop and reactive re-quote. */
+async function requoteMarket(marketId, conditionId, myMarketOrders) {
+    const mc = CONFIG.MAKER;
+    const cached = getPrice(conditionId);
+    if (!cached)
+        return null;
+    if (isStale(conditionId, mc.MAX_PRICE_AGE_MS))
+        return null;
+    const yesPriceBps = cached.yesPrice;
+    const noPriceBps = cached.noPrice;
+    if (yesPriceBps === 0 && noPriceBps === 0)
+        return null;
+    const desired = calculateDesiredOrders(yesPriceBps, noPriceBps);
+    if (desired.length === 0)
+        return null;
+    // Diff: find orders to cancel (stale) and orders to place (missing)
+    const toCancel = [];
+    const matched = new Set();
+    let kept = 0;
+    for (const existing of myMarketOrders) {
+        let found = false;
+        for (let d = 0; d < desired.length; d++) {
+            if (matched.has(d))
+                continue;
+            if (orderMatches(existing, desired[d], mc.REFRESH_THRESHOLD_BPS)) {
+                matched.add(d);
+                found = true;
+                kept++;
+                break;
+            }
+        }
+        if (!found) {
+            toCancel.push(existing);
+        }
+    }
+    const toPlace = desired.filter((_, i) => !matched.has(i));
+    if (toCancel.length === 0 && toPlace.length === 0) {
+        return { cancelled: 0, placed: 0, kept: myMarketOrders.length, errors: 0 };
+    }
+    let cancelled = 0;
+    let placed = 0;
+    let errors = 0;
+    // Cancel stale orders
+    for (const order of toCancel) {
+        try {
+            const res = await cancelOrder(order.orderId);
+            if (res.ok) {
+                cancelled++;
+            }
+            else {
+                log("cancel", "error", `${order.orderId}: ${res.message}`);
+                errors++;
+            }
+        }
+        catch (e) {
+            log("cancel", "error", `${order.orderId}: ${String(e).slice(0, 100)}`);
+            errors++;
+        }
+        await sleep(mc.ORDER_DELAY_MS);
+    }
+    // Place new orders
+    for (const order of toPlace) {
+        try {
+            const res = await placeOrder(marketId, order.outcome, order.price, order.size);
+            if (res.ok) {
+                placed++;
+                log("place", "success", `${marketId} Buy ${order.outcome.toUpperCase()} @ $${order.price.toFixed(4)} x${order.size}`);
+            }
+            else {
+                if (res.message.includes("Rate limited")) {
+                    log("place", "rate-limited", `${marketId}: waiting...`);
+                    await sleep(mc.ORDER_DELAY_MS);
+                }
+                else {
+                    log("place", "error", `${marketId} ${order.outcome}@${order.price.toFixed(4)}: ${res.message.slice(0, 100)}`);
+                    errors++;
+                }
+            }
+        }
+        catch (e) {
+            log("place", "error", `${marketId}: ${String(e).slice(0, 100)}`);
+            errors++;
+        }
+        await sleep(mc.ORDER_DELAY_MS);
+    }
+    return { cancelled, placed, kept, errors };
+}
 // ─── Main maker loop ────────────────────────────────────────
 export async function runMaker() {
     const mc = CONFIG.MAKER;
@@ -155,113 +301,62 @@ export async function runMaker() {
     }
     // 4. Process markets up to MAX_MARKETS_PER_TICK
     let processed = 0;
-    const now = Date.now();
     for (let i = 0; i < allMarkets.length && processed < mc.MAX_MARKETS_PER_TICK; i++) {
         const idx = (startIdx + i) % allMarkets.length;
         const market = allMarkets[idx];
         result.marketsChecked++;
-        // Get Polymarket reference price from the live price cache (updated by sync)
         const conditionId = conditionIdMap.get(market.marketId);
         if (!conditionId) {
             result.marketsSkipped++;
             continue;
         }
         const cached = getPrice(conditionId);
-        if (!cached) {
+        if (!cached || isStale(conditionId, mc.MAX_PRICE_AGE_MS)) {
             result.marketsSkipped++;
             continue;
         }
-        // Skip stale prices (older than max age)
-        if (isStale(conditionId, mc.MAX_PRICE_AGE_MS)) {
+        if (cached.yesPrice === 0 && cached.noPrice === 0) {
             result.marketsSkipped++;
             continue;
         }
-        const yesPriceBps = cached.yesPrice;
-        const noPriceBps = cached.noPrice;
-        // Skip if no meaningful price signal
-        if (yesPriceBps === 0 && noPriceBps === 0) {
-            result.marketsSkipped++;
-            continue;
-        }
-        // Calculate desired orders
-        const desired = calculateDesiredOrders(yesPriceBps, noPriceBps);
+        const desired = calculateDesiredOrders(cached.yesPrice, cached.noPrice);
         if (desired.length === 0) {
             result.marketsSkipped++;
             continue;
         }
-        // Get existing orders for this market
         const myMarketOrders = ordersByMarket.get(market.marketId) || [];
-        // Diff: find orders to cancel (stale) and orders to place (missing)
-        const toCancel = [];
-        const matched = new Set(); // indices in desired that are already covered
+        // Quick check: if all orders match, skip without calling requoteMarket
+        let allMatch = true;
+        const tempMatched = new Set();
         for (const existing of myMarketOrders) {
             let found = false;
             for (let d = 0; d < desired.length; d++) {
-                if (matched.has(d))
+                if (tempMatched.has(d))
                     continue;
                 if (orderMatches(existing, desired[d], mc.REFRESH_THRESHOLD_BPS)) {
-                    matched.add(d);
+                    tempMatched.add(d);
                     found = true;
-                    result.ordersKept++;
                     break;
                 }
             }
             if (!found) {
-                toCancel.push(existing);
+                allMatch = false;
+                break;
             }
         }
-        const toPlace = desired.filter((_, i) => !matched.has(i));
-        // Skip if nothing to do
-        if (toCancel.length === 0 && toPlace.length === 0) {
+        if (allMatch && tempMatched.size === desired.length) {
             result.ordersKept += myMarketOrders.length;
             result.marketsSkipped++;
             continue;
         }
         processed++;
         result.marketsQuoted++;
-        // Cancel stale orders
-        for (const order of toCancel) {
-            try {
-                const res = await cancelOrder(order.orderId);
-                if (res.ok) {
-                    result.ordersCancelled++;
-                }
-                else {
-                    log("cancel", "error", `${order.orderId}: ${res.message}`);
-                    result.errors++;
-                }
-            }
-            catch (e) {
-                log("cancel", "error", `${order.orderId}: ${String(e).slice(0, 100)}`);
-                result.errors++;
-            }
-            await sleep(mc.ORDER_DELAY_MS);
-        }
-        // Place new orders
-        for (const order of toPlace) {
-            try {
-                const res = await placeOrder(market.marketId, order.outcome, order.price, order.size);
-                if (res.ok) {
-                    result.ordersPlaced++;
-                    log("place", "success", `${market.marketId} Buy ${order.outcome.toUpperCase()} @ $${order.price.toFixed(4)} x${order.size}`);
-                }
-                else {
-                    // Rate limit is not an error — just skip
-                    if (res.message.includes("Rate limited")) {
-                        log("place", "rate-limited", `${market.marketId}: waiting...`);
-                        await sleep(mc.ORDER_DELAY_MS);
-                    }
-                    else {
-                        log("place", "error", `${market.marketId} ${order.outcome}@${order.price.toFixed(4)}: ${res.message.slice(0, 100)}`);
-                        result.errors++;
-                    }
-                }
-            }
-            catch (e) {
-                log("place", "error", `${market.marketId}: ${String(e).slice(0, 100)}`);
-                result.errors++;
-            }
-            await sleep(mc.ORDER_DELAY_MS);
+        const stats = await requoteMarket(market.marketId, conditionId, myMarketOrders);
+        if (stats) {
+            result.ordersCancelled += stats.cancelled;
+            result.ordersPlaced += stats.placed;
+            result.ordersKept += stats.kept;
+            result.errors += stats.errors;
         }
         // Update cursor
         makerCursor = market.marketId;
