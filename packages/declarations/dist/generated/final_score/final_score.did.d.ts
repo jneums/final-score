@@ -43,47 +43,43 @@ export interface McpServer {
   /**
    * / Admin: cancel a market and refund all
    */
-  'admin_cancel_market' : ActorMethod<[string], Result_3>,
-  'admin_clear_markets' : ActorMethod<[], Result_3>,
+  'admin_cancel_market' : ActorMethod<[string], Result_1>,
+  'admin_clear_markets' : ActorMethod<[], Result_1>,
   /**
    * / Admin: create an API key for any principal (for testing / market maker)
    */
   'admin_create_api_key' : ActorMethod<
     [Principal, string, Array<string>],
-    Result_3
+    Result_1
   >,
   /**
    * / Admin: create a market (called by off-chain sync script)
    */
   'admin_create_market' : ActorMethod<
     [string, string, string, string, string, bigint, bigint, bigint],
-    Result_3
+    Result_1
   >,
   /**
    * / Admin: clear all markets and reset sync state (nuclear option for re-sync)
    * / Admin: delete a specific market (only if it has zero volume and no open orders)
    */
-  'admin_delete_market' : ActorMethod<[string], Result_3>,
+  'admin_delete_market' : ActorMethod<[string], Result_1>,
   /**
    * / Admin: drain stuck funds from a market subaccount
    */
-  'admin_drain_market_subaccount' : ActorMethod<[string], Result_3>,
+  'admin_drain_market_subaccount' : ActorMethod<[string], Result_1>,
   /**
    * / Admin: manually resolve a market
    */
-  'admin_resolve_market' : ActorMethod<[string, string], Result_3>,
-  /**
-   * / Admin: manually trigger resolution check (bypasses timer)
-   */
-  'admin_trigger_resolution_check' : ActorMethod<[], Result_3>,
+  'admin_resolve_market' : ActorMethod<[string, string], Result_1>,
   /**
    * / Admin: manually trigger Polymarket sync (bypasses timer)
    */
-  'admin_trigger_sync' : ActorMethod<[], Result_3>,
+  'admin_trigger_sync' : ActorMethod<[], Result_1>,
   /**
    * / Cancel an order (authenticated by wallet)
    */
-  'cancel_order' : ActorMethod<[string], Result_3>,
+  'cancel_order' : ActorMethod<[string], Result_1>,
   'create_my_api_key' : ActorMethod<[string, Array<string>], string>,
   /**
    * / Debug: get a specific market
@@ -214,7 +210,34 @@ export interface McpServer {
       'resolvedMarkets' : bigint,
     }
   >,
+  /**
+   * / Public query: get token configuration (for frontend)
+   */
+  'get_token_info' : ActorMethod<
+    [],
+    {
+      'fee' : bigint,
+      'decimals' : number,
+      'ledger' : string,
+      'symbol' : string,
+    }
+  >,
   'get_treasury_balance' : ActorMethod<[Principal], bigint>,
+  /**
+   * / Get all unresolved markets (Open + Closed) with Polymarket data.
+   * / Used by the off-chain Render sync service for resolution.
+   */
+  'get_unresolved_markets' : ActorMethod<
+    [],
+    Array<
+      {
+        'status' : string,
+        'polymarketSlug' : string,
+        'polymarketConditionId' : string,
+        'marketId' : string,
+      }
+    >
+  >,
   'http_request' : ActorMethod<[HttpRequest], HttpResponse>,
   'http_request_streaming_callback' : ActorMethod<
     [StreamingToken],
@@ -260,9 +283,9 @@ export interface McpServer {
   /**
    * / Place a limit order (authenticated by wallet — msg.caller is the user)
    */
-  'place_order' : ActorMethod<[string, string, number, bigint], Result_2>,
+  'place_order' : ActorMethod<[string, string, number, bigint], Result_3>,
   'revoke_my_api_key' : ActorMethod<[string], undefined>,
-  'set_owner' : ActorMethod<[Principal], Result_1>,
+  'set_owner' : ActorMethod<[Principal], Result_2>,
   'transformJwksResponse' : ActorMethod<
     [{ 'context' : Uint8Array | number[], 'response' : HttpRequestResult }],
     HttpRequestResult
@@ -271,13 +294,22 @@ export interface McpServer {
     [{ 'context' : Uint8Array | number[], 'response' : HttpRequestResult }],
     HttpRequestResult
   >,
+  /**
+   * / Trustless resolution: anyone can call this with a marketId.
+   * / The canister makes an HTTP outcall to Polymarket, verifies
+   * / closed=true, reads final prices, and resolves/cancels accordingly.
+   * / No caller trust required — the canister is the source of truth.
+   */
+  'try_resolve_market' : ActorMethod<[string], Result_1>,
   'withdraw' : ActorMethod<[Principal, bigint, Destination], Result>,
 }
 export type Result = { 'ok' : bigint } |
   { 'err' : TreasuryError };
-export type Result_1 = { 'ok' : null } |
+export type Result_1 = { 'ok' : string } |
+  { 'err' : string };
+export type Result_2 = { 'ok' : null } |
   { 'err' : TreasuryError };
-export type Result_2 = {
+export type Result_3 = {
     'ok' : {
       'fills' : Array<
         { 'size' : bigint, 'tradeId' : string, 'price' : bigint }
@@ -288,8 +320,6 @@ export type Result_2 = {
       'remaining' : bigint,
     }
   } |
-  { 'err' : string };
-export type Result_3 = { 'ok' : string } |
   { 'err' : string };
 export type StreamingCallback = ActorMethod<
   [StreamingToken],

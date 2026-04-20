@@ -1,6 +1,7 @@
 import { useAuth } from '../hooks/useAuth';
 import { useWalletDrawer } from '../contexts/WalletDrawerContext';
 import { useUsdcBalance } from '../hooks/useLedger';
+import { getToken } from '@final-score/ic-js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { AllowanceManager } from './AllowanceManager';
@@ -45,23 +46,30 @@ export function WalletDrawer() {
               {balanceLoading ? '—' : `$${Number(balance ?? 0).toFixed(2)}`}{' '}
               <span className="text-lg text-muted-foreground">USDC</span>
             </div>
-            {!balanceLoading && Number(balance ?? 0) === 0 && (
-              <div className="p-3 bg-blue-950/30 border border-blue-800/50 rounded-lg text-sm">
-                <p className="font-medium text-blue-400">No USDC balance</p>
-                <p className="text-muted-foreground mt-1">
-                  This platform uses test USDC tokens. Visit the{' '}
-                  <a
-                    href="https://3jkp5-oyaaa-aaaaj-azwqa-cai.icp0.io"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-400 underline"
-                  >
-                    faucet
-                  </a>
-                  {' '}to get some, then set an allowance below.
-                </p>
-              </div>
-            )}
+            {!balanceLoading && Number(balance ?? 0) === 0 && (() => {
+              try {
+                const token = getToken();
+                const isTestToken = token.canisterId.toText() === '3jkp5-oyaaa-aaaaj-azwqa-cai';
+                if (!isTestToken) return null;
+                return (
+                  <div className="p-3 bg-blue-950/30 border border-blue-800/50 rounded-lg text-sm">
+                    <p className="font-medium text-blue-400">No balance</p>
+                    <p className="text-muted-foreground mt-1">
+                      This platform uses test tokens. Visit the{' '}
+                      <a
+                        href="https://faucet.internetcomputer.org/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 underline"
+                      >
+                        faucet
+                      </a>
+                      {' '}and request <span className="font-medium text-blue-400">TICRC1</span> tokens, then set an allowance below.
+                    </p>
+                  </div>
+                );
+              } catch { return null; }
+            })()}
           </div>
         </CardContent>
       </Card>

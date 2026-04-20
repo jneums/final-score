@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getUsdcBalance, transferUsdc, Tokens } from '@final-score/ic-js';
+import { getUsdcBalance, transferUsdc, getToken } from '@final-score/ic-js';
 import { useAuth } from './useAuth';
 
 /**
- * Hook to fetch USDC balance for a principal.
+ * Hook to fetch token balance for a principal.
  * Balance is returned as a human-readable string (e.g. "125.50").
  */
 export function useUsdcBalance(principal?: string) {
@@ -12,7 +12,7 @@ export function useUsdcBalance(principal?: string) {
     queryFn: async () => {
       if (!principal) throw new Error('No principal');
       const balanceAtomic = await getUsdcBalance(principal);
-      return Tokens.USDC.fromAtomic(balanceAtomic);
+      return getToken().fromAtomic(balanceAtomic);
     },
     enabled: !!principal,
     staleTime: 15 * 1000,
@@ -21,7 +21,7 @@ export function useUsdcBalance(principal?: string) {
 }
 
 /**
- * Hook to transfer USDC to another principal.
+ * Hook to transfer tokens to another principal.
  */
 export function useTransferUsdc() {
   const { user } = useAuth();
@@ -32,7 +32,7 @@ export function useTransferUsdc() {
       if (!user?.agent) throw new Error('Not authenticated');
       const identity = user.agent;
       if (!identity) throw new Error('No identity available');
-      const atomicAmount = Tokens.USDC.toAtomic(amount);
+      const atomicAmount = getToken().toAtomic(amount);
       return transferUsdc(identity, to, atomicAmount);
     },
     onSuccess: () => {
@@ -40,3 +40,4 @@ export function useTransferUsdc() {
     },
   });
 }
+

@@ -1,3 +1,4 @@
+import { type Identity } from '@icp-sdk/core/agent';
 export interface MarketCount {
     total: number;
     open: number;
@@ -80,8 +81,8 @@ export interface PlaceOrderResult {
         size: number;
     }[];
 }
-export declare const placeOrderCandid: (identity: any, marketId: string, outcome: string, price: number, size: number) => Promise<PlaceOrderResult>;
-export declare const cancelOrderCandid: (identity: any, orderId: string) => Promise<string>;
+export declare const placeOrderCandid: (identity: Identity, marketId: string, outcome: string, price: number, size: number) => Promise<PlaceOrderResult>;
+export declare const cancelOrderCandid: (identity: Identity, orderId: string) => Promise<string>;
 export interface UserOrder {
     orderId: string;
     marketId: string;
@@ -92,7 +93,7 @@ export interface UserOrder {
     status: string;
     timestamp: number;
 }
-export declare const getMyOrders: (identity: any, statusFilter?: string, marketFilter?: string) => Promise<UserOrder[]>;
+export declare const getMyOrders: (identity: Identity, statusFilter?: string, marketFilter?: string) => Promise<UserOrder[]>;
 export interface UserPosition {
     positionId: string;
     marketId: string;
@@ -104,5 +105,5 @@ export interface UserPosition {
     currentPrice: number;
     marketStatus: string;
 }
-export declare const getMyPositions: (identity: any, marketFilter?: string) => Promise<UserPosition[]>;
+export declare const getMyPositions: (identity: Identity, marketFilter?: string) => Promise<UserPosition[]>;
 export declare const getEventMarkets: (polymarketSlug: string) => Promise<MarketInfo[]>;

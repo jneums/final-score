@@ -20,7 +20,7 @@ export declare function getWsStats(): {
     disconnects: number;
 };
 /** Start the WebSocket connection. Call after first sync populates the price cache. */
-export declare function startWs(requoteCallback: (conditionId: string) => void): void;
+export declare function startWs(requoteCallback: (conditionId: string) => void, reconnectCallback?: () => void): void;
 /** Stop the WebSocket connection. */
 export declare function stopWs(): void;
 /**

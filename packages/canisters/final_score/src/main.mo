@@ -13,6 +13,7 @@ import Array "mo:base/Array";
 import Float "mo:base/Float";
 import Iter "mo:base/Iter";
 import Nat64 "mo:base/Nat64";
+import Nat8 "mo:base/Nat8";
 import Nat32 "mo:base/Nat32";
 import Char "mo:base/Char";
 import Buffer "mo:base/Buffer";
@@ -80,6 +81,12 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     do ? { args!.tokenLedger! },
     Principal.fromText("3jkp5-oyaaa-aaaaj-azwqa-cai"), // Test faucet ICRC-1 ledger
   );
+
+  // Token metadata — initialized on first upgrade/deploy via one-shot timer
+  var tokenDecimals : Nat8 = 8; // Default for test faucet
+  var tokenFee : Nat = 10_000; // Default for test faucet
+  var tokenSymbol : Text = "TICRC1";
+  var shareValue : Nat = 100_000_000; // 10^8 for 8 decimals
 
   // ═══════════════════════════════════════════════════════════
   // Stable State — v2 Order Book Model
@@ -885,15 +892,15 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
         for ((posId, position) in Map.entries(positions)) {
           if (position.marketId == marketId) {
-            let payout = ToolContext.calculatePayout(position, winner);
+            let payout = ToolContext.calculatePayout(toolContext, position, winner);
 
-            if (payout > ToolContext.TRANSFER_FEE) {
+            if (payout > ToolContext.TRANSFER_FEE(toolContext)) {
               try {
                 let result = await ledger.icrc1_transfer({
                   from_subaccount = ?ToolContext.marketSubaccount(marketId);
                   to = { owner = position.user; subaccount = null };
-                  amount = payout - ToolContext.TRANSFER_FEE;
-                  fee = ?ToolContext.TRANSFER_FEE;
+                  amount = payout - ToolContext.TRANSFER_FEE(toolContext);
+                  fee = ?ToolContext.TRANSFER_FEE(toolContext);
                   memo = null;
                   created_at_time = null;
                 });
@@ -959,6 +966,10 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     canisterPrincipal = Principal.fromActor(self);
     owner;
     tokenLedger;
+    var tokenDecimals = tokenDecimals;
+    var tokenFee = tokenFee;
+    var tokenSymbol = tokenSymbol;
+    var shareValue = shareValue;
     markets;
     orders;
     trades;
@@ -1118,6 +1129,53 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
   system func postupgrade() {
     HttpAssets.postupgrade(http_assets);
+    // Refresh token metadata from ledger on every upgrade
+    ignore Timer.setTimer<system>(#seconds 0, refreshTokenMetadata);
+  };
+
+  /// Query token metadata from the configured ledger and update vars
+  func refreshTokenMetadata() : async () {
+    try {
+      let ledger = actor (Principal.toText(tokenLedger)) : actor {
+        icrc1_decimals : () -> async Nat8;
+        icrc1_fee : () -> async Nat;
+        icrc1_symbol : () -> async Text;
+      };
+      tokenDecimals := await ledger.icrc1_decimals();
+      tokenFee := await ledger.icrc1_fee();
+      tokenSymbol := await ledger.icrc1_symbol();
+      // Compute shareValue = 10^decimals
+      var sv : Nat = 1;
+      var i : Nat8 = 0;
+      while (i < tokenDecimals) {
+        sv *= 10;
+        i += 1;
+      };
+      shareValue := sv;
+      // Also update the toolContext (which has its own var copies)
+      toolContext.tokenDecimals := tokenDecimals;
+      toolContext.tokenFee := tokenFee;
+      toolContext.tokenSymbol := tokenSymbol;
+      toolContext.shareValue := shareValue;
+      debugLog("Token metadata refreshed: symbol=" # tokenSymbol # " decimals=" # Nat.toText(Nat8.toNat(tokenDecimals)) # " fee=" # Nat.toText(tokenFee) # " shareValue=" # Nat.toText(shareValue));
+    } catch (e) {
+      Debug.print("Failed to refresh token metadata: " # Error.message(e));
+    };
+  };
+
+  /// Public query: get token configuration (for frontend)
+  public query func get_token_info() : async {
+    ledger : Text;
+    symbol : Text;
+    decimals : Nat8;
+    fee : Nat;
+  } {
+    {
+      ledger = Principal.toText(tokenLedger);
+      symbol = tokenSymbol;
+      decimals = tokenDecimals;
+      fee = tokenFee;
+    };
   };
 
   // ═══════════════════════════════════════════════════════════
@@ -1164,8 +1222,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
     if (size == 0) return #err("Size must be at least 1 share");
 
-    let cost = ToolContext.orderCost(priceBps, size);
-    if (cost < ToolContext.MINIMUM_COST) {
+    let cost = ToolContext.orderCost(toolContext, priceBps, size);
+    if (cost < ToolContext.MINIMUM_COST(toolContext)) {
       return #err("Order too small. Minimum cost is 0.10 USDC.");
     };
 
@@ -1212,19 +1270,19 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     let result = OrderBook.matchOrder(book, order);
 
     // Process fills — pull real tokens from wallets into market subaccount
-    // ATOMIC PER-FILL: update book incrementally so trap after fill N is safe
+    // Start from the MATCHED book state (matchOrder already consumed/adjusted resting orders)
     var fillsResult : [{ tradeId : Text; price : Nat; size : Nat }] = [];
     let marketAccount = ToolContext.getMarketAccount(Principal.fromActor(self), marketId);
-    var currentBook = book;
+    var currentBook = result.updatedBook;
 
     for (fill in result.fills.vals()) {
       let tradeId = ToolContext.getNextTradeId(toolContext);
 
-      let takerCostPerShare = (order.price * ToolContext.SHARE_VALUE) / ToolContext.BPS_DENOM;
+      let takerCostPerShare = (order.price * ToolContext.SHARE_VALUE(toolContext)) / ToolContext.BPS_DENOM;
       let takerCost = takerCostPerShare * fill.size;
-      let makerCostPerShare = (fill.price * ToolContext.SHARE_VALUE) / ToolContext.BPS_DENOM;
+      let makerCostPerShare = (fill.price * ToolContext.SHARE_VALUE(toolContext)) / ToolContext.BPS_DENOM;
       let makerCost = makerCostPerShare * fill.size;
-      let fee = ToolContext.takerFee(order.price, fill.size);
+      let fee = ToolContext.takerFee(toolContext, order.price, fill.size);
 
       // Pull taker funds: user wallet → market subaccount
       let takerTotal = takerCost + fee;
@@ -1234,7 +1292,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           from = { owner = fill.taker; subaccount = null };
           to = marketAccount;
           amount = takerTotal;
-          fee = ?ToolContext.TRANSFER_FEE;
+          fee = ?ToolContext.TRANSFER_FEE(toolContext);
           memo = null;
           created_at_time = null;
         });
@@ -1262,7 +1320,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
             from = { owner = fill.maker; subaccount = null };
             to = marketAccount;
             amount = makerCost;
-            fee = ?ToolContext.TRANSFER_FEE;
+            fee = ?ToolContext.TRANSFER_FEE(toolContext);
             memo = null;
             created_at_time = null;
           });
@@ -1284,8 +1342,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
             ignore await ledger.icrc1_transfer({
               from_subaccount = ?ToolContext.marketSubaccount(marketId);
               to = { owner = fill.taker; subaccount = null };
-              amount = takerTotal - ToolContext.TRANSFER_FEE;
-              fee = ?ToolContext.TRANSFER_FEE;
+              amount = takerTotal - ToolContext.TRANSFER_FEE(toolContext);
+              fee = ?ToolContext.TRANSFER_FEE(toolContext);
               memo = null;
               created_at_time = null;
             });
@@ -1341,8 +1399,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
             case null {};
           };
 
-          // ATOMIC: remove consumed maker order from book per-fill
-          currentBook := OrderBook.removeOrder(currentBook, fill.makerOrderId, makerOutcome);
+          // Maker order already consumed/adjusted in result.updatedBook by matchOrder
           Map.set(orderBooks, thash, marketId, currentBook);
 
           fillsResult := Array.append(fillsResult, [{
@@ -1365,14 +1422,14 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     for ((user, _) in Map.entries(nettedUsers)) {
       let overlap = ToolContext.getNetOverlap(toolContext, user, marketId);
       if (overlap > 0) {
-        let payout = overlap * ToolContext.SHARE_VALUE;
-        if (payout > ToolContext.TRANSFER_FEE) {
+        let payout = overlap * ToolContext.SHARE_VALUE(toolContext);
+        if (payout > ToolContext.TRANSFER_FEE(toolContext)) {
           let refundOk = try {
             let refundResult = await ledger.icrc1_transfer({
               from_subaccount = ?ToolContext.marketSubaccount(marketId);
               to = { owner = user; subaccount = null };
-              amount = payout - ToolContext.TRANSFER_FEE;
-              fee = ?ToolContext.TRANSFER_FEE;
+              amount = payout - ToolContext.TRANSFER_FEE(toolContext);
+              fee = ?ToolContext.TRANSFER_FEE(toolContext);
               memo = null;
               created_at_time = null;
             });
@@ -1393,37 +1450,60 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
 
     // Insert remainder (if any) into the already-updated book
+    // Track ACTUAL successful fills vs what the matcher promised
+    var actualFilledSize : Nat = 0;
+    for (f in fillsResult.vals()) {
+      actualFilledSize += f.size;
+    };
+
     var finalBook = currentBook;
 
-    let finalOrder = switch (result.remainingOrder) {
-      case (?remaining) {
-        finalBook := OrderBook.insertOrder(finalBook, remaining);
-        Map.set(toolContext.orders, Map.thash, orderId, remaining);
-        remaining;
-      };
-      case null {
-        let filled = { order with filledSize = order.size; status = #Filled };
-        Map.set(toolContext.orders, Map.thash, orderId, filled);
-        filled;
+    let finalOrder = if (actualFilledSize >= order.size) {
+      // Fully filled (all transfers succeeded)
+      let filled = { order with filledSize = order.size; status = #Filled };
+      Map.set(toolContext.orders, Map.thash, orderId, filled);
+      filled;
+    } else if (actualFilledSize > 0) {
+      // Partially filled — rest goes on the book
+      let partial = { order with filledSize = actualFilledSize; status = #PartiallyFilled };
+      finalBook := OrderBook.insertOrder(finalBook, partial);
+      Map.set(toolContext.orders, Map.thash, orderId, partial);
+      partial;
+    } else {
+      // ZERO fills succeeded — put the full order on the book
+      switch (result.remainingOrder) {
+        case (?remaining) {
+          finalBook := OrderBook.insertOrder(finalBook, remaining);
+          Map.set(toolContext.orders, Map.thash, orderId, remaining);
+          remaining;
+        };
+        case null {
+          // Matcher said fully consumed, but all transfers failed — rebook entirely
+          let rebooked = { order with filledSize = 0; status = #Open };
+          finalBook := OrderBook.insertOrder(finalBook, rebooked);
+          Map.set(toolContext.orders, Map.thash, orderId, rebooked);
+          rebooked;
+        };
       };
     };
 
     Map.set(orderBooks, thash, marketId, finalBook);
 
-    // Update market last price
-    if (result.fills.size() > 0) {
-      let lastFill = result.fills[result.fills.size() - 1];
+    // Update market last price (only if actual fills succeeded)
+    if (fillsResult.size() > 0) {
+      let lastFill = fillsResult[fillsResult.size() - 1];
+      let filledCost = ToolContext.orderCost(toolContext, order.price, actualFilledSize);
       switch (outcome) {
         case (#Yes) {
           let yesPrice = ToolContext.BPS_DENOM - lastFill.price;
           Map.set(markets, thash, marketId, {
-            market with lastYesPrice = yesPrice; lastNoPrice = lastFill.price; totalVolume = market.totalVolume + cost;
+            market with lastYesPrice = yesPrice; lastNoPrice = lastFill.price; totalVolume = market.totalVolume + filledCost;
           });
         };
         case (#No) {
           let noPrice = ToolContext.BPS_DENOM - lastFill.price;
           Map.set(markets, thash, marketId, {
-            market with lastYesPrice = lastFill.price; lastNoPrice = noPrice; totalVolume = market.totalVolume + cost;
+            market with lastYesPrice = lastFill.price; lastNoPrice = noPrice; totalVolume = market.totalVolume + filledCost;
           });
         };
       };
@@ -1758,13 +1838,13 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
         var refunded : Nat = 0;
         for ((_, position) in Map.entries(positions)) {
-          if (position.marketId == marketId and position.costBasis > ToolContext.TRANSFER_FEE) {
+          if (position.marketId == marketId and position.costBasis > ToolContext.TRANSFER_FEE(toolContext)) {
             try {
               ignore await ledger.icrc1_transfer({
                 from_subaccount = ?ToolContext.marketSubaccount(marketId);
                 to = { owner = position.user; subaccount = null };
-                amount = position.costBasis - ToolContext.TRANSFER_FEE;
-                fee = ?ToolContext.TRANSFER_FEE;
+                amount = position.costBasis - ToolContext.TRANSFER_FEE(toolContext);
+                fee = ?ToolContext.TRANSFER_FEE(toolContext);
                 memo = null;
                 created_at_time = null;
               });
@@ -1806,7 +1886,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       ToolContext.getMarketAccount(Principal.fromActor(self), marketId)
     );
 
-    if (balance <= ToolContext.TRANSFER_FEE) {
+    if (balance <= ToolContext.TRANSFER_FEE(toolContext)) {
       return #ok("Subaccount empty or dust (" # Nat.toText(balance) # ")");
     };
 
@@ -1814,8 +1894,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       let result = await ledger.icrc1_transfer({
         from_subaccount = ?ToolContext.marketSubaccount(marketId);
         to = { owner = Principal.fromActor(self); subaccount = null };
-        amount = balance - ToolContext.TRANSFER_FEE;
-        fee = ?ToolContext.TRANSFER_FEE;
+        amount = balance - ToolContext.TRANSFER_FEE(toolContext);
+        fee = ?ToolContext.TRANSFER_FEE(toolContext);
         memo = null;
         created_at_time = null;
       });

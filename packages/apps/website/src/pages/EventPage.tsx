@@ -112,7 +112,7 @@ function OrderBookCompact({ marketId, activeTab }: { marketId: string; activeTab
         <div key={`ask-${i}`} className="relative grid grid-cols-3 px-2 py-1">
           <div
             className="absolute inset-0 bg-red-500/8"
-            style={{ width: `${(level.totalSize / maxSize) * 100}%`, right: 0, left: 'auto' }}
+            style={{ width: `${(level.totalSize / maxSize) * 100}%` }}
           />
           <span className="relative text-red-400 font-mono">{bpsToPrice(level.price)}</span>
           <span className="relative text-right font-mono">{level.totalSize}</span>
@@ -129,7 +129,7 @@ function OrderBookCompact({ marketId, activeTab }: { marketId: string; activeTab
         <div key={`bid-${i}`} className="relative grid grid-cols-3 px-2 py-1">
           <div
             className="absolute inset-0 bg-green-500/8"
-            style={{ width: `${(level.totalSize / maxSize) * 100}%`, right: 0, left: 'auto' }}
+            style={{ width: `${(level.totalSize / maxSize) * 100}%` }}
           />
           <span className="relative text-green-400 font-mono">{bpsToPrice(level.price)}</span>
           <span className="relative text-right font-mono">{level.totalSize}</span>
@@ -145,71 +145,93 @@ function OrderBookCompact({ marketId, activeTab }: { marketId: string; activeTab
 function OrderForm({
   selection,
   identity,
+  onSideChange,
 }: {
   selection: { market: MarketInfo; side: 'yes' | 'no' } | null;
   identity: any;
+  onSideChange?: (side: 'yes' | 'no') => void;
 }) {
-  const [tradeTab, setTradeTab] = useState<'yes' | 'no'>(selection?.side ?? 'yes');
-  const [price, setPrice] = useState('0.50');
-  const [size, setSize] = useState('10');
+  const [side, setSide] = useState<'yes' | 'no'>(selection?.side ?? 'yes');
+  const [dollars, setDollars] = useState('10');
+  const [limitPrice, setLimitPrice] = useState('0.50');
+  const [priceFromBook, setPriceFromBook] = useState(false);
+  const [orderType, setOrderType] = useState<'market' | 'limit'>('market');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showConfirm, setShowConfirm] = useState(false);
+  const [step, setStep] = useState<'form' | 'review'>('form');
   const queryClient = useQueryClient();
   const { user } = useAuth();
+
+  // Order book for live prices
+  const { data: formBook } = useOrderBook(selection?.market.marketId);
 
   // Pre-flight balance + allowance
   const { data: balance } = useUsdcBalance(user?.principal);
   const { data: allowance } = useAllowance(user?.principal);
 
-  // Update when selection changes
   const activeMarket = selection?.market;
-  const activeSide = selection ? tradeTab : 'yes';
 
-  // Sync tab when selection changes
-  if (selection && selection.side !== tradeTab) {
-    // We'll handle this via key prop on the parent instead
+  // Sync side when selection changes
+  if (selection && selection.side !== side) {
+    setSide(selection.side);
+    setStep('form');
   }
 
-  const priceNum = parseFloat(price) || 0;
-  const sizeNum = parseInt(size) || 0;
-  const baseCost = priceNum * sizeNum;
-  const takerFee = baseCost * 0.01; // 1% taker fee
-  const totalCost = baseCost + takerFee;
-  const grossPayout = sizeNum * 1.0;
-  const protocolRake = grossPayout * 0.02; // 2% rake on winnings
-  const potentialPayout = grossPayout - protocolRake;
-  const potentialProfit = potentialPayout - totalCost;
-  const isValid = activeMarket && priceNum >= 0.01 && priceNum <= 0.99 && sizeNum >= 1 && totalCost > 0;
+  // Compute book prices (10000 bps = empty book)
+  const yesBookPrice = formBook && formBook.impliedYesAsk < 10000 ? formBook.impliedYesAsk / 10000 : 0;
+  const noBookPrice = formBook && formBook.impliedNoAsk < 10000 ? formBook.impliedNoAsk / 10000 : 0;
+  const bookPrice = side === 'yes' ? yesBookPrice : noBookPrice;
+  const hasBookPrice = bookPrice > 0;
 
-  const currentPriceStr = parseFloat(price).toFixed(2);
+  // Auto-fill price from book when available (only if user hasn't manually edited)
+  if (hasBookPrice && !priceFromBook) {
+    setLimitPrice(bookPrice.toFixed(2));
+    setPriceFromBook(true);
+  }
 
-  const handleSubmit = () => {
-    if (!isValid || isSubmitting || !activeMarket) return;
+  // The effective price for calculations
+  const price = orderType === 'market' && hasBookPrice
+    ? bookPrice
+    : (parseFloat(limitPrice) || 0);
+
+  // Compute from dollar amount
+  const dollarsNum = parseFloat(dollars) || 0;
+  const shares = price > 0 ? Math.floor(dollarsNum / price) : 0;
+  const cost = shares * price;
+  const takerFee = cost * 0.01; // 1% taker fee
+  const totalCost = cost + takerFee;
+  const grossPayout = shares * 1.0;
+  const protocolRake = grossPayout * 0.02; // 2% rake
+  const payout = grossPayout - protocolRake;
+  const odds = price > 0 ? Math.round(price * 100) : 0;
+
+  const isValid = activeMarket && price >= 0.01 && price <= 0.99 && shares >= 1 && dollarsNum > 0;
+
+  const handleReview = () => {
+    if (!isValid) return;
     setError(null);
 
     // Pre-flight balance check
     if (balance !== undefined && Number(balance) < totalCost) {
-      setError(`Insufficient balance. You have $${Number(balance).toFixed(2)} USDC.`);
+      setError(`Insufficient balance ($${Number(balance).toFixed(2)}).`);
       return;
     }
 
     // Pre-flight allowance check
     if (allowance !== undefined && Number(allowance) < totalCost) {
-      setError(`Insufficient allowance ($${Number(allowance).toFixed(2)}). Set allowance in Wallet drawer.`);
+      setError(`Insufficient allowance ($${Number(allowance).toFixed(2)}). Set in Wallet.`);
       return;
     }
 
-    setShowConfirm(true);
+    setStep('review');
   };
 
-  const handleConfirm = async () => {
-    if (!activeMarket) return;
-    setShowConfirm(false);
+  const handleSubmit = async () => {
+    if (!activeMarket || isSubmitting) return;
     setIsSubmitting(true);
 
     try {
-      const result = await placeOrderCandid(identity, activeMarket.marketId, activeSide, priceNum, sizeNum);
+      const result = await placeOrderCandid(identity, activeMarket.marketId, side, price, shares);
 
       if (result.status === 'Filled') {
         toast.success(`Order filled! ${result.fills.length} trade(s) executed.`);
@@ -226,19 +248,17 @@ function OrderForm({
       queryClient.invalidateQueries({ queryKey: ['my-positions'] });
       queryClient.invalidateQueries({ queryKey: ['usdc-balance'] });
       queryClient.invalidateQueries({ queryKey: ['allowance'] });
+      setStep('form');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to place order';
       toast.error(message);
+      setStep('form');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleTabChange = (tab: 'yes' | 'no') => {
-    setTradeTab(tab);
-  };
-
-  const color = activeSide === 'yes' ? 'green' : 'red';
+  const color = side === 'yes' ? 'green' : 'red';
 
   if (!activeMarket) {
     return (
@@ -255,134 +275,224 @@ function OrderForm({
 
   const outcomeName = extractOutcomeName(activeMarket.question);
 
+  // ─── Review Step ──────────────────────────────────────────────────────────
+  if (step === 'review') {
+    return (
+      <Card className="border-primary/20 py-0 gap-0">
+        <CardContent className="p-4 space-y-4">
+          <p className="text-sm font-medium truncate">{outcomeName}</p>
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold">Review order</span>
+            <span className={`text-xs font-medium ${color === 'green' ? 'text-green-400' : 'text-red-400'}`}>
+              Buy {side === 'yes' ? 'Yes' : 'No'}
+            </span>
+          </div>
+
+          <div className="border-t border-border/50" />
+
+          <div className="space-y-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Estimated cost</span>
+              <span className="font-medium">${totalCost.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Odds</span>
+              <span className="font-medium">{odds}% chance</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Payout if {side === 'yes' ? 'Yes' : 'No'}</span>
+              <span className={`text-lg font-semibold ${color === 'green' ? 'text-green-400' : 'text-red-400'}`}>
+                ${payout.toFixed(2)}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-10 w-10 p-0"
+              onClick={() => setStep('form')}
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </Button>
+            <Button
+              className={`flex-1 h-10 text-sm font-medium ${side === 'yes' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  Submitting...
+                </>
+              ) : (
+                'Submit'
+              )}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  // ─── Form Step ────────────────────────────────────────────────────────────
   return (
     <Card className="border-primary/20 py-0 gap-0">
       <CardContent className="p-4 space-y-4">
-        {/* Market name */}
-        <p className="text-sm font-medium truncate">{outcomeName}</p>
-
-        {/* Yes / No tabs */}
-        <Tabs value={activeSide} onValueChange={(v) => handleTabChange(v as 'yes' | 'no')}>
-          <TabsList className="grid w-full grid-cols-2 h-9">
-            <TabsTrigger value="yes" className="text-sm data-[state=active]:bg-green-500/20 data-[state=active]:text-green-400">
-              Buy Yes
-            </TabsTrigger>
-            <TabsTrigger value="no" className="text-sm data-[state=active]:bg-red-500/20 data-[state=active]:text-red-400">
-              Buy No
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-
-        {/* Price + Shares */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Price</label>
-            <div className="relative">
-              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">$</span>
-              <Input
-                type="number"
-                step="0.01"
-                min="0.01"
-                max="0.99"
-                value={price}
-                onChange={(e) => setPrice(e.target.value)}
-                className="pl-5 h-8 text-sm"
-              />
-            </div>
+        {/* Outcome + order type dropdown */}
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-medium truncate flex-1">{outcomeName}</p>
+          <div className="relative">
+            <button
+              onClick={() => setOrderType(orderType === 'market' ? 'limit' : 'market')}
+              className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground border border-border/50 rounded-md px-2 py-1 bg-muted/50 transition-colors"
+            >
+              {orderType === 'market' ? 'Dollars' : 'Limit'}
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
           </div>
-          <div className="space-y-1">
-            <label className="text-xs text-muted-foreground">Shares</label>
+        </div>
+
+        {/* No liquidity warning in dollars mode */}
+        {orderType === 'market' && !hasBookPrice && (
+          <div className="p-2.5 bg-yellow-950/30 border border-yellow-800/50 rounded-lg text-xs text-yellow-400">
+            No liquidity available. Switch to{' '}
+            <button className="underline font-medium" onClick={() => setOrderType('limit')}>
+              Limit
+            </button>
+            {' '}to place a resting order.
+          </div>
+        )}
+
+        {/* Yes / No price buttons */}
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            variant="outline"
+            className={`h-10 text-sm font-medium ${
+              side === 'yes'
+                ? 'border-green-500 bg-green-500/10 text-green-400'
+                : 'border-border/50 text-muted-foreground hover:border-green-500/50 hover:text-green-400'
+            }`}
+            onClick={() => {
+              setSide('yes');
+              if (yesBookPrice > 0) setLimitPrice(yesBookPrice.toFixed(2));
+              onSideChange?.('yes');
+            }}
+          >
+            Yes {yesBookPrice > 0 ? `${Math.round(yesBookPrice * 100)}¢` : ''}
+          </Button>
+          <Button
+            variant="outline"
+            className={`h-10 text-sm font-medium ${
+              side === 'no'
+                ? 'border-red-500 bg-red-500/10 text-red-400'
+                : 'border-border/50 text-muted-foreground hover:border-red-500/50 hover:text-red-400'
+            }`}
+            onClick={() => {
+              setSide('no');
+              if (noBookPrice > 0) setLimitPrice(noBookPrice.toFixed(2));
+              onSideChange?.('no');
+            }}
+          >
+            No {noBookPrice > 0 ? `${Math.round(noBookPrice * 100)}¢` : ''}
+          </Button>
+        </div>
+
+        {/* Limit price — only in limit mode */}
+        {orderType === 'limit' && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <label className="text-xs text-muted-foreground">Limit price</label>
+            {hasBookPrice && parseFloat(limitPrice) !== bookPrice && (
+              <button
+                className="text-xs text-primary hover:underline"
+                onClick={() => setLimitPrice(bookPrice.toFixed(2))}
+              >
+                Use market ({Math.round(bookPrice * 100)}¢)
+              </button>
+            )}
+          </div>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+            <Input
+              type="number"
+              step="0.01"
+              min="0.01"
+              max="0.99"
+              value={limitPrice}
+              onChange={(e) => { setLimitPrice(e.target.value); setPriceFromBook(true); }}
+              className="pl-7 h-9 text-sm font-mono"
+            />
+          </div>
+        </div>
+        )}
+
+        {/* Dollar amount input */}
+        <div className="space-y-1.5">
+          <label className="text-xs text-muted-foreground">Amount</label>
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
             <Input
               type="number"
               step="1"
               min="1"
-              value={size}
-              onChange={(e) => setSize(e.target.value)}
-              className="h-8 text-sm"
+              value={dollars}
+              onChange={(e) => setDollars(e.target.value)}
+              className="pl-7 h-10 text-lg font-medium"
             />
           </div>
-        </div>
-
-        {/* Quick price buttons */}
-        <div className="flex gap-1">
-          {[0.1, 0.25, 0.5, 0.75, 0.9].map((p) => {
-            const isActive = currentPriceStr === p.toFixed(2);
-            return (
+          {/* Quick amounts */}
+          <div className="flex gap-1.5">
+            {[5, 10, 25, 50, 100].map((amt) => (
               <Button
-                key={p}
-                variant={isActive ? 'default' : 'outline'}
+                key={amt}
+                variant={dollars === String(amt) ? 'default' : 'outline'}
                 size="sm"
-                className={`flex-1 text-xs h-6 px-1 ${isActive
-                  ? (color === 'green'
-                    ? 'bg-green-600 hover:bg-green-700 text-white border-green-600'
-                    : 'bg-red-600 hover:bg-red-700 text-white border-red-600')
-                  : ''
-                }`}
-                onClick={() => setPrice(p.toFixed(2))}
+                className="flex-1 text-xs h-7"
+                onClick={() => setDollars(String(amt))}
               >
-                {p.toFixed(2)}
+                ${amt}
               </Button>
-            );
-          })}
+            ))}
+          </div>
         </div>
 
-        {/* Cost summary */}
-        <div className="space-y-1 p-2.5 bg-muted rounded-lg text-xs">
+        {/* Summary */}
+        <div className="space-y-2 text-sm">
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Cost</span>
-            <span className="font-medium">${baseCost.toFixed(2)} <span className="text-muted-foreground">+ ${takerFee.toFixed(2)} fee</span></span>
+            <span className="text-muted-foreground">Odds</span>
+            <span className="font-medium">{odds > 0 ? `${odds}% chance` : '—'}</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-muted-foreground">Total</span>
-            <span className="font-medium">${totalCost.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Payout if {activeSide === 'yes' ? 'Yes' : 'No'}</span>
-            <span className="font-medium">${potentialPayout.toFixed(2)} <span className="text-muted-foreground">(after 2% rake)</span></span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Profit</span>
-            <span className={`font-medium ${potentialProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {potentialProfit >= 0 ? '+' : ''}${potentialProfit.toFixed(2)}
+            <span className="text-muted-foreground">Payout if {side === 'yes' ? 'Yes' : 'No'}</span>
+            <span className={`font-semibold ${color === 'green' ? 'text-green-400' : 'text-red-400'}`}>
+              {payout > 0 ? `$${payout.toFixed(2)}` : '—'}
             </span>
           </div>
+          {orderType === 'limit' && !hasBookPrice && price > 0 && (
+            <p className="text-xs text-muted-foreground">
+              No liquidity — your order will rest on the book at {Math.round(price * 100)}¢.
+            </p>
+          )}
         </div>
 
-        {/* Inline error */}
+        {/* Error */}
         {error && (
           <div className="p-2.5 bg-red-950/30 border border-red-800/50 rounded-lg text-xs text-red-400">
             {error}
           </div>
         )}
 
-        {/* Confirmation dialog */}
-        {showConfirm && (
-          <div className="p-3 bg-muted rounded-lg space-y-2">
-            <p className="text-sm font-medium">Confirm order?</p>
-            <p className="text-sm text-muted-foreground">
-              Buy {sizeNum} {activeSide === 'yes' ? 'Yes' : 'No'} @ ${priceNum.toFixed(2)} = ${totalCost.toFixed(2)}
-            </p>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={handleConfirm}>Confirm</Button>
-              <Button size="sm" variant="ghost" onClick={() => setShowConfirm(false)}>Cancel</Button>
-            </div>
-          </div>
-        )}
-
-        {/* Submit */}
+        {/* Review button */}
         <Button
-          className={`w-full h-9 text-sm font-medium ${activeSide === 'yes' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
-          onClick={handleSubmit}
+          className={`w-full h-10 text-sm font-medium ${side === 'yes' ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700'}`}
+          onClick={handleReview}
           disabled={!isValid || isSubmitting}
         >
-          {isSubmitting ? (
-            <>
-              <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-              Placing...
-            </>
-          ) : (
-            `Buy ${activeSide === 'yes' ? 'Yes' : 'No'} — $${totalCost.toFixed(2)}`
-          )}
+          Review
         </Button>
       </CardContent>
     </Card>
@@ -400,6 +510,7 @@ function OutcomeRow({
   onClickYes,
   onClickNo,
   onToggleBook,
+  onSelectMarket,
 }: {
   market: MarketInfo;
   identity: any;
@@ -409,15 +520,42 @@ function OutcomeRow({
   onClickYes: () => void;
   onClickNo: () => void;
   onToggleBook: () => void;
+  onSelectMarket: () => void;
 }) {
   const [bookTab, setBookTab] = useState<'yes' | 'no'>('yes');
-  const yesPrice = Number(market.lastYesPrice);
-  const noPrice = Number(market.lastNoPrice);
-  const percent = yesPrice > 0 ? bpsToPercent(yesPrice) : 50;
+
+  // Use order book best ask (what you can buy at now) instead of last traded price
+  // 10000 bps = $1.00 means empty book — treat as no price
+  const { data: book } = useOrderBook(market.marketId);
+  const yesPrice = book && book.impliedYesAsk > 0 && book.impliedYesAsk < 10000
+    ? book.impliedYesAsk
+    : 0;
+  const noPrice = book && book.impliedNoAsk > 0 && book.impliedNoAsk < 10000
+    ? book.impliedNoAsk
+    : 0;
+  const percent = yesPrice > 0 ? bpsToPercent(yesPrice) : '—';
   const outcomeName = extractOutcomeName(market.question);
 
-  // Position indicator
-  const { data: positions } = useMyPositions(identity, market.marketId);
+  // Position indicator — aggregate same-outcome positions
+  const { data: rawPositions } = useMyPositions(identity, market.marketId);
+  const positions = (() => {
+    if (!rawPositions || rawPositions.length === 0) return null;
+    const grouped = new Map<string, typeof rawPositions[0]>();
+    for (const pos of rawPositions) {
+      const existing = grouped.get(pos.outcome);
+      if (existing) {
+        grouped.set(pos.outcome, {
+          ...existing,
+          shares: existing.shares + pos.shares,
+          costBasis: existing.costBasis + pos.costBasis,
+          currentPrice: pos.currentPrice,
+        });
+      } else {
+        grouped.set(pos.outcome, { ...pos });
+      }
+    }
+    return [...grouped.values()].filter(p => p.shares > 0);
+  })();
   const hasPosition = positions && positions.length > 0;
 
   return (
@@ -429,7 +567,7 @@ function OutcomeRow({
       >
         {/* Left: click to toggle order book */}
         <button
-          onClick={onToggleBook}
+          onClick={() => { onToggleBook(); onSelectMarket(); }}
           className="flex-1 min-w-0 text-left"
         >
           <p className="font-medium text-sm leading-snug">{outcomeName}</p>
@@ -456,13 +594,13 @@ function OutcomeRow({
 
         {/* Center: probability */}
         <div className="text-center shrink-0 w-14">
-          <p className="text-xl font-bold">{percent}%</p>
+          <p className="text-xl font-bold">{percent === '—' ? '—' : `${percent}%`}</p>
         </div>
 
         {/* Right: Yes / No buttons */}
         <div className="flex gap-2 shrink-0">
           <Button
-            variant="outline"
+            variant={isSelected && selectedSide === 'yes' ? 'default' : 'outline'}
             size="sm"
             className={`h-9 px-3 font-mono font-medium transition-colors ${
               isSelected && selectedSide === 'yes'
@@ -471,10 +609,10 @@ function OutcomeRow({
             }`}
             onClick={(e) => { e.stopPropagation(); onClickYes(); }}
           >
-            Yes {yesPrice > 0 ? bpsToCents(yesPrice) : '—'}
+            Yes {yesPrice > 0 ? bpsToCents(yesPrice) : ''}
           </Button>
           <Button
-            variant="outline"
+            variant={isSelected && selectedSide === 'no' ? 'default' : 'outline'}
             size="sm"
             className={`h-9 px-3 font-mono font-medium transition-colors ${
               isSelected && selectedSide === 'no'
@@ -483,7 +621,7 @@ function OutcomeRow({
             }`}
             onClick={(e) => { e.stopPropagation(); onClickNo(); }}
           >
-            No {noPrice > 0 ? bpsToCents(noPrice) : '—'}
+            No {noPrice > 0 ? bpsToCents(noPrice) : ''}
           </Button>
         </div>
       </div>
@@ -630,6 +768,7 @@ export default function EventPage() {
                     onClickYes={() => setSelection({ market: m, side: 'yes' })}
                     onClickNo={() => setSelection({ market: m, side: 'no' })}
                     onToggleBook={() => setExpandedBook(expandedBook === m.marketId ? null : m.marketId)}
+                    onSelectMarket={() => setSelection({ market: m, side: 'yes' })}
                   />
                 ))
               ) : market ? (
@@ -642,6 +781,7 @@ export default function EventPage() {
                   onClickYes={() => setSelection({ market: market as any, side: 'yes' })}
                   onClickNo={() => setSelection({ market: market as any, side: 'no' })}
                   onToggleBook={() => setExpandedBook(expandedBook === market.marketId ? null : market.marketId)}
+                  onSelectMarket={() => setSelection({ market: market as any, side: 'yes' })}
                 />
               ) : null}
             </div>
@@ -660,9 +800,14 @@ export default function EventPage() {
                 </Card>
               ) : (
                 <OrderForm
-                  key={effectiveSelection ? `${effectiveSelection.market.marketId}-${effectiveSelection.side}` : 'empty'}
+                  key={effectiveSelection ? effectiveSelection.market.marketId : 'empty'}
                   selection={effectiveSelection}
                   identity={user?.agent}
+                  onSideChange={(newSide) => {
+                    if (effectiveSelection) {
+                      setSelection({ market: effectiveSelection.market, side: newSide });
+                    }
+                  }}
                 />
               )}
             </div>

@@ -12,8 +12,6 @@ export const CONFIG = {
     SYNC_INTERVAL: 30 * 60 * 1000,
     // Resolve interval (15 minutes) — check Polymarket for closed markets
     RESOLVE_INTERVAL: 15 * 60 * 1000,
-    // Maker interval (5 minutes) — refresh quotes
-    MAKER_INTERVAL: 5 * 60 * 1000,
     // Server port
     PORT: process.env.PORT || 3000,
     // Whitelisted sports — keep tight for launch

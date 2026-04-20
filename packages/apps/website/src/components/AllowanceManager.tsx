@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Input } from './ui/input';
 import { useAllowance, useSetAllowance } from '../hooks/useAllowance';
 import { useAuth } from '../hooks/useAuth';
-import { getCanisterId, Tokens } from '@final-score/ic-js';
+import { getCanisterId } from '@final-score/ic-js';
 
 const PRESET_AMOUNTS = [10, 25, 100, 500];
 

@@ -14,17 +14,8 @@ import ICRC2 "mo:icrc2-types";
 module ToolContext {
 
   // ═══════════════════════════════════════════════════════════
-  // Constants
+  // Constants (fixed)
   // ═══════════════════════════════════════════════════════════
-
-  /// USDC transfer fee (0.01 USDC, 6 decimals)
-  public let TRANSFER_FEE : Nat = 10_000;
-
-  /// Minimum order cost in base units (0.10 USDC)
-  public let MINIMUM_COST : Nat = 100_000;
-
-  /// Value of one share at resolution ($1.00 USDC = 1_000_000 base units)
-  public let SHARE_VALUE : Nat = 1_000_000;
 
   /// Tick size in basis points (0.01 = 100 bp)
   public let TICK_SIZE : Nat = 100;
@@ -49,6 +40,19 @@ module ToolContext {
 
   /// Maximum fills per order placement (prevents instruction limit traps)
   public let MAX_FILLS_PER_ORDER : Nat = 10;
+
+  // ═══════════════════════════════════════════════════════════
+  // Token-Derived Constants (computed from ledger metadata)
+  // ═══════════════════════════════════════════════════════════
+
+  /// Token transfer fee (queried from icrc1_fee)
+  public func TRANSFER_FEE(ctx : ToolContext) : Nat { ctx.tokenFee };
+
+  /// Value of one share at resolution (10^decimals = 1 full token unit)
+  public func SHARE_VALUE(ctx : ToolContext) : Nat { ctx.shareValue };
+
+  /// Minimum order cost in base units (0.10 of the token = shareValue / 10)
+  public func MINIMUM_COST(ctx : ToolContext) : Nat { ctx.shareValue / 10 };
 
   // ═══════════════════════════════════════════════════════════
   // Core Enums
@@ -195,6 +199,12 @@ module ToolContext {
     owner : Principal;
     tokenLedger : Principal;
 
+    // Token metadata (queried from ledger)
+    var tokenDecimals : Nat8;
+    var tokenFee : Nat;
+    var tokenSymbol : Text;
+    var shareValue : Nat; // 10^tokenDecimals
+
     // Core state maps
     markets : Map.Map<Text, Market>;
     orders : Map.Map<Text, Order>;
@@ -268,7 +278,7 @@ module ToolContext {
         case (?order) {
           if (order.status == #Open or order.status == #PartiallyFilled) {
             let remaining = order.size - order.filledSize;
-            locked += (remaining * order.price * SHARE_VALUE) / BPS_DENOM;
+            locked += (remaining * order.price * SHARE_VALUE(context)) / BPS_DENOM;
           };
         };
         case null {};
@@ -323,7 +333,7 @@ module ToolContext {
         let totalShares = existing.shares + newShares;
         let totalCost = existing.costBasis + cost;
         let avgPrice = if (totalShares > 0) {
-          (totalCost * BPS_DENOM) / (totalShares * SHARE_VALUE);
+          (totalCost * BPS_DENOM) / (totalShares * SHARE_VALUE(context));
         } else { 0 };
 
         let updated : Position = {
@@ -341,7 +351,7 @@ module ToolContext {
         context.nextPositionId += 1;
 
         let avgPrice = if (newShares > 0) {
-          (cost * BPS_DENOM) / (newShares * SHARE_VALUE);
+          (cost * BPS_DENOM) / (newShares * SHARE_VALUE(context));
         } else { 0 };
 
         let pos : Position = {
@@ -473,13 +483,13 @@ module ToolContext {
   };
 
   /// Calculate the cost of an order in USDC base units
-  public func orderCost(price : Nat, size : Nat) : Nat {
-    (size * price * SHARE_VALUE) / BPS_DENOM;
+  public func orderCost(ctx : ToolContext, price : Nat, size : Nat) : Nat {
+    (size * price * SHARE_VALUE(ctx)) / BPS_DENOM;
   };
 
   /// Calculate taker fee for a fill
-  public func takerFee(price : Nat, size : Nat) : Nat {
-    let cost = orderCost(price, size);
+  public func takerFee(ctx : ToolContext, price : Nat, size : Nat) : Nat {
+    let cost = orderCost(ctx, price, size);
     (cost * TAKER_FEE_BPS) / BPS_DENOM;
   };
 
@@ -488,9 +498,9 @@ module ToolContext {
   // ═══════════════════════════════════════════════════════════
 
   /// Calculate payout for a position after resolution
-  public func calculatePayout(position : Position, winningOutcome : Outcome) : Nat {
+  public func calculatePayout(ctx : ToolContext, position : Position, winningOutcome : Outcome) : Nat {
     if (position.outcome == winningOutcome) {
-      let gross = position.shares * SHARE_VALUE;
+      let gross = position.shares * SHARE_VALUE(ctx);
       let rake = (gross * PROTOCOL_RAKE_BPS) / BPS_DENOM;
       gross - rake;
     } else {

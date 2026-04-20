@@ -2,7 +2,7 @@ import { type Identity } from '@icp-sdk/core/agent';
 /**
  * Get USDC balance for a principal.
  * @param principal Principal ID as string
- * @returns Balance in atomic units (6 decimals, so 1_000_000 = 1 USDC)
+ * @returns Balance in atomic units (decimals configured per-token)
  */
 export declare function getUsdcBalance(principal: string): Promise<bigint>;
 /**

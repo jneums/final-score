@@ -71,7 +71,7 @@ module {
               };
 
               // Current value = shares × current price
-              let currentValue = (pos.shares * currentPrice * ToolContext.SHARE_VALUE) / ToolContext.BPS_DENOM;
+              let currentValue = (pos.shares * currentPrice * ToolContext.SHARE_VALUE(context)) / ToolContext.BPS_DENOM;
               let costBasis = pos.costBasis;
               let pnlInt : Int = currentValue - costBasis;
 

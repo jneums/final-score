@@ -1,5 +1,4 @@
 import { Principal } from '@icp-sdk/core/principal';
-import { getCanisterId } from './config.js';
 // --- CORE CONVERSION LOGIC ---
 const toAtomicAmount = (amount, decimals) => {
     const amountStr = String(amount);
@@ -19,33 +18,35 @@ const fromAtomicAmount = (atomicAmount, decimals) => {
         : integerPart;
 };
 // --- TOKEN FACTORY ---
-const createToken = (info) => {
+export const createToken = (info) => {
     return {
         ...info,
         toAtomic: (amount) => toAtomicAmount(amount, info.decimals),
         fromAtomic: (atomicAmount) => fromAtomicAmount(atomicAmount, info.decimals),
     };
 };
-// --- TOKEN DEFINITIONS ---
+// --- SINGLETON TOKEN (initialized dynamically) ---
+let _token = null;
 /**
- * Gets the USDC token configuration.
- * USDC on ICP (ckUSDC) uses 6 decimals and a 10_000 fee (0.01 USDC).
+ * Initialize the token from canister metadata.
+ * Call this once at app startup after configure().
  */
-const getUSDCToken = () => {
-    return createToken({
-        canisterId: Principal.fromText(getCanisterId('USDC_LEDGER')),
-        name: 'USD Coin',
-        symbol: 'USDC',
-        decimals: 6,
-        fee: 10000,
+export function initToken(info) {
+    _token = createToken({
+        canisterId: Principal.fromText(info.ledger),
+        name: info.symbol,
+        symbol: info.symbol,
+        decimals: info.decimals,
+        fee: info.fee,
     });
-};
+    return _token;
+}
 /**
- * Centralized token registry. Tokens are created lazily so the config
- * system is initialized first.
+ * Get the current token. Throws if not initialized.
  */
-export const Tokens = {
-    get USDC() {
-        return getUSDCToken();
-    },
-};
+export function getToken() {
+    if (!_token) {
+        throw new Error('Token not initialized. Call initToken() at app startup after fetching token info from the canister.');
+    }
+    return _token;
+}

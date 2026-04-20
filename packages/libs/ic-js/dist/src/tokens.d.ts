@@ -12,10 +12,18 @@ export interface Token extends TokenInfo {
     /** Converts an atomic amount (bigint) to a human-readable string. */
     fromAtomic: (atomicAmount: bigint) => string;
 }
+export declare const createToken: (info: TokenInfo) => Token;
 /**
- * Centralized token registry. Tokens are created lazily so the config
- * system is initialized first.
+ * Initialize the token from canister metadata.
+ * Call this once at app startup after configure().
  */
-export declare const Tokens: {
-    readonly USDC: Token;
-};
+export declare function initToken(info: {
+    ledger: string;
+    symbol: string;
+    decimals: number;
+    fee: number;
+}): Token;
+/**
+ * Get the current token. Throws if not initialized.
+ */
+export declare function getToken(): Token;

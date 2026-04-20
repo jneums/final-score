@@ -109,8 +109,8 @@ module {
       if (size == 0) return ToolContext.makeError("Size must be at least 1 share", cb);
 
       // Check minimum cost
-      let cost = ToolContext.orderCost(priceBps, size);
-      if (cost < ToolContext.MINIMUM_COST) {
+      let cost = ToolContext.orderCost(ctx.toolContext, priceBps, size);
+      if (cost < ToolContext.MINIMUM_COST(ctx.toolContext)) {
         return ToolContext.makeError("Order too small. Minimum cost is 0.10 USDC.", cb);
       };
 
@@ -166,11 +166,11 @@ module {
       for (fill in result.fills.vals()) {
         let tradeId = ToolContext.getNextTradeId(context);
 
-        let takerCostPerShare = (order.price * ToolContext.SHARE_VALUE) / ToolContext.BPS_DENOM;
+        let takerCostPerShare = (order.price * ToolContext.SHARE_VALUE(ctx.toolContext)) / ToolContext.BPS_DENOM;
         let takerCost = takerCostPerShare * fill.size;
-        let makerCostPerShare = (fill.price * ToolContext.SHARE_VALUE) / ToolContext.BPS_DENOM;
+        let makerCostPerShare = (fill.price * ToolContext.SHARE_VALUE(ctx.toolContext)) / ToolContext.BPS_DENOM;
         let makerCost = makerCostPerShare * fill.size;
-        let fee = ToolContext.takerFee(order.price, fill.size);
+        let fee = ToolContext.takerFee(ctx.toolContext, order.price, fill.size);
 
         let marketAccount = ToolContext.getMarketAccount(context.canisterPrincipal, marketId);
         let takerTotal = takerCost + fee;
@@ -182,7 +182,7 @@ module {
             from = { owner = fill.taker; subaccount = null };
             to = marketAccount;
             amount = takerTotal;
-            fee = ?ToolContext.TRANSFER_FEE;
+            fee = ?ToolContext.TRANSFER_FEE(ctx.toolContext);
             memo = null;
             created_at_time = null;
           });
@@ -202,7 +202,7 @@ module {
               from = { owner = fill.maker; subaccount = null };
               to = marketAccount;
               amount = makerCost;
-              fee = ?ToolContext.TRANSFER_FEE;
+              fee = ?ToolContext.TRANSFER_FEE(ctx.toolContext);
               memo = null;
               created_at_time = null;
             });
@@ -218,8 +218,8 @@ module {
               ignore await ledger.icrc1_transfer({
                 from_subaccount = ?ToolContext.marketSubaccount(marketId);
                 to = { owner = fill.taker; subaccount = null };
-                amount = takerTotal - ToolContext.TRANSFER_FEE;
-                fee = ?ToolContext.TRANSFER_FEE;
+                amount = takerTotal - ToolContext.TRANSFER_FEE(ctx.toolContext);
+                fee = ?ToolContext.TRANSFER_FEE(ctx.toolContext);
                 memo = null;
                 created_at_time = null;
               });
@@ -289,14 +289,14 @@ module {
       for ((user, _) in Map.entries(nettedUsers)) {
         let overlap = ToolContext.getNetOverlap(context, user, marketId);
         if (overlap > 0) {
-          let payout = overlap * ToolContext.SHARE_VALUE;
-          if (payout > ToolContext.TRANSFER_FEE) {
+          let payout = overlap * ToolContext.SHARE_VALUE(ctx.toolContext);
+          if (payout > ToolContext.TRANSFER_FEE(ctx.toolContext)) {
             let refundOk = try {
               let refundResult = await ledger.icrc1_transfer({
                 from_subaccount = ?ToolContext.marketSubaccount(marketId);
                 to = { owner = user; subaccount = null };
-                amount = payout - ToolContext.TRANSFER_FEE;
-                fee = ?ToolContext.TRANSFER_FEE;
+                amount = payout - ToolContext.TRANSFER_FEE(ctx.toolContext);
+                fee = ?ToolContext.TRANSFER_FEE(ctx.toolContext);
                 memo = null;
                 created_at_time = null;
               });

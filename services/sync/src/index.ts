@@ -22,7 +22,6 @@ let lastMakerResult: {
 } | null = null;
 let nextSync: Date | null = null;
 let nextResolve: Date | null = null;
-let nextMaker: Date | null = null;
 
 async function main() {
   console.log("⚽ Final Score — Polymarket Sync + Resolve + Market Maker");
@@ -69,8 +68,7 @@ async function main() {
       maker: {
         lastRun: lastMaker?.toISOString() || null,
         lastResult: lastMakerResult,
-        nextRun: nextMaker?.toISOString() || null,
-        interval: CONFIG.MAKER_INTERVAL,
+        mode: "websocket-reactive",
         isRunning: isMakerRunning,
         config: CONFIG.MAKER,
       },
@@ -217,7 +215,19 @@ async function main() {
 
     // Start WebSocket for real-time price updates (after sync populates price cache)
     if (CONFIG.MAKER_IDENTITY_PEM) {
-      startWs(queueRequote);
+      const onWsReconnect = async () => {
+        if (isMakerRunning) return;
+        isMakerRunning = true;
+        try {
+          lastMakerResult = await runMaker();
+          lastMaker = new Date();
+        } catch (e) {
+          console.error("Maker sweep after reconnect error:", e);
+        } finally {
+          isMakerRunning = false;
+        }
+      };
+      startWs(queueRequote, onWsReconnect);
       console.log("📡 WebSocket connected to Polymarket for real-time prices");
     }
 
@@ -230,27 +240,19 @@ async function main() {
     console.log(`⏰ Sync every ${CONFIG.SYNC_INTERVAL / 1000 / 60}min, Resolve every ${CONFIG.RESOLVE_INTERVAL / 1000 / 60}min`);
   }
 
-  // Maker loop — separate identity, separate guard
+  // Maker — WebSocket-driven (no timer). Initial run to bootstrap, then reactive re-quotes.
   if (CONFIG.MAKER_IDENTITY_PEM) {
-    const makerLoop = async () => {
-      if (isMakerRunning) return;
-      isMakerRunning = true;
-      try {
-        lastMakerResult = await runMaker();
-        lastMaker = new Date();
-      } catch (e) {
-        console.error("Maker error:", e);
-      } finally {
-        isMakerRunning = false;
-        nextMaker = new Date(Date.now() + CONFIG.MAKER_INTERVAL);
-      }
-    };
+    isMakerRunning = true;
+    try {
+      lastMakerResult = await runMaker();
+      lastMaker = new Date();
+    } catch (e) {
+      console.error("Maker error:", e);
+    } finally {
+      isMakerRunning = false;
+    }
 
-    // Run maker after initial sync (so price cache is populated)
-    await makerLoop();
-
-    setInterval(makerLoop, CONFIG.MAKER_INTERVAL);
-    console.log(`🏦 Maker every ${CONFIG.MAKER_INTERVAL / 1000 / 60}min (spread=${CONFIG.MAKER.SPREAD_BPS}bps, levels=${CONFIG.MAKER.LEVELS}, size=${CONFIG.MAKER.SIZE_PER_LEVEL})\n`);
+    console.log(`🏦 Maker: WebSocket-driven (spread=${CONFIG.MAKER.SPREAD_BPS}bps, levels=${CONFIG.MAKER.LEVELS}, size=${CONFIG.MAKER.SIZE_PER_LEVEL})\n`);
   }
 }
 

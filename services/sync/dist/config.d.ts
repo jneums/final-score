@@ -6,7 +6,6 @@ export declare const CONFIG: {
     GAMMA_API: string;
     SYNC_INTERVAL: number;
     RESOLVE_INTERVAL: number;
-    MAKER_INTERVAL: number;
     PORT: string | number;
     WHITELIST: string[];
     SPORT_TAGS: Record<string, string>;

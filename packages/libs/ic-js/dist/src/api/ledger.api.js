@@ -13,7 +13,7 @@ function stringifyError(err) {
 /**
  * Get USDC balance for a principal.
  * @param principal Principal ID as string
- * @returns Balance in atomic units (6 decimals, so 1_000_000 = 1 USDC)
+ * @returns Balance in atomic units (decimals configured per-token)
  */
 export async function getUsdcBalance(principal) {
     const ledger = await getUsdcLedgerActor();

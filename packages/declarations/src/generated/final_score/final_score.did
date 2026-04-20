@@ -57,11 +57,6 @@ type StreamingCallback = func (StreamingToken) ->
 type Result_3 = 
  variant {
    err: text;
-   ok: text;
- };
-type Result_2 = 
- variant {
-   err: text;
    ok:
     record {
       filled: nat;
@@ -75,10 +70,15 @@ type Result_2 =
       status: text;
     };
  };
-type Result_1 = 
+type Result_2 = 
  variant {
    err: TreasuryError;
    ok;
+ };
+type Result_1 = 
+ variant {
+   err: text;
+   ok: text;
  };
 type Result = 
  variant {
@@ -88,30 +88,26 @@ type Result =
 type McpServer = 
  service {
    /// Admin: cancel a market and refund all
-   admin_cancel_market: (marketId: text) -> (Result_3);
-   admin_clear_markets: () -> (Result_3);
+   admin_cancel_market: (marketId: text) -> (Result_1);
+   admin_clear_markets: () -> (Result_1);
    /// Admin: create an API key for any principal (for testing / market maker)
    admin_create_api_key: (user: principal, name: text, scopes: vec text) ->
-    (Result_3);
+    (Result_1);
    /// Admin: create a market (called by off-chain sync script)
    admin_create_market: (question: text, eventTitle: text, sport: text,
     polymarketSlug: text, polymarketConditionId: text, endDateSeconds: 
-    int, yesPrice: nat, noPrice: nat) -> (Result_3);
+    int, yesPrice: nat, noPrice: nat) -> (Result_1);
    /// Admin: clear all markets and reset sync state (nuclear option for re-sync)
    /// Admin: delete a specific market (only if it has zero volume and no open orders)
-   admin_delete_market: (marketId: text) -> (Result_3);
+   admin_delete_market: (marketId: text) -> (Result_1);
    /// Admin: drain stuck funds from a market subaccount
-   admin_drain_market_subaccount: (marketId: text) -> (Result_3);
-   /// Admin: reset resolution failure counts (unblocks blacklisted markets)
-   admin_reset_resolution_failures: (marketIdOpt: opt text) -> (Result_3);
+   admin_drain_market_subaccount: (marketId: text) -> (Result_1);
    /// Admin: manually resolve a market
-   admin_resolve_market: (marketId: text, winnerText: text) -> (Result_3);
-   /// Admin: manually trigger resolution check (bypasses timer)
-   admin_trigger_resolution_check: () -> (Result_3);
+   admin_resolve_market: (marketId: text, winnerText: text) -> (Result_1);
    /// Admin: manually trigger Polymarket sync (bypasses timer)
-   admin_trigger_sync: () -> (Result_3);
+   admin_trigger_sync: () -> (Result_1);
    /// Cancel an order (authenticated by wallet)
-   cancel_order: (orderId: text) -> (Result_3);
+   cancel_order: (orderId: text) -> (Result_1);
    create_my_api_key: (name: text, scopes: vec text) -> (text);
    /// Debug: get a specific market
    debug_get_market: (marketId: text) ->
@@ -165,19 +161,6 @@ type McpServer =
        returned: nat;
        total: nat;
      }) query;
-   /// Query: get resolution diagnostics for debugging
-   debug_resolution_status: () ->
-    (record {
-       blacklisted: nat;
-       closedMarkets: nat;
-       cursor: text;
-       eligibleForCheck: nat;
-       failures: vec record {
-                       text;
-                       nat;
-                     };
-       totalMarkets: nat;
-     }) query;
    /// Debug: breakdown of synced markets by sport + queue status
    debug_sync_stats: () ->
     (record {
@@ -228,7 +211,25 @@ type McpServer =
        totalUsers: nat;
        totalVolume: nat;
      }) query;
+   /// Public query: get token configuration (for frontend)
+   get_token_info: () ->
+    (record {
+       decimals: nat8;
+       fee: nat;
+       ledger: text;
+       symbol: text;
+     }) query;
    get_treasury_balance: (ledger_id: principal) -> (nat);
+   /// Get all unresolved markets (Open + Closed) with Polymarket data.
+   /// Used by the off-chain Render sync service for resolution.
+   get_unresolved_markets: () ->
+    (vec
+      record {
+        marketId: text;
+        polymarketConditionId: text;
+        polymarketSlug: text;
+        status: text;
+      }) query;
    http_request: (req: HttpRequest) -> (HttpResponse) query;
    http_request_streaming_callback: (token: StreamingToken) ->
     (opt StreamingCallbackResponse) query;
@@ -263,9 +264,9 @@ type McpServer =
       }) query;
    /// Place a limit order (authenticated by wallet — msg.caller is the user)
    place_order: (marketId: text, outcomeText: text, price: float64, size:
-    nat) -> (Result_2);
+    nat) -> (Result_3);
    revoke_my_api_key: (key_id: text) -> ();
-   set_owner: (new_owner: principal) -> (Result_1);
+   set_owner: (new_owner: principal) -> (Result_2);
    transformJwksResponse:
     (record {
        context: blob;
@@ -276,6 +277,11 @@ type McpServer =
        context: blob;
        response: HttpRequestResult;
      }) -> (HttpRequestResult) query;
+   /// Trustless resolution: anyone can call this with a marketId.
+   /// The canister makes an HTTP outcall to Polymarket, verifies
+   /// closed=true, reads final prices, and resolves/cancels accordingly.
+   /// No caller trust required — the canister is the source of truth.
+   try_resolve_market: (marketId: text) -> (Result_1);
    withdraw: (ledger_id: principal, amount: nat, destination: Destination) ->
     (Result);
  };

@@ -20,7 +20,7 @@ module {
     description = ?(
       "Returns your account overview: wallet balance, spending allowance, " #
       "available balance (after order escrow), open positions, and trading stats. " #
-      "Currency: USDC with 6 decimals (1,000,000 = $1 USDC)."
+      "All amounts are in the token's base units (atomic). Query get_token_info for decimals."
     );
     payment = null;
     inputSchema = Json.obj([

@@ -20,6 +20,8 @@ let reconnectAttempts = 0;
 const MAX_RECONNECT_DELAY = 60_000; // 1 min max backoff
 // Callback: fired when a conditionId needs re-quoting
 let onRequote = null;
+// Callback: fired after WebSocket reconnects (to trigger full maker sweep)
+let onReconnect = null;
 // ─── Logging ─────────────────────────────────────────────────
 const wsLogs = [];
 const MAX_LOGS = 200;
@@ -181,6 +183,7 @@ function connect() {
     log("connect", "info", `Connecting to Polymarket WS with ${assetIds.length} assets...`);
     ws = new WebSocket(WS_URL);
     ws.onopen = () => {
+        const wasReconnect = stats.disconnects > 0;
         isConnected = true;
         reconnectAttempts = 0;
         stats.connectTime = new Date();
@@ -188,6 +191,11 @@ function connect() {
         log("connect", "success", `Connected — subscribing to ${assetIds.length} assets`);
         sendSubscription(assetIds);
         startHeartbeat();
+        // After a reconnect, trigger full maker sweep to catch drift during downtime
+        if (wasReconnect && onReconnect) {
+            log("connect", "info", "Reconnect detected — triggering maker sweep");
+            onReconnect();
+        }
     };
     ws.onmessage = (event) => {
         const data = typeof event.data === "string" ? event.data : String(event.data);
@@ -207,13 +215,15 @@ function connect() {
 }
 // ─── Public API ──────────────────────────────────────────────
 /** Start the WebSocket connection. Call after first sync populates the price cache. */
-export function startWs(requoteCallback) {
+export function startWs(requoteCallback, reconnectCallback) {
     onRequote = requoteCallback;
+    onReconnect = reconnectCallback || null;
     connect();
 }
 /** Stop the WebSocket connection. */
 export function stopWs() {
     onRequote = null;
+    onReconnect = null;
     if (heartbeatTimer)
         clearInterval(heartbeatTimer);
     if (reconnectTimer)

@@ -1,5 +1,6 @@
 // packages/libs/ic-js/src/api/markets.api.ts
 
+import { type Identity } from '@icp-sdk/core/agent';
 import { getFinalScoreActor } from '../actors.js';
 
 export interface MarketCount {
@@ -98,7 +99,7 @@ export const queryMarkets = async (
   limit: number = 50,
 ): Promise<MarketListResult> => {
   const actor = await getFinalScoreActor();
-  const result = await (actor as any).debug_list_markets(
+  const result = await actor.debug_list_markets(
     sportFilter ? [sportFilter] : [],
     BigInt(offset),
     BigInt(limit),
@@ -106,7 +107,7 @@ export const queryMarkets = async (
   return {
     total: Number(result.total),
     returned: Number(result.returned),
-    markets: result.markets.map((m: any) => ({
+    markets: result.markets.map((m) => ({
       marketId: m.marketId,
       question: m.question,
       eventTitle: m.eventTitle,
@@ -142,14 +143,14 @@ export const getOrderBook = async (
   maxLevels: number = 20,
 ): Promise<OrderBookData> => {
   const actor = await getFinalScoreActor();
-  const result = await (actor as any).debug_get_order_book(marketId, BigInt(maxLevels));
+  const result = await actor.debug_get_order_book(marketId, BigInt(maxLevels));
   return {
-    yesBids: result.yesBids.map((l: any) => ({
+    yesBids: result.yesBids.map((l) => ({
       price: Number(l.price),
       totalSize: Number(l.totalSize),
       orderCount: Number(l.orderCount),
     })),
-    noBids: result.noBids.map((l: any) => ({
+    noBids: result.noBids.map((l) => ({
       price: Number(l.price),
       totalSize: Number(l.totalSize),
       orderCount: Number(l.orderCount),
@@ -173,14 +174,14 @@ export interface PlaceOrderResult {
 }
 
 export const placeOrderCandid = async (
-  identity: any,
+  identity: Identity,
   marketId: string,
   outcome: string,
   price: number,
   size: number,
 ): Promise<PlaceOrderResult> => {
   const actor = await getFinalScoreActor(identity);
-  const result = await (actor as any).place_order(marketId, outcome, price, BigInt(size));
+  const result = await actor.place_order(marketId, outcome, price, BigInt(size));
   if ('err' in result) throw new Error(result.err);
   const ok = result.ok;
   return {
@@ -188,7 +189,7 @@ export const placeOrderCandid = async (
     status: ok.status,
     filled: Number(ok.filled),
     remaining: Number(ok.remaining),
-    fills: ok.fills.map((f: any) => ({
+    fills: ok.fills.map((f) => ({
       tradeId: f.tradeId,
       price: Number(f.price),
       size: Number(f.size),
@@ -197,11 +198,11 @@ export const placeOrderCandid = async (
 };
 
 export const cancelOrderCandid = async (
-  identity: any,
+  identity: Identity,
   orderId: string,
 ): Promise<string> => {
   const actor = await getFinalScoreActor(identity);
-  const result = await (actor as any).cancel_order(orderId);
+  const result = await actor.cancel_order(orderId);
   if ('err' in result) throw new Error(result.err);
   return result.ok;
 };
@@ -220,16 +221,16 @@ export interface UserOrder {
 }
 
 export const getMyOrders = async (
-  identity: any,
+  identity: Identity,
   statusFilter?: string,
   marketFilter?: string,
 ): Promise<UserOrder[]> => {
   const actor = await getFinalScoreActor(identity);
-  const result = await (actor as any).my_orders(
+  const result = await actor.my_orders(
     statusFilter ? [statusFilter] : [],
     marketFilter ? [marketFilter] : [],
   );
-  return result.map((o: any) => ({
+  return result.map((o) => ({
     orderId: o.orderId,
     marketId: o.marketId,
     outcome: o.outcome,
@@ -254,14 +255,14 @@ export interface UserPosition {
 }
 
 export const getMyPositions = async (
-  identity: any,
+  identity: Identity,
   marketFilter?: string,
 ): Promise<UserPosition[]> => {
   const actor = await getFinalScoreActor(identity);
-  const result = await (actor as any).my_positions(
+  const result = await actor.my_positions(
     marketFilter ? [marketFilter] : [],
   );
-  return result.map((p: any) => ({
+  return result.map((p) => ({
     positionId: p.positionId,
     marketId: p.marketId,
     question: p.question,
@@ -280,8 +281,8 @@ export const getEventMarkets = async (
   polymarketSlug: string,
 ): Promise<MarketInfo[]> => {
   const actor = await getFinalScoreActor();
-  const result = await (actor as any).get_event_markets(polymarketSlug);
-  return result.map((m: any) => ({
+  const result = await actor.get_event_markets(polymarketSlug);
+  return result.map((m) => ({
     marketId: m.marketId,
     question: m.question,
     eventTitle: m.eventTitle,

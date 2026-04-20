@@ -79,7 +79,7 @@ module {
       Map.set(context.orders, Map.thash, orderId, cancelled);
 
       let remaining = order.size - order.filledSize;
-      let refunded = ToolContext.orderCost(order.price, remaining);
+      let refunded = ToolContext.orderCost(context, order.price, remaining);
 
       ToolContext.makeSuccess(Json.obj([
         ("order_id", Json.str(orderId)),

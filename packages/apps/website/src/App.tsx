@@ -11,7 +11,7 @@ import { WalletDrawerProvider } from './contexts/WalletDrawerContext';
 import { WalletDrawer } from './components/WalletDrawer';
 import { useAuth } from './hooks/useAuth';
 
-import { configure as configureIcJs } from '@final-score/ic-js';
+import { configure as configureIcJs, getTokenInfo, initToken } from '@final-score/ic-js';
 
 // --- CONFIGURE THE SHARED PACKAGE ---
 const canisterIds = {
@@ -24,6 +24,15 @@ const network = process.env.DFX_NETWORK || 'local';
 const host = network === 'ic' ? 'https://icp-api.io' : 'http://127.0.0.1:4943';
 
 configureIcJs({ canisterIds, host, verbose: true });
+
+// Eagerly fetch token metadata from the canister and initialize the Token singleton.
+// By the time a user authenticates and hooks call getToken(), this will have resolved.
+getTokenInfo()
+  .then((info) => {
+    initToken(info);
+    console.log(`[token] Initialized: ${info.symbol} (${info.decimals} decimals, fee=${info.fee})`);
+  })
+  .catch((err) => console.error('[token] Failed to fetch token info:', err));
 // ------------------------------------
 
 function ScrollToTop() {

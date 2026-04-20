@@ -64,7 +64,7 @@ module {
 
           if (shouldInclude and marketMatch) {
             let remaining = order.size - order.filledSize;
-            let lockedUsdc = ToolContext.orderCost(order.price, remaining);
+            let lockedUsdc = ToolContext.orderCost(context, order.price, remaining);
 
             // Look up market question for context
             let question = switch (Map.get(context.markets, Map.thash, order.marketId)) {
