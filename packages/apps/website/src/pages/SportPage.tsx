@@ -100,9 +100,11 @@ export default function SportPage() {
     eventGroups.get(key)!.push(m);
   }
 
-  // Filter out events where ALL markets are resolved or cancelled
+  // Filter out events where ALL markets are resolved, cancelled, or closed (never resolved)
   const activeEvents = Array.from(eventGroups.entries()).filter(([, eventMarkets]) =>
-    eventMarkets.some(m => !m.status.startsWith('Resolved') && m.status !== 'Cancelled')
+    eventMarkets.some(m =>
+      !m.status.startsWith('Resolved') && m.status !== 'Cancelled' && m.status !== 'Closed'
+    )
   );
 
   // Sort events by date, soonest first

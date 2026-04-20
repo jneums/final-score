@@ -99,6 +99,7 @@ function escapeCandid(s: string): string {
 const PROP_SUFFIXES = [
   "-more-markets", "-toss", "-most-sixes", "-team-top-batter",
   "-most-fours", "-most-wickets", "-top-scorer",
+  "-toss-match-double",
 ];
 
 function isPropEvent(slug: string): boolean {
@@ -109,6 +110,9 @@ function isMatchDay(slug: string): boolean {
   return /\d{4}-\d{2}-\d{2}/.test(slug);
 }
 
+// Sports where Polymarket doesn't put dates in slugs — skip isMatchDay requirement
+const NO_DATE_SPORTS = ["cricipl", "ipl"];
+
 function isMoneyline(question: string, isBareMatchup: boolean): boolean {
   const q = question.toLowerCase();
   return (
@@ -118,9 +122,28 @@ function isMoneyline(question: string, isBareMatchup: boolean): boolean {
     (q.includes(" vs ") && question.includes(":") &&
       !q.includes("spread") && !q.includes("o/u") && !q.includes("moneyline")) ||
     q.includes("who wins") ||
-    q.includes("completed match") ||
     isBareMatchup
   );
+}
+
+// Cricket sub-market filters — only want the winner/moneyline market
+function isCricketTossOrProp(question: string): boolean {
+  const q = question.toLowerCase();
+  return q.includes("who wins the toss") || q.includes("completed match");
+}
+
+// Extract team names from cricket "Series Title: Team A vs Team B" format
+function extractCricketTeams(question: string): [string, string] | null {
+  // Format: "T20 Series X vs Y: X vs Y" or "League: Team A vs Team B"
+  const colonIdx = question.lastIndexOf(":");
+  if (colonIdx === -1) return null;
+
+  const matchPart = question.slice(colonIdx + 1).trim();
+  const teams = matchPart.split(/\s+vs\.?\s+/, 2);
+  if (teams.length === 2 && teams[0].trim() && teams[1].trim()) {
+    return [teams[0].trim(), teams[1].trim()];
+  }
+  return null;
 }
 
 function isBareMatchupQuestion(question: string): boolean {
@@ -159,7 +182,9 @@ export async function runSync(): Promise<{ created: number; skipped: number; err
 
       for (const event of events) {
         const { slug, title, endDate, markets } = event;
-        if (!slug || !isMatchDay(slug) || isPropEvent(slug)) continue;
+        if (!slug || isPropEvent(slug)) continue;
+        // Require date-in-slug for most sports, but cricket/IPL slugs don't have dates
+        if (!NO_DATE_SPORTS.includes(sport) && !isMatchDay(slug)) continue;
 
         const endSecs = isoToUnix(endDate);
         let matchedInEvent = 0;
@@ -169,6 +194,9 @@ export async function runSync(): Promise<{ created: number; skipped: number; err
 
           const { question, conditionId, closed } = mkt;
           if (!conditionId || closed) continue;
+
+          // Skip cricket toss/completed sub-markets — only want moneyline
+          if (NO_DATE_SPORTS.includes(sport) && isCricketTossOrProp(question)) continue;
 
           const bareMatchup = isBareMatchupQuestion(question);
           if (!isMoneyline(question, bareMatchup)) continue;
@@ -229,6 +257,34 @@ export async function runSync(): Promise<{ created: number; skipped: number; err
               }
               continue;
             }
+          }
+
+          // Split cricket matchups ("Series: Team A vs Team B" format)
+          const cricketTeams = NO_DATE_SPORTS.includes(sport) ? extractCricketTeams(question) : null;
+          if (cricketTeams) {
+            for (const [team, tp, np, suffix, inv] of [
+              [cricketTeams[0], yesPrice, noPrice, "-a", false],
+              [cricketTeams[1], noPrice, yesPrice, "-b", true],
+            ] as [string, number, number, string, boolean][]) {
+              const teamQ = `Will ${team} win?`;
+              const teamCid = conditionId + suffix;
+              setPrice(teamCid, slug, tp, np, tokenIds, inv);
+              const result = await createMarket(
+                escapeCandid(teamQ), escapeCandid(title),
+                sport, slug, teamCid, endSecs, tp, np,
+              );
+              if (result.ok) {
+                created++;
+                matchedInEvent++;
+                log("create", "success", `${teamQ}`);
+              } else if (result.message.includes("already exists")) {
+                skipped++;
+              } else {
+                errors++;
+                log("create", "error", `${teamQ.slice(0, 40)}: ${result.message.slice(0, 80)}`);
+              }
+            }
+            continue;
           }
 
           // Regular per-outcome markets (soccer, cricket, etc.)
