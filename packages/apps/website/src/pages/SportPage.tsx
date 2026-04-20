@@ -3,6 +3,7 @@ import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { useSportMarkets } from '../hooks/useMarkets';
+import { atomicToDollars } from '../lib/tokenUtils';
 import { ArrowLeft, Calendar, Loader2, TrendingUp } from 'lucide-react';
 
 // Map URL slugs to display names + which Polymarket sport codes to query
@@ -269,7 +270,7 @@ export default function SportPage() {
                         {totalVolume > 0 && (
                           <span className="flex items-center gap-1">
                             <TrendingUp className="w-3 h-3" />
-                            ${(totalVolume / 1_000_000).toLocaleString(undefined, { maximumFractionDigits: 0 })} vol
+                            ${atomicToDollars(totalVolume).toLocaleString(undefined, { maximumFractionDigits: 0 })} vol
                           </span>
                         )}
                       </div>

@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { useMarket, useOrderBook, useMyPositions, useEventMarkets } from '../hooks/useMarkets';
 import { useAuth } from '../hooks/useAuth';
 import { useUsdcBalance } from '../hooks/useLedger';
+import { positionCurrentValue, formatPnl, atomicToDollars } from '../lib/tokenUtils';
 import { useAllowance } from '../hooks/useAllowance';
 import { placeOrderCandid, type MarketInfo } from '@final-score/ic-js';
 import { toast } from 'sonner';
@@ -51,11 +52,6 @@ function parseResolution(status: string): 'yes' | 'no' | null {
 
 function isResolved(status: string): boolean {
   return status.startsWith('Resolved');
-}
-
-function formatPnl(pnl: number): string {
-  const abs = Math.abs(pnl / 1_000_000);
-  return pnl >= 0 ? `+$${abs.toFixed(2)}` : `-$${abs.toFixed(2)}`;
 }
 
 function extractOutcomeName(question: string): string {
@@ -623,7 +619,7 @@ function OutcomeRow({
             <div className="flex items-center gap-1.5 mt-1">
               <TrendingUp className="w-3 h-3 text-primary" />
               {positions!.map((pos) => {
-                const currentValue = (pos.shares * pos.currentPrice * 1_000_000) / 10_000;
+                const currentValue = positionCurrentValue(pos.shares, pos.currentPrice);
                 const pnl = currentValue - pos.costBasis;
                 return (
                   <span key={pos.positionId} className="text-xs text-muted-foreground">
@@ -804,7 +800,7 @@ export default function EventPage() {
                 {totalVolume > 0 && (
                   <>
                     <span>•</span>
-                    <span>${(totalVolume / 1_000_000).toLocaleString()} vol</span>
+                    <span>${atomicToDollars(totalVolume).toLocaleString()} vol</span>
                   </>
                 )}
               </div>

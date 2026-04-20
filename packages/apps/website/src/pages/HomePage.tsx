@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { usePlatformStats, useMarketCount, useSportCounts } from '../hooks/useMarkets';
+import { atomicToDollars } from '../lib/tokenUtils';
 import type { SportCategory } from '../hooks/useMarkets';
 import {
   TrendingUp,
@@ -124,7 +125,7 @@ export default function HomePage() {
                 Total Volume
               </div>
               <p className="text-2xl font-bold text-foreground">
-                {statsLoading ? '—' : `$${((stats?.totalVolume ?? 0) / 1_000_000).toLocaleString()}`}
+                {statsLoading ? '—' : `$${atomicToDollars(stats?.totalVolume ?? 0).toLocaleString()}`}
               </p>
             </div>
             <div className="text-center space-y-1">

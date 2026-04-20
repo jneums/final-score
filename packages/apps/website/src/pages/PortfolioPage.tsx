@@ -8,6 +8,7 @@ import { useAllowance } from '../hooks/useAllowance';
 import { useMyOrders, useMyPositions } from '../hooks/useMarkets';
 import { cancelOrderCandid } from '@final-score/ic-js';
 import { toast } from 'sonner';
+import { positionCurrentValue, formatPnl, atomicToDollars } from '../lib/tokenUtils';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -68,7 +69,7 @@ export default function PortfolioPage() {
   // Compute portfolio value
   const totalCostBasis = positions?.reduce((sum, p) => sum + p.costBasis, 0) ?? 0;
   const totalCurrentValue = positions?.reduce((sum, p) => {
-    return sum + (p.shares * p.currentPrice * 1_000_000) / 10_000;
+    return sum + positionCurrentValue(p.shares, p.currentPrice);
   }, 0) ?? 0;
   const totalPnl = totalCurrentValue - totalCostBasis;
 
@@ -132,7 +133,7 @@ export default function PortfolioPage() {
               {positionsLoading ? (
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               ) : (
-                <p className="text-3xl font-bold">${(totalCurrentValue / 1_000_000).toFixed(2)}</p>
+                <p className="text-3xl font-bold">${atomicToDollars(totalCurrentValue).toFixed(2)}</p>
               )}
               <p className="text-xs text-muted-foreground mt-1">Current value of positions</p>
             </CardContent>
@@ -149,7 +150,7 @@ export default function PortfolioPage() {
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               ) : (
                 <p className={`text-3xl font-bold ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                  {totalPnl >= 0 ? `+$${(totalPnl / 1_000_000).toFixed(2)}` : `-$${(Math.abs(totalPnl) / 1_000_000).toFixed(2)}`}
+                  {formatPnl(totalPnl)}
                 </p>
               )}
             </CardContent>
@@ -201,7 +202,7 @@ export default function PortfolioPage() {
                         </tr>
                       ) : (
                         positions.map((pos) => {
-                          const currentValue = (pos.shares * pos.currentPrice * 1_000_000) / 10_000;
+                          const currentValue = positionCurrentValue(pos.shares, pos.currentPrice);
                           const pnl = currentValue - pos.costBasis;
                           return (
                             <tr key={pos.positionId} className="border-b border-border/50 hover:bg-muted/30">
@@ -224,7 +225,7 @@ export default function PortfolioPage() {
                               <td className="text-right p-4 font-mono">{bpsToDollar(pos.averagePrice)}</td>
                               <td className="text-right p-4 font-mono">{bpsToDollar(pos.currentPrice)}</td>
                               <td className={`text-right p-4 font-mono ${pnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                {pnl >= 0 ? `+$${(pnl / 1_000_000).toFixed(2)}` : `-$${(Math.abs(pnl) / 1_000_000).toFixed(2)}`}
+                                {formatPnl(pnl)}
                               </td>
                             </tr>
                           );

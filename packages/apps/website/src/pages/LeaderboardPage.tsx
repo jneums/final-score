@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { usePlatformStats } from '../hooks/useMarkets';
+import { atomicToDollars } from '../lib/tokenUtils';
 import { getLeaderboardByProfit } from '@final-score/ic-js';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -22,7 +23,7 @@ function truncatePrincipal(p: string): string {
 }
 
 function formatUsdc(amount: bigint): string {
-  const num = Number(amount) / 1_000_000;
+  const num = atomicToDollars(Number(amount));
   if (num >= 1000) return `$${(num / 1000).toFixed(1)}k`;
   if (num < 0) return `-$${Math.abs(num).toFixed(2)}`;
   return `$${num.toFixed(2)}`;
@@ -79,7 +80,7 @@ export default function LeaderboardPage() {
                 Volume
               </div>
               <p className="text-xl font-bold">
-                {statsLoading ? '—' : `$${((stats?.totalVolume ?? 0) / 1_000_000).toLocaleString()}`}
+                {statsLoading ? '—' : `$${atomicToDollars(stats?.totalVolume ?? 0).toLocaleString()}`}
               </p>
             </div>
             <div className="text-center space-y-1">
