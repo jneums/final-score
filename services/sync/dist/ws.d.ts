@@ -26,5 +26,6 @@ export declare function stopWs(): void;
 /**
  * Subscribe to new asset IDs (e.g., after sync discovers new markets).
  * Sends a dynamic subscribe message without reconnecting.
+ * When not connected, assets are silently picked up on next connect via getAllAssetIds().
  */
 export declare function subscribeNewAssets(assetIds: string[]): void;

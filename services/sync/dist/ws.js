@@ -230,6 +230,7 @@ export function stopWs() {
 /**
  * Subscribe to new asset IDs (e.g., after sync discovers new markets).
  * Sends a dynamic subscribe message without reconnecting.
+ * When not connected, assets are silently picked up on next connect via getAllAssetIds().
  */
 export function subscribeNewAssets(assetIds) {
     const newIds = assetIds.filter((id) => !subscribedAssets.has(id));
@@ -239,8 +240,5 @@ export function subscribeNewAssets(assetIds) {
         log("subscribe", "info", `Adding ${newIds.length} new assets`);
         sendSubscription(newIds);
     }
-    else {
-        // Will be picked up on next connect via getAllAssetIds()
-        log("subscribe", "info", `Queued ${newIds.length} assets for next connect`);
-    }
+    // else: will be picked up on next connect() via getAllAssetIds()
 }
