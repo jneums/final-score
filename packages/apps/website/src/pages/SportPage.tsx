@@ -205,7 +205,6 @@ export default function SportPage() {
                 const bookPrice = m.impliedYesAsk;
                 return (bookPrice > 0 && bookPrice < 10000) ? bookPrice : m.yesPrice;
               };
-              const totalPrice = outcomes.reduce((sum, m) => sum + getDisplayPrice(m), 0);
 
               return (
                 <Link key={eventSlug} to={`/event/${first.marketId}`}>
@@ -236,7 +235,7 @@ export default function SportPage() {
                         {outcomes.map((m, i) => {
                           const name = extractOutcomeName(m.question);
                           const price = getDisplayPrice(m);
-                          const percent = totalPrice > 0 ? Math.round((price / totalPrice) * 100) : 50;
+                          const percent = price > 0 ? Math.round(price / 100) : 0;
                           const color = OUTCOME_COLORS[i % OUTCOME_COLORS.length];
 
                           return (
