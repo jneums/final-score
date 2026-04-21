@@ -89,4 +89,8 @@ export class McpClient {
   async getAccountInfo(): Promise<string> {
     return callTool(this.apiKey, "account_get_info", {});
   }
+
+  async getMarketDetail(marketId: string): Promise<string> {
+    return callTool(this.apiKey, "market_detail", { market_id: marketId });
+  }
 }

@@ -1,13 +1,14 @@
 import { Strategy, BotContext } from "../strategy.js";
 import { randomChoice } from "../market-utils.js";
+import { parseMarketList, getSmartPrice } from "../mcp-pricing.js";
 
 /**
- * MCP Casual Bettor — browses markets via MCP and places bets.
- * Validates MCP response format (raw text, not typed objects).
+ * MCP Casual Bettor — browses markets via MCP and places bets at smart prices.
+ * Uses market_detail to get order book depth and prices near the implied ask.
  */
 export const mcpCasualBettor: Strategy = {
   name: "mcp-casual-bettor",
-  description: "Uses MCP tools to browse markets and place casual bets",
+  description: "Uses MCP tools to browse markets and place bets at book-aware prices",
   tier: "mcp",
 
   async act(ctx: BotContext): Promise<void> {
@@ -23,75 +24,48 @@ export const mcpCasualBettor: Strategy = {
       ctx.log("list-markets", "success", `Browsing ${sport} markets via MCP`);
 
       const marketsResponse = await ctx.mcp.listMarkets(sport, "Open");
+      const markets = parseMarketList(marketsResponse);
 
-      // Parse market IDs from the response text
-      // MCP responses are raw text — look for market IDs (patterns like UUIDs or numeric IDs)
-      const marketIdMatches = marketsResponse.match(/market_id["\s:]+([a-zA-Z0-9_-]+)/gi)
-        ?? marketsResponse.match(/id["\s:]+([a-zA-Z0-9_-]+)/gi)
-        ?? [];
-
-      if (marketIdMatches.length === 0) {
-        // Try to parse as JSON as a fallback
-        try {
-          const parsed = JSON.parse(marketsResponse);
-          const markets = parsed.markets ?? parsed.data ?? (Array.isArray(parsed) ? parsed : []);
-          if (markets.length === 0) {
-            ctx.log("list-markets", "skip", `No open ${sport} markets found`);
-            return;
-          }
-          const market = randomChoice(markets);
-          const m = market as Record<string, unknown>;
-          const marketId = m.market_id ?? m.marketId ?? m.id;
-          if (!marketId) {
-            ctx.log("list-markets", "skip", "Could not extract market ID from parsed response");
-            return;
-          }
-          await placeBet(ctx, String(marketId));
-          return;
-        } catch {
-          ctx.log("list-markets", "skip", `No markets found in response (raw): ${marketsResponse.substring(0, 200)}`);
-          return;
-        }
-      }
-
-      // Extract the ID value from the match
-      const rawMatch = randomChoice(marketIdMatches);
-      const idExtract = rawMatch.match(/([a-zA-Z0-9_-]+)$/);
-      if (!idExtract) {
-        ctx.log("list-markets", "skip", `Could not parse market ID from: ${rawMatch}`);
+      if (markets.length === 0) {
+        ctx.log("list-markets", "skip", `No open ${sport} markets found`);
         return;
       }
-      const marketId = idExtract[1];
-      await placeBet(ctx, marketId);
+
+      const market = randomChoice(markets);
+      const outcome = randomChoice(["yes", "no"] as const);
+
+      // Step 2: Get smart pricing from order book
+      const pricing = await getSmartPrice(ctx.mcp, market.marketId, outcome);
+
+      if (!pricing) {
+        ctx.log("place-order", "skip",
+          `No liquidity for ${outcome} on market ${market.marketId} — skipping`);
+        return;
+      }
+
+      ctx.log("place-order", "success",
+        `Placing MCP order: ${outcome} @ ${pricing.price} x${pricing.size} on market ${market.marketId}`);
+
+      const orderResponse = await ctx.mcp.placeOrder(
+        market.marketId, outcome, pricing.price, String(pricing.size),
+      );
+
+      // Validate the response
+      const lowerResp = orderResponse.toLowerCase();
+      if (
+        lowerResp.includes("order_id") ||
+        lowerResp.includes("orderid") ||
+        lowerResp.includes("success") ||
+        lowerResp.includes("created") ||
+        lowerResp.includes("filled") ||
+        lowerResp.includes("open")
+      ) {
+        ctx.log("place-order", "success", `Order confirmed: ${orderResponse.substring(0, 200)}`);
+      } else {
+        ctx.log("place-order", "error", `Unexpected order response: ${orderResponse.substring(0, 300)}`);
+      }
     } catch (err) {
       ctx.log("mcp-casual-bettor", "error", `Unexpected error: ${err}`);
     }
   },
 };
-
-async function placeBet(ctx: BotContext, marketId: string): Promise<void> {
-  // Step 2: Place a bet via MCP
-  const outcome = randomChoice(["yes", "no"]);
-  const prices = ["0.25", "0.35", "0.45", "0.50", "0.55", "0.65", "0.75"];
-  const price = randomChoice(prices);
-  const amounts = ["3", "5", "8", "10"];
-  const amount = randomChoice(amounts);
-
-  ctx.log("place-order", "success", `Placing MCP order: ${outcome} @ ${price} x${amount} on market ${marketId}`);
-
-  const orderResponse = await ctx.mcp!.placeOrder(marketId, outcome, price, amount);
-
-  // Validate the response contains order confirmation
-  const lowerResp = orderResponse.toLowerCase();
-  if (
-    lowerResp.includes("order placed") ||
-    lowerResp.includes("order_id") ||
-    lowerResp.includes("orderid") ||
-    lowerResp.includes("success") ||
-    lowerResp.includes("created")
-  ) {
-    ctx.log("place-order", "success", `Order confirmed: ${orderResponse.substring(0, 200)}`);
-  } else {
-    ctx.log("place-order", "error", `Unexpected order response format: ${orderResponse.substring(0, 300)}`);
-  }
-}

@@ -7,4 +7,5 @@ export declare class McpClient {
     listPositions(marketId?: string): Promise<string>;
     listMarkets(sport?: string, status?: string): Promise<string>;
     getAccountInfo(): Promise<string>;
+    getMarketDetail(marketId: string): Promise<string>;
 }

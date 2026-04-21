@@ -1,4 +1,5 @@
 import { Strategy, BotContext } from "../strategy.js";
+import { parseMarketList, getSmartPrice } from "../mcp-pricing.js";
 
 /**
  * MCP Portfolio Viewer — read-heavy bot that checks account info,
@@ -78,37 +79,41 @@ function countOccurrences(text: string, pattern: RegExp): number {
 
 async function placeSmallOrder(ctx: BotContext): Promise<void> {
   try {
-    // Use MCP to discover markets, then place a small bet
+    // Use MCP to discover markets, then get book-aware pricing
     const marketsResponse = await ctx.mcp!.listMarkets(undefined, "Open");
+    const markets = parseMarketList(marketsResponse);
 
-    // Try to extract a market ID
-    let marketId: string | null = null;
-    try {
-      const parsed = JSON.parse(marketsResponse);
-      const markets = parsed.markets ?? parsed.data ?? (Array.isArray(parsed) ? parsed : []);
-      if (markets.length > 0) {
-        const market = markets[Math.floor(Math.random() * markets.length)] as Record<string, unknown>;
-        marketId = String(market.market_id ?? market.marketId ?? market.id ?? "");
-      }
-    } catch {
-      // Try regex extraction
-      const match = marketsResponse.match(/(?:market_id|id)["\s:]+([a-zA-Z0-9_-]+)/i);
-      if (match) marketId = match[1];
-    }
-
-    if (!marketId) {
+    if (markets.length === 0) {
       ctx.log("small-order", "skip", "No market found for small order");
       return;
     }
 
-    const orderResponse = await ctx.mcp!.placeOrder(marketId, "yes", "0.40", "2");
+    const market = markets[Math.floor(Math.random() * markets.length)];
+    const outcome = Math.random() < 0.5 ? "yes" : "no";
+
+    // Get smart pricing from order book
+    const pricing = await getSmartPrice(ctx.mcp!, market.marketId, outcome as "yes" | "no");
+    if (!pricing) {
+      ctx.log("small-order", "skip", `No liquidity for ${outcome} on ${market.marketId}`);
+      return;
+    }
+
+    // Cap size small for viewer bot
+    const size = Math.min(pricing.size, 3);
+
+    const orderResponse = await ctx.mcp!.placeOrder(
+      market.marketId, outcome, pricing.price, String(size),
+    );
     const lowerResp = orderResponse.toLowerCase();
     if (
       lowerResp.includes("order") ||
       lowerResp.includes("success") ||
-      lowerResp.includes("created")
+      lowerResp.includes("created") ||
+      lowerResp.includes("filled") ||
+      lowerResp.includes("open")
     ) {
-      ctx.log("small-order", "success", `Small order placed: ${orderResponse.substring(0, 200)}`);
+      ctx.log("small-order", "success",
+        `Small order placed: ${outcome} @ ${pricing.price} x${size} — ${orderResponse.substring(0, 200)}`);
     } else {
       ctx.log("small-order", "error", `Unexpected order response: ${orderResponse.substring(0, 300)}`);
     }
