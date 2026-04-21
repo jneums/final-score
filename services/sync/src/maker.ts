@@ -12,6 +12,7 @@ import { CONFIG } from "./config.js";
 import {
   placeOrder,
   cancelOrder,
+  requoteMarketBatch,
   getMyOrders,
   listMarkets,
   getUnresolvedMarkets,
@@ -224,50 +225,22 @@ async function requoteMarket(
   let placed = 0;
   let errors = 0;
 
-  // Cancel ALL existing orders for this market — no diffing, no accumulation
-  for (const order of myMarketOrders) {
-    try {
-      const res = await cancelOrder(order.orderId);
-      if (res.ok) {
-        cancelled++;
-      } else {
-        log("cancel", "error", `${order.orderId}: ${res.message}`);
-        errors++;
-      }
-    } catch (e) {
-      log("cancel", "error", `${order.orderId}: ${String(e).slice(0, 100)}`);
-      errors++;
-    }
-    await sleep(mc.ORDER_DELAY_MS);
+  // Single batch call: cancel all + place all with delta escrow
+  const batchOrders = desired.map(o => ({
+    outcome: o.outcome,
+    price: o.price,
+    size: o.size,
+  }));
+  const res = await requoteMarketBatch(marketId, batchOrders);
+  if (res.ok) {
+    cancelled = res.data?.cancelled ?? 0;
+    placed = res.data?.placed ?? 0;
+  } else {
+    log("requote", "error", `${marketId}: ${res.message}`);
+    errors++;
   }
 
-  // Place fresh orders
-  for (const order of desired) {
-    try {
-      const res = await placeOrder(
-        marketId,
-        order.outcome,
-        order.price,
-        order.size,
-      );
-      if (res.ok) {
-        placed++;
-        log("place", "success", `${marketId} Buy ${order.outcome.toUpperCase()} @ $${order.price.toFixed(4)} x${order.size}`);
-      } else {
-        if (res.message.includes("Rate limited")) {
-          log("place", "rate-limited", `${marketId}: waiting...`);
-          await sleep(mc.ORDER_DELAY_MS);
-        } else {
-          log("place", "error", `${marketId} ${order.outcome}@${order.price.toFixed(4)}: ${res.message.slice(0, 100)}`);
-          errors++;
-        }
-      }
-    } catch (e) {
-      log("place", "error", `${marketId}: ${String(e).slice(0, 100)}`);
-      errors++;
-    }
-    await sleep(mc.ORDER_DELAY_MS);
-  }
+  await sleep(mc.ORDER_DELAY_MS);
 
   return { cancelled, placed, kept: 0, errors };
 }

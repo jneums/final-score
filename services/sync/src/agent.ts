@@ -89,6 +89,14 @@ const idlFactory = ({ IDL }: { IDL: any }) => {
       []
     ),
     cancel_order: IDL.Func([IDL.Text], [Result], []),
+    requote_market: IDL.Func(
+      [IDL.Text, IDL.Vec(IDL.Record({ outcome: IDL.Text, price: IDL.Float64, size: IDL.Nat }))],
+      [IDL.Variant({
+        ok: IDL.Record({ cancelled: IDL.Nat, placed: IDL.Nat, escrowed: IDL.Int }),
+        err: IDL.Text,
+      })],
+      []
+    ),
     my_orders: IDL.Func(
       [IDL.Opt(IDL.Text), IDL.Opt(IDL.Text)],
       [IDL.Vec(OrderRecord)],
@@ -183,6 +191,10 @@ interface CanisterActor {
     marketId: string, outcome: string, price: number, size: bigint,
   ): Promise<{ ok: PlaceOrderOk } | { err: string }>;
   cancel_order(orderId: string): Promise<{ ok: string } | { err: string }>;
+  requote_market(
+    marketId: string,
+    newOrders: Array<{ outcome: string; price: number; size: bigint }>,
+  ): Promise<{ ok: { cancelled: bigint; placed: bigint; escrowed: bigint } } | { err: string }>;
   my_orders(statusFilter: [string] | [], marketFilter: [string] | []): Promise<OrderRecord[]>;
 
   debug_list_markets(
@@ -300,6 +312,31 @@ export async function cancelOrder(
   try {
     const result = await actor.cancel_order(orderId);
     if ("ok" in result) return { ok: true, message: result.ok };
+    return { ok: false, message: result.err };
+  } catch (e) {
+    return { ok: false, message: String(e).slice(0, 200) };
+  }
+}
+
+export async function requoteMarketBatch(
+  marketId: string,
+  orders: { outcome: string; price: number; size: number }[],
+): Promise<{ ok: boolean; message: string; data?: { cancelled: number; placed: number; escrowed: number } }> {
+  const actor = await getMakerActor();
+  try {
+    const candid = orders.map((o) => ({ outcome: o.outcome, price: o.price, size: BigInt(o.size) }));
+    const result = await actor.requote_market(marketId, candid);
+    if ("ok" in result) {
+      return {
+        ok: true,
+        message: "ok",
+        data: {
+          cancelled: Number(result.ok.cancelled),
+          placed: Number(result.ok.placed),
+          escrowed: Number(result.ok.escrowed),
+        },
+      };
+    }
     return { ok: false, message: result.err };
   } catch (e) {
     return { ok: false, message: String(e).slice(0, 200) };

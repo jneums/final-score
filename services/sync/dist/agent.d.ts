@@ -72,6 +72,19 @@ interface CanisterActor {
     } | {
         err: string;
     }>;
+    requote_market(marketId: string, newOrders: Array<{
+        outcome: string;
+        price: number;
+        size: bigint;
+    }>): Promise<{
+        ok: {
+            cancelled: bigint;
+            placed: bigint;
+            escrowed: bigint;
+        };
+    } | {
+        err: string;
+    }>;
     my_orders(statusFilter: [string] | [], marketFilter: [string] | []): Promise<OrderRecord[]>;
     debug_list_markets(sportFilter: [string] | [], offset: bigint, limit: bigint): Promise<{
         total: bigint;
@@ -99,6 +112,19 @@ export declare function placeOrder(marketId: string, outcome: string, price: num
 export declare function cancelOrder(orderId: string): Promise<{
     ok: boolean;
     message: string;
+}>;
+export declare function requoteMarketBatch(marketId: string, orders: {
+    outcome: string;
+    price: number;
+    size: number;
+}[]): Promise<{
+    ok: boolean;
+    message: string;
+    data?: {
+        cancelled: number;
+        placed: number;
+        escrowed: number;
+    };
 }>;
 export declare function getMyOrders(statusFilter?: string, marketFilter?: string): Promise<OrderRecord[]>;
 export declare function listMarkets(sportFilter?: string, offset?: number, limit?: number): Promise<{

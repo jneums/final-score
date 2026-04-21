@@ -69,6 +69,10 @@ const idlFactory = ({ IDL }) => {
         // Trading
         place_order: IDL.Func([IDL.Text, IDL.Text, IDL.Float64, IDL.Nat], [PlaceOrderResult], []),
         cancel_order: IDL.Func([IDL.Text], [Result], []),
+        requote_market: IDL.Func([IDL.Text, IDL.Vec(IDL.Record({ outcome: IDL.Text, price: IDL.Float64, size: IDL.Nat }))], [IDL.Variant({
+                ok: IDL.Record({ cancelled: IDL.Nat, placed: IDL.Nat, escrowed: IDL.Int }),
+                err: IDL.Text,
+            })], []),
         my_orders: IDL.Func([IDL.Opt(IDL.Text), IDL.Opt(IDL.Text)], [IDL.Vec(OrderRecord)], ["query"]),
         // Market data
         debug_list_markets: IDL.Func([IDL.Opt(IDL.Text), IDL.Nat, IDL.Nat], [ListMarketsResult], ["query"]),
@@ -163,6 +167,28 @@ export async function cancelOrder(orderId) {
         const result = await actor.cancel_order(orderId);
         if ("ok" in result)
             return { ok: true, message: result.ok };
+        return { ok: false, message: result.err };
+    }
+    catch (e) {
+        return { ok: false, message: String(e).slice(0, 200) };
+    }
+}
+export async function requoteMarketBatch(marketId, orders) {
+    const actor = await getMakerActor();
+    try {
+        const candid = orders.map((o) => ({ outcome: o.outcome, price: o.price, size: BigInt(o.size) }));
+        const result = await actor.requote_market(marketId, candid);
+        if ("ok" in result) {
+            return {
+                ok: true,
+                message: "ok",
+                data: {
+                    cancelled: Number(result.ok.cancelled),
+                    placed: Number(result.ok.placed),
+                    escrowed: Number(result.ok.escrowed),
+                },
+            };
+        }
         return { ok: false, message: result.err };
     }
     catch (e) {
