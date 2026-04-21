@@ -125,13 +125,39 @@ module {
         case _ return ToolContext.makeError("Market is not open for trading", cb);
       };
 
-      // No pre-flight balance/allowance check — icrc2_transfer_from will fail naturally
+      // ═══════════════════════════════════════════════════════════
+      // PRE-FUND: Escrow full order cost BEFORE matching.
+      // Same pattern as Candid place_order — guarantees all resting
+      // orders are backed by real funds.
+      // ═══════════════════════════════════════════════════════════
       let ledger = actor (Principal.toText(context.tokenLedger)) : actor {
         icrc2_transfer_from : (ICRC2.TransferFromArgs) -> async ICRC2.TransferFromResult;
         icrc1_transfer : (ICRC2.TransferArgs) -> async ICRC2.TransferResult;
       };
 
-      // Create the order
+      let marketAccount = ToolContext.getMarketAccount(context.canisterPrincipal, marketId);
+
+      let _escrowOk = try {
+        let escrowResult = await ledger.icrc2_transfer_from({
+          spender_subaccount = null;
+          from = { owner = userPrincipal; subaccount = null };
+          to = marketAccount;
+          amount = cost;
+          fee = ?ToolContext.TRANSFER_FEE(ctx.toolContext);
+          memo = null;
+          created_at_time = null;
+        });
+        switch (escrowResult) {
+          case (#Err(err)) {
+            return ToolContext.makeError("Escrow transfer failed: " # debug_show(err), cb);
+          };
+          case (#Ok(_)) true;
+        };
+      } catch (e) {
+        return ToolContext.makeError("Escrow transfer exception: " # Error.message(e), cb);
+      };
+
+      // Funds are now in the market subaccount — order is guaranteed backed
       let orderId = ToolContext.getNextOrderId(context);
 
       let order : ToolContext.Order = {
@@ -159,10 +185,15 @@ module {
       // Try to match
       let result = OrderBook.matchOrder(book, order);
 
-      // Process fills
-      // ATOMIC PER-FILL: update book incrementally so trap after fill N is safe
+      // ═══════════════════════════════════════════════════════════
+      // Process fills — funds are ALREADY ESCROWED for both sides.
+      // No inter-canister calls needed! Pure accounting.
+      // (Same pattern as Candid place_order in main.mo)
+      // ═══════════════════════════════════════════════════════════
       var fillsJson : [Json.Json] = [];
-      var currentBook = book;
+      var currentBook = result.updatedBook;
+      var actualFilledSize : Nat = 0;
+
       for (fill in result.fills.vals()) {
         let tradeId = ToolContext.getNextTradeId(context);
 
@@ -170,117 +201,55 @@ module {
         let takerCost = takerCostPerShare * fill.size;
         let makerCostPerShare = (fill.price * ToolContext.SHARE_VALUE(ctx.toolContext)) / ToolContext.BPS_DENOM;
         let makerCost = makerCostPerShare * fill.size;
-        let fee = ToolContext.takerFee(ctx.toolContext, order.price, fill.size);
 
-        let marketAccount = ToolContext.getMarketAccount(context.canisterPrincipal, marketId);
-        let takerTotal = takerCost + fee;
-
-        // Pull taker funds
-        let takerOk = try {
-          let takerResult = await ledger.icrc2_transfer_from({
-            spender_subaccount = null;
-            from = { owner = fill.taker; subaccount = null };
-            to = marketAccount;
-            amount = takerTotal;
-            fee = ?ToolContext.TRANSFER_FEE(ctx.toolContext);
-            memo = null;
-            created_at_time = null;
-          });
-          switch (takerResult) {
-            case (#Err(err)) { Debug.print("MCP taker transfer failed: " # debug_show(err)); false };
-            case (#Ok(_)) true;
-          };
-        } catch (e) { Debug.print("MCP taker exception: " # Error.message(e)); false };
-
-        if (not takerOk) {
-          Debug.print("Skipping fill — taker transfer failed");
-        } else {
-          // Pull maker funds
-          let makerOk = try {
-            let makerResult = await ledger.icrc2_transfer_from({
-              spender_subaccount = null;
-              from = { owner = fill.maker; subaccount = null };
-              to = marketAccount;
-              amount = makerCost;
-              fee = ?ToolContext.TRANSFER_FEE(ctx.toolContext);
-              memo = null;
-              created_at_time = null;
-            });
-            switch (makerResult) {
-              case (#Err(err)) { Debug.print("MCP maker transfer failed: " # debug_show(err)); false };
-              case (#Ok(_)) true;
-            };
-          } catch (e) { Debug.print("MCP maker exception: " # Error.message(e)); false };
-
-          if (not makerOk) {
-            // Refund taker
-            try {
-              ignore await ledger.icrc1_transfer({
-                from_subaccount = ?ToolContext.marketSubaccount(marketId);
-                to = { owner = fill.taker; subaccount = null };
-                amount = takerTotal - ToolContext.TRANSFER_FEE(ctx.toolContext);
-                fee = ?ToolContext.TRANSFER_FEE(ctx.toolContext);
-                memo = null;
-                created_at_time = null;
-              });
-            } catch (e) { Debug.print("MCP taker refund failed: " # Error.message(e)) };
-            // Restore maker's order to the book (it was consumed by matchOrder)
-            switch (Map.get(context.orders, Map.thash, fill.makerOrderId)) {
-              case (?makerOrder) {
-                currentBook := OrderBook.insertOrder(currentBook, makerOrder);
-                Map.set(ctx.orderBooks, Map.thash, marketId, currentBook);
-                Debug.print("Restored maker order " # fill.makerOrderId # " to book");
-              };
-              case null {};
-            };
-            Debug.print("Skipping fill — maker failed, taker refunded");
-          } else {
-            // Both succeeded — commit fill
-            let trade : ToolContext.Trade = {
-              tradeId; marketId;
-              makerOrderId = fill.makerOrderId;
-              takerOrderId = fill.takerOrderId;
-              maker = fill.maker; taker = fill.taker;
-              outcome = fill.outcome;
-              price = fill.price; size = fill.size;
-              timestamp = now;
-            };
-            Map.set(context.trades, Map.thash, tradeId, trade);
-
-            ignore ToolContext.upsertPosition(context, fill.taker, marketId, outcome, fill.size, takerCost + fee, order.price);
-            let makerOutcome : ToolContext.Outcome = switch (outcome) { case (#Yes) #No; case (#No) #Yes };
-            ignore ToolContext.upsertPosition(context, fill.maker, marketId, makerOutcome, fill.size, makerCost, fill.price);
-
-            ToolContext.recordTrade(context, fill.taker, takerCost);
-            ToolContext.recordTrade(context, fill.maker, makerCost);
-
-            // ATOMIC: update maker order status immediately
-            switch (Map.get(context.orders, Map.thash, fill.makerOrderId)) {
-              case (?makerOrder) {
-                let newFilled = makerOrder.filledSize + fill.size;
-                let newStatus = if (newFilled >= makerOrder.size) #Filled else #PartiallyFilled;
-                Map.set(context.orders, Map.thash, fill.makerOrderId, {
-                  makerOrder with filledSize = newFilled; status = newStatus;
-                });
-              };
-              case null {};
-            };
-
-            // ATOMIC: remove consumed maker order from book per-fill
-            currentBook := OrderBook.removeOrder(currentBook, fill.makerOrderId, makerOutcome);
-            Map.set(ctx.orderBooks, Map.thash, marketId, currentBook);
-
-            fillsJson := Array.append(fillsJson, [Json.obj([
-              ("trade_id", Json.str(tradeId)),
-              ("price", Json.str(Nat.toText(fill.price))),
-              ("size", Json.str(Nat.toText(fill.size))),
-              ("counterparty", Json.str(Principal.toText(fill.maker))),
-            ])]);
-          };
+        // Both sides already have funds in the market subaccount — just commit
+        let trade : ToolContext.Trade = {
+          tradeId; marketId;
+          makerOrderId = fill.makerOrderId;
+          takerOrderId = fill.takerOrderId;
+          maker = fill.maker; taker = fill.taker;
+          outcome = fill.outcome;
+          price = fill.price; size = fill.size;
+          timestamp = now;
         };
+        Map.set(context.trades, Map.thash, tradeId, trade);
+
+        // Create/update positions
+        let fee = ToolContext.takerFee(ctx.toolContext, order.price, fill.size);
+        ignore ToolContext.upsertPosition(context, fill.taker, marketId, outcome, fill.size, takerCost + fee, order.price);
+        let makerOutcome : ToolContext.Outcome = switch (outcome) { case (#Yes) #No; case (#No) #Yes };
+        ignore ToolContext.upsertPosition(context, fill.maker, marketId, makerOutcome, fill.size, makerCost, fill.price);
+
+        ToolContext.recordTrade(context, fill.taker, takerCost);
+        ToolContext.recordTrade(context, fill.maker, makerCost);
+
+        // Update maker order status
+        switch (Map.get(context.orders, Map.thash, fill.makerOrderId)) {
+          case (?makerOrder) {
+            let newFilled = makerOrder.filledSize + fill.size;
+            let newStatus = if (newFilled >= makerOrder.size) #Filled else #PartiallyFilled;
+            Map.set(context.orders, Map.thash, fill.makerOrderId, {
+              makerOrder with filledSize = newFilled; status = newStatus;
+            });
+          };
+          case null {};
+        };
+
+        Map.set(ctx.orderBooks, Map.thash, marketId, currentBook);
+
+        fillsJson := Array.append(fillsJson, [Json.obj([
+          ("trade_id", Json.str(tradeId)),
+          ("price", Json.str(Nat.toText(fill.price))),
+          ("size", Json.str(Nat.toText(fill.size))),
+          ("counterparty", Json.str(Principal.toText(fill.maker))),
+        ])]);
+
+        actualFilledSize += fill.size;
       };
 
-      // Net opposing positions — SAFETY: check overlap first, transfer, THEN delete
+      // ═══════════════════════════════════════════════════════════
+      // Net opposing positions for all involved users
+      // ═══════════════════════════════════════════════════════════
       var nettedUsers = Map.new<Principal, Bool>();
       for (fill in result.fills.vals()) {
         Map.set(nettedUsers, Map.phash, fill.taker, true);
@@ -315,22 +284,36 @@ module {
         };
       };
 
-      // Update the order book — use already-updated currentBook (not result.updatedBook)
+      // ═══════════════════════════════════════════════════════════
+      // Determine final order status and handle unfilled remainder
+      // ═══════════════════════════════════════════════════════════
       var finalBook = currentBook;
 
-      // Handle the remaining unfilled portion
-      let finalOrder = switch (result.remainingOrder) {
-        case (?remaining) {
-          // Insert remainder into the book
-          finalBook := OrderBook.insertOrder(finalBook, remaining);
-          Map.set(context.orders, Map.thash, orderId, remaining);
-          remaining;
-        };
-        case null {
-          // Fully filled
-          let filled = { order with filledSize = order.size; status = #Filled };
-          Map.set(context.orders, Map.thash, orderId, filled);
-          filled;
+      let finalOrder = if (actualFilledSize >= order.size) {
+        // Fully filled
+        let filled = { order with filledSize = order.size; status = #Filled };
+        Map.set(context.orders, Map.thash, orderId, filled);
+        filled;
+      } else if (actualFilledSize > 0) {
+        // Partially filled — rest stays on the book (already escrowed)
+        let partial = { order with filledSize = actualFilledSize; status = #PartiallyFilled };
+        finalBook := OrderBook.insertOrder(finalBook, partial);
+        Map.set(context.orders, Map.thash, orderId, partial);
+        partial;
+      } else {
+        // No fills — entire order rests on the book (already escrowed)
+        switch (result.remainingOrder) {
+          case (?remaining) {
+            finalBook := OrderBook.insertOrder(finalBook, remaining);
+            Map.set(context.orders, Map.thash, orderId, remaining);
+            remaining;
+          };
+          case null {
+            let open = { order with status = #Open };
+            finalBook := OrderBook.insertOrder(finalBook, open);
+            Map.set(context.orders, Map.thash, orderId, open);
+            open;
+          };
         };
       };
 
@@ -339,10 +322,8 @@ module {
       // Update market last price
       let _lastPrice = if (result.fills.size() > 0) {
         let lastFill = result.fills[result.fills.size() - 1];
-        // The fill price is the maker's side price. Convert to Yes/No price.
         switch (outcome) {
           case (#Yes) {
-            // Taker bought Yes, fill.price is what the No-side maker rested at
             let yesPrice = ToolContext.BPS_DENOM - lastFill.price;
             Map.set(context.markets, Map.thash, marketId, {
               market with
@@ -366,8 +347,8 @@ module {
       ToolContext.makeSuccess(Json.obj([
         ("order_id", Json.str(orderId)),
         ("status", Json.str(ToolContext.orderStatusToText(finalOrder.status))),
-        ("filled", Json.str(Nat.toText(finalOrder.filledSize))),
-        ("remaining", Json.str(Nat.toText(finalOrder.size - finalOrder.filledSize))),
+        ("filled", Json.str(Nat.toText(actualFilledSize))),
+        ("remaining", Json.str(Nat.toText(order.size - actualFilledSize))),
         ("fills", Json.arr(fillsJson)),
       ]), cb);
     };
