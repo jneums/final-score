@@ -12,7 +12,7 @@ interface McpResponse {
 async function callTool(
   apiKey: string,
   name: string,
-  args: Record<string, string>,
+  args: Record<string, string | number>,
 ): Promise<string> {
   const body = {
     jsonrpc: "2.0",
@@ -59,8 +59,8 @@ export class McpClient {
     return callTool(this.apiKey, "order_place", {
       market_id: marketId,
       outcome,
-      price,
-      amount,
+      price: parseFloat(price),
+      size: parseInt(amount, 10),
     });
   }
 

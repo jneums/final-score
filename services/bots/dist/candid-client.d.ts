@@ -48,10 +48,13 @@ interface OrderBookResult {
 interface PositionRecord {
     positionId: string;
     marketId: string;
+    question: string;
     outcome: string;
     shares: bigint;
     costBasis: bigint;
-    avgPrice: bigint;
+    averagePrice: bigint;
+    currentPrice: bigint;
+    marketStatus: string;
 }
 type CanisterActor = any;
 export declare class CandidClient {

@@ -79,10 +79,13 @@ const idlFactory = ({ IDL }: { IDL: any }) => {
   const PositionRecord = IDL.Record({
     positionId: IDL.Text,
     marketId: IDL.Text,
+    question: IDL.Text,
     outcome: IDL.Text,
     shares: IDL.Nat,
     costBasis: IDL.Nat,
-    avgPrice: IDL.Nat,
+    averagePrice: IDL.Nat,
+    currentPrice: IDL.Nat,
+    marketStatus: IDL.Text,
   });
 
   return IDL.Service({
@@ -237,10 +240,13 @@ interface OrderBookResult {
 interface PositionRecord {
   positionId: string;
   marketId: string;
+  question: string;
   outcome: string;
   shares: bigint;
   costBasis: bigint;
-  avgPrice: bigint;
+  averagePrice: bigint;
+  currentPrice: bigint;
+  marketStatus: string;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -39,8 +39,8 @@ export class McpClient {
         return callTool(this.apiKey, "order_place", {
             market_id: marketId,
             outcome,
-            price,
-            amount,
+            price: parseFloat(price),
+            size: parseInt(amount, 10),
         });
     }
     async cancelOrder(orderId) {
