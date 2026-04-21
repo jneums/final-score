@@ -59,6 +59,17 @@ async function runBot(state) {
         },
     };
     try {
+        // Pre-flight balance check for candid bots — skip if too low to place any order
+        if (state.strategy.tier === "candid") {
+            const balance = await state.candid.getBalance();
+            const MIN_BALANCE = BigInt(100_000_000); // $1.00 minimum (8 decimals)
+            if (balance < MIN_BALANCE) {
+                addLog(state.identity.name, "balance-check", "skip", `Balance too low: ${balance.toString()} (min: ${MIN_BALANCE.toString()}). Skipping run.`);
+                state.stats.runs++;
+                state.lastRun = new Date();
+                return;
+            }
+        }
         await state.strategy.act(ctx);
         state.stats.runs++;
     }
