@@ -64,6 +64,8 @@ interface BotState {
   stats: { runs: number; errors: number; ordersPlaced: number; skippedInactive: number };
   /** Original index used for strategy/persona assignment */
   botIndex: number;
+  /** Whether token approval has been verified/set */
+  approved: boolean;
 }
 
 // ─── State ──────────────────────────────────────────────────
@@ -190,6 +192,18 @@ async function runBot(state: BotState): Promise<void> {
       (msg) => addLog(state.identity.name, "payday", "success", msg),
     );
 
+    // 0b. Auto-approve tokens if not yet done (self-healing for bots that missed approval)
+    if (!state.approved) {
+      try {
+        await state.candid.approve(CONFIG.CANISTER_ID, CONFIG.APPROVE_AMOUNT);
+        state.approved = true;
+        addLog(state.identity.name, "approve", "success", "Token approval set");
+      } catch (e) {
+        addLog(state.identity.name, "approve", "error", `Token approval failed: ${String(e).slice(0, 150)}`);
+        // Don't block — try again next cycle
+      }
+    }
+
     // 1. Activity window check — skip if bot is "asleep"
     if (!shouldTradeThisCycle(state.activity)) {
       // Silent skip — don't log every 30s cycle when sleeping.
@@ -309,6 +323,7 @@ async function createBotState(
     lastRun: null,
     stats: { runs: 0, errors: 0, ordersPlaced: 0, skippedInactive: 0 },
     botIndex: index,
+    approved: false,
   };
 }
 
