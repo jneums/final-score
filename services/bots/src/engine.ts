@@ -239,6 +239,7 @@ async function runBot(state: BotState): Promise<void> {
 
     // 4. Run the strategy with wallet-aware context
     const sport = pickSport(state.activity);
+    let saw401 = false;
     const ctx: BotContext = {
       name: state.identity.name,
       candid: state.candid,
@@ -255,16 +256,51 @@ async function runBot(state: BotState): Promise<void> {
           if (message.includes("InsufficientAllowance")) {
             state.approved = false;
           }
+          // Flag 401 for auto-rekey after strategy completes
+          if (message.includes("401")) {
+            saw401 = true;
+          }
         }
       },
     };
 
     await state.strategy.act(ctx);
     state.stats.runs++;
+
+    // Auto-rekey: if MCP got 401, the API key was invalidated (e.g. canister state wipe)
+    if (saw401 && state.strategy.tier === "mcp" && state.candid) {
+      try {
+        const newKey = await state.candid.createMyApiKey(state.identity.name, ["all"]);
+        if (newKey) {
+          state.identity.apiKey = newKey;
+          state.mcp = new McpClient(newKey);
+          addLog(state.identity.name, "auto-rekey", "success", "Recreated API key after 401 — will use new key next cycle");
+          persistToDisk();
+        }
+      } catch (rekeyErr) {
+        addLog(state.identity.name, "auto-rekey", "error", `Rekey failed: ${String(rekeyErr).slice(0, 150)}`);
+      }
+    }
   } catch (e) {
-    addLog(state.identity.name, "engine", "error", String(e).slice(0, 200));
+    const msg = String(e);
+    addLog(state.identity.name, "engine", "error", msg.slice(0, 200));
     state.stats.errors++;
     incrementStat("totalErrors");
+
+    // Auto-rekey: if MCP got 401, the API key was invalidated (e.g. canister state wipe)
+    if (msg.includes("401") && state.strategy.tier === "mcp" && state.candid) {
+      try {
+        const newKey = await state.candid.createMyApiKey(state.identity.name, ["all"]);
+        if (newKey) {
+          state.identity.apiKey = newKey;
+          state.mcp = new McpClient(newKey);
+          addLog(state.identity.name, "auto-rekey", "success", "Recreated API key after 401");
+          persistToDisk();
+        }
+      } catch (rekeyErr) {
+        addLog(state.identity.name, "auto-rekey", "error", `Rekey failed: ${String(rekeyErr).slice(0, 150)}`);
+      }
+    }
   }
   state.lastRun = new Date();
 }
