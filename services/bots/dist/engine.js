@@ -3,6 +3,7 @@ import { loadIdentityFromPem } from "./identity.js";
 import { CandidClient } from "./candid-client.js";
 import { McpClient } from "./mcp-client.js";
 import { BotWallet } from "./wallet.js";
+import { assignPersona, shouldTradeThisCycle, isInActiveWindow } from "./activity.js";
 import { ALL_STRATEGIES } from "./strategies/index.js";
 import { addLog, registerEngine, incrementStat } from "./index.js";
 // ─── Strategy assignment plan ────────────────────────────────
@@ -44,6 +45,21 @@ async function runBot(state) {
     if (!state.running)
         return;
     try {
+        // 0. Activity window check — skip if bot is "asleep"
+        if (!shouldTradeThisCycle(state.activity)) {
+            // Silent skip — don't log every 30s cycle when sleeping.
+            // Only log occasionally so we know it's alive.
+            state.stats.skippedInactive++;
+            if (state.stats.skippedInactive % 100 === 1) {
+                const awake = isInActiveWindow(state.activity);
+                const reason = awake
+                    ? `Active but skipped (probability roll, ${state.activity.persona})`
+                    : `Sleeping (${state.activity.persona}, UTC${state.activity.utcOffset >= 0 ? "+" : ""}${state.activity.utcOffset})`;
+                addLog(state.identity.name, "activity", "skip", reason);
+            }
+            state.lastRun = new Date();
+            return;
+        }
         // 1. Refresh balance (cached, only hits chain every 5 min)
         await state.wallet.refreshBalance();
         // 2. Payday check — auto-fund from faucet if due
@@ -112,19 +128,22 @@ export async function initEngine() {
             }
             // Create wallet with strategy's budget profile
             const wallet = new BotWallet(candid, strategy.budget);
+            // Assign activity persona (timezone, active hours, trade frequency)
+            const activity = assignPersona(i);
             const state = {
                 identity: id,
                 strategy,
                 candid,
                 mcp,
                 wallet,
+                activity,
                 running: false,
                 timer: null,
                 lastRun: null,
-                stats: { runs: 0, errors: 0, ordersPlaced: 0 },
+                stats: { runs: 0, errors: 0, ordersPlaced: 0, skippedInactive: 0 },
             };
             bots.set(id.name, state);
-            addLog(id.name, "engine-init", "success", `Assigned strategy: ${strategy.name} (${strategy.tier}) | budget: $${wallet.paycheck}/14d [${strategy.budget.discipline}]`);
+            addLog(id.name, "engine-init", "success", `${strategy.name} (${strategy.tier}) | $${wallet.paycheck}/14d [${strategy.budget.discipline}] | ${activity.persona} UTC${activity.utcOffset >= 0 ? "+" : ""}${activity.utcOffset} (${Math.round(activity.baseActivityRate * 100)}% rate)`);
         }
         catch (e) {
             addLog(id.name, "engine-init", "error", `Failed to init bot: ${String(e).slice(0, 200)}`);
@@ -206,6 +225,12 @@ export function getStats() {
             lastRun: state.lastRun?.toISOString() ?? null,
             ...state.stats,
             wallet: state.wallet.toJSON(),
+            activity: {
+                persona: state.activity.persona,
+                utcOffset: state.activity.utcOffset,
+                baseRate: state.activity.baseActivityRate,
+                awake: isInActiveWindow(state.activity),
+            },
         };
     }
     return {
