@@ -5,3 +5,5 @@ node_modules
 .vscode
 .prometheus
 out/
+services/bots/bot-identities.json
+services/bots/setup.log
