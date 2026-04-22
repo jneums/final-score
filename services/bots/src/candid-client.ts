@@ -170,7 +170,20 @@ const tokenLedgerIdlFactory = ({ IDL }: { IDL: any }) => {
         expected_allowance: IDL.Opt(IDL.Nat),
         expires_at: IDL.Opt(IDL.Nat64),
       })],
-      [IDL.Variant({ Ok: IDL.Nat, Err: IDL.Text })],
+      [IDL.Variant({
+        Ok: IDL.Nat,
+        Err: IDL.Variant({
+          GenericError: IDL.Record({ error_code: IDL.Nat, message: IDL.Text }),
+          TemporarilyUnavailable: IDL.Null,
+          Duplicate: IDL.Record({ duplicate_of: IDL.Nat }),
+          BadFee: IDL.Record({ expected_fee: IDL.Nat }),
+          AllowanceChanged: IDL.Record({ current_allowance: IDL.Nat }),
+          CreatedInFuture: IDL.Record({ ledger_time: IDL.Nat64 }),
+          TooOld: IDL.Null,
+          Expired: IDL.Record({ ledger_time: IDL.Nat64 }),
+          InsufficientFunds: IDL.Record({ balance: IDL.Nat }),
+        }),
+      })],
       [],
     ),
     icrc1_balance_of: IDL.Func(
@@ -352,7 +365,7 @@ export class CandidClient {
       expires_at: [],
     });
     if ("Err" in result) {
-      throw new Error(`icrc2_approve failed: ${result.Err}`);
+      throw new Error(`icrc2_approve failed: ${JSON.stringify(result.Err)}`);
     }
   }
 
@@ -452,7 +465,7 @@ export class TokenClient {
       expires_at: [],
     });
     if ("Err" in result) {
-      throw new Error(`icrc2_approve failed: ${result.Err}`);
+      throw new Error(`icrc2_approve failed: ${JSON.stringify(result.Err)}`);
     }
   }
 
