@@ -22,21 +22,31 @@ const FAUCET_AMOUNT_USD = 10; // each faucet call gives ~$10
 const FAUCET_DELAY_MS = 2500; // delay between faucet calls to avoid rate limits
 const FAUCET_CALLS_PER_CYCLE = 3; // max faucet calls per bot per 30s cycle
 
-// ─── Global faucet semaphore ────────────────────────────────
-// Only one bot can call the faucet at a time. Others queue up.
-// Prevents concurrent faucet calls from overwhelming the canister.
+// ─── Global faucet concurrency limiter ──────────────────────
+// Limit concurrent faucet calls to avoid overwhelming the canister.
+// Allows up to MAX_CONCURRENT calls at once (vs fully serial).
 
-let faucetQueue: Promise<void> = Promise.resolve();
+const MAX_CONCURRENT_FAUCET = 3;
+let activeFaucetCalls = 0;
+const faucetWaiters: Array<() => void> = [];
 
-export function enqueueFaucetCall(fn: () => Promise<void>): Promise<void> {
-  const next = faucetQueue.then(async () => {
+export async function enqueueFaucetCall(fn: () => Promise<void>): Promise<void> {
+  // Wait for a slot if at capacity
+  if (activeFaucetCalls >= MAX_CONCURRENT_FAUCET) {
+    await new Promise<void>((resolve) => faucetWaiters.push(resolve));
+  }
+
+  activeFaucetCalls++;
+  try {
     await fn();
-    await new Promise((r) => setTimeout(r, FAUCET_DELAY_MS));
-  }).catch(() => {
-    // Don't let one failure break the chain
-  });
-  faucetQueue = next;
-  return next;
+    // Small delay to spread calls
+    await new Promise((r) => setTimeout(r, 500));
+  } finally {
+    activeFaucetCalls--;
+    // Release next waiter if any
+    const next = faucetWaiters.shift();
+    if (next) next();
+  }
 }
 
 export class BotWallet {
