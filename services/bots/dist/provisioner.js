@@ -170,6 +170,22 @@ export function returnToPool(bot) {
     addLog("provisioner", "pool", "success", `${bot.name} returned to idle pool (pool size: ${idlePool.length})`);
 }
 /**
+ * Register an identity in the provisioner's tracking (for persistence).
+ * Used for bots loaded from BOT_IDENTITIES that bypass provisionBot().
+ */
+export function registerIdentity(id) {
+    // Only track if not already known
+    if (!allProvisioned.has(id.name)) {
+        allProvisioned.set(id.name, {
+            name: id.name,
+            keyBase64: id.keyBase64,
+            principal: id.principal,
+            apiKey: id.apiKey,
+            candid: undefined, // not needed for persistence
+        });
+    }
+}
+/**
  * Load pre-existing identities from BOT_IDENTITIES config.
  * Called once on startup to bootstrap the initial set.
  */

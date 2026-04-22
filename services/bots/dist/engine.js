@@ -6,7 +6,7 @@ import { BotWallet } from "./wallet.js";
 import { assignPersona, shouldTradeThisCycle, isInActiveWindow, pickSport } from "./activity.js";
 import { ALL_STRATEGIES } from "./strategies/index.js";
 import { addLog, registerEngine, incrementStat } from "./index.js";
-import { provisionBot, returnToPool, loadExistingIdentities, restoreFromDisk, reconstructBot, persistToDisk, setNextBotIndex, getNextBotIndex, getProvisionerStats, } from "./provisioner.js";
+import { provisionBot, returnToPool, loadExistingIdentities, restoreFromDisk, reconstructBot, persistToDisk, registerIdentity, setNextBotIndex, getNextBotIndex, getProvisionerStats, } from "./provisioner.js";
 // ─── Strategy assignment plan (cyclic for any index) ─────────
 const STRATEGY_PLAN = [
     "favorite-buyer", // 0
@@ -202,6 +202,7 @@ export async function initEngine() {
                 try {
                     const state = await createBotState(id, i);
                     bots.set(id.name, state);
+                    registerIdentity(id); // Track for persistence
                     addLog(id.name, "engine-init", "success", `${state.strategy.name} (${state.strategy.tier}) | $${state.wallet.paycheck}/14d [${state.strategy.budget.discipline}] | ${state.activity.persona} UTC${state.activity.utcOffset >= 0 ? "+" : ""}${state.activity.utcOffset} (${Math.round(state.activity.baseActivityRate * 100)}% rate)`);
                 }
                 catch (e) {

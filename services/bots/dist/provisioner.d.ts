@@ -53,6 +53,11 @@ export declare function reconstructBot(identity: PersistedIdentity, needsMcp: bo
  */
 export declare function returnToPool(bot: ProvisionedBot): void;
 /**
+ * Register an identity in the provisioner's tracking (for persistence).
+ * Used for bots loaded from BOT_IDENTITIES that bypass provisionBot().
+ */
+export declare function registerIdentity(id: PersistedIdentity): void;
+/**
  * Load pre-existing identities from BOT_IDENTITIES config.
  * Called once on startup to bootstrap the initial set.
  */
