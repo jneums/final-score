@@ -45,7 +45,7 @@ export class BotWallet {
         return Math.max(0, PAY_PERIOD_DAYS - this.dayOfPeriod);
     }
     get isPaydayDue() {
-        return this.dayOfPeriod > PAY_PERIOD_DAYS;
+        return this.dayOfPeriod >= PAY_PERIOD_DAYS;
     }
     // ─── Daily spend limit based on discipline ────────────────
     get dailySpendLimit() {

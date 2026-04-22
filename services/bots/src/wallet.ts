@@ -66,7 +66,7 @@ export class BotWallet {
   }
 
   get isPaydayDue(): boolean {
-    return this.dayOfPeriod > PAY_PERIOD_DAYS;
+    return this.dayOfPeriod >= PAY_PERIOD_DAYS;
   }
 
   // ─── Daily spend limit based on discipline ────────────────

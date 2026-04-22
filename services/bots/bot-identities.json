@@ -1,0 +1,96 @@
+
+> final-score-bots@1.0.0 setup
+> tsx src/setup.ts
+
+[
+  {
+    "name": "bot-1",
+    "keyBase64": "upykcxXRGrqPjfDZeyOL80WQwKKQzyhs5BcOfAu1Qgg=",
+    "principal": "cn2hj-rq2h3-i7usn-aphjw-2flba-5vzgo-nnksb-5gqxa-ttcog-dyu3m-cae",
+    "apiKey": "cb69e3256406b5d6d7f5877e7bdbbe6d14b7542f29d864e6a27720c5ced61947"
+  },
+  {
+    "name": "bot-2",
+    "keyBase64": "1mBwLppsjVD5YhyxpEnZdXzSxuzG02RNgOUFJ4qjbGA=",
+    "principal": "y7iym-edyyb-rwdhk-i5ww5-p5f5j-kekga-nvd76-utvdh-eonl5-oxiwe-tae",
+    "apiKey": "52e2525fbf6d7c87df1898e7881d1d1cfc1ff9e30a51449019d5d89755ed5e9f"
+  },
+  {
+    "name": "bot-3",
+    "keyBase64": "ccpjnAX7gx+plfvnynFeZ0DPFmcFglmKJ6rtJhzdj3U=",
+    "principal": "ml3du-ohoub-pcj5m-alu7l-4q2g7-643wy-dfbkv-icaaz-b6bum-xwaf6-7ae",
+    "apiKey": "037111f6b780e20374837d786aa3c2cf2cf136ed801540d617697ff47c2466b9"
+  },
+  {
+    "name": "bot-4",
+    "keyBase64": "NmDDCxiwsfvPF+McSnFOqlQCrn9L/6XNL0d08OuCykU=",
+    "principal": "bhoag-i35rl-sspwc-vrmit-lca7j-sdnlo-etf2k-7g5ux-negl6-jrdbm-eqe",
+    "apiKey": "73263587673b149741c6851ddea0dbf07969c2e47f402eeea20fb4f8b37f39a4"
+  },
+  {
+    "name": "bot-5",
+    "keyBase64": "6RT4nIPvYWyTkATmNBn+L4MN/eP/Wm5HZt1GbdCmAIA=",
+    "principal": "yxxhl-zu2bf-praev-tpwvb-annpt-goxcl-uafzb-dpzwy-3xvpu-hbltm-jqe",
+    "apiKey": "ddd6903920278f4698ea7cde26ff7c76cbf5083a09123f0cba6c7365bf287767"
+  },
+  {
+    "name": "bot-6",
+    "keyBase64": "JkCa/e+z/nMyJHpDu1eWKw2VIny4kkjDjVfzyfzEYRo=",
+    "principal": "yxgcm-5peal-xtgh7-seqxx-xzbdq-o65if-c35e5-6slij-zoh5p-py2ll-5qe",
+    "apiKey": "7769b496318d61e3ea9bc59cc1b73d51a5e17981bf6a4a768205704053a3030f"
+  },
+  {
+    "name": "bot-7",
+    "keyBase64": "AhBNccS13C1rjN8VabMVs9iTyk9zZB09F0Wzz9pBdzE=",
+    "principal": "d72ox-4n7p6-mxve2-nq43q-ztiyb-t6wqo-nmtk7-kb52n-542ix-4iuxp-rqe",
+    "apiKey": "aab021429719f8732897faed82aef1cb03268bffa8a8414a6907aca04be6748f"
+  },
+  {
+    "name": "bot-8",
+    "keyBase64": "9QPYJvHLCg+4um19ABVdgq6711DfRK8PhmmhAHfozvw=",
+    "principal": "irmss-ptzxt-wsbam-gwqso-63zr2-wblvi-sgrye-d65fb-rrfpm-alaph-qae",
+    "apiKey": "990fda42165ccee417bc73b8c64016317a177a6afbe8bb75a88ed3f08b8c73ec"
+  },
+  {
+    "name": "bot-9",
+    "keyBase64": "b/WK2/AUYaIvlBEZgzPN3/FXOcRjI/UbWKRMVXDd7Ak=",
+    "principal": "nfqnr-77png-zgyez-vtgty-w3qlv-ynq3g-a5ztk-eb5tg-6oh6u-vxqco-uae",
+    "apiKey": "1c8622af467218779ea39dd7cc0b7975cde56a511f20952fdee5223f814635ce"
+  },
+  {
+    "name": "bot-10",
+    "keyBase64": "/8xdfxhanxLWu03y5MjCImx2aQ2MmJ81FKA2bWvYlHk=",
+    "principal": "hksy3-h5hkw-tmaj6-23kua-pwmrm-ukuzh-skiea-rbzqp-ohjql-3ne6m-7ae",
+    "apiKey": "c65c20b6f50dc37a0450e41ef9afe72a3efebae39e875474499c2ba3f2a55a4d"
+  },
+  {
+    "name": "bot-11",
+    "keyBase64": "DYTuJbFnFYw+Zad/rGQAgsIxs2NvCZg7su6gRBcRUzs=",
+    "principal": "vdkdm-bbrb4-dbozy-bkfok-z2wgv-2xgnu-26h3e-qckk5-faxbz-jofd4-nqe",
+    "apiKey": "7c3dabfa2b92114af4cea98ca381ccc7ce311ddd7e5eb788d269b8e27c51e0fb"
+  },
+  {
+    "name": "bot-12",
+    "keyBase64": "0Ts6s70PaN+WoQYdcLeTFs7Bxx8tcNnytPSCFw6sJ+o=",
+    "principal": "lunww-ilfke-jt5ad-fycht-of3cl-qfmo5-2mm6v-e3cii-jneai-2xs7m-xqe",
+    "apiKey": "d0265804f9adf1f05b8f088953857cac4ae4d33f8c61929b3a105210f2b643be"
+  },
+  {
+    "name": "bot-13",
+    "keyBase64": "YIlfh1HOav0JGjlKIgEDKOyxJoH3XPTh1s4XjgyRux4=",
+    "principal": "sfqwu-5pcrk-xwwsh-ewjk3-pvo2e-7vhv2-dcjjv-d4awx-ofxry-65b7j-bqe",
+    "apiKey": "f05f8abace3c9fdd1d98d0fefd35beb2ae8e42865e71a0042ec51d0184729591"
+  },
+  {
+    "name": "bot-14",
+    "keyBase64": "RM2sjfasgK77uWBV+n9eWpJp1VMMWqgREWBYflYvGmE=",
+    "principal": "di7sg-w262g-4malv-fgamo-b2mhf-5564p-cbvpd-dkjtu-fs27t-fxiyj-jqe",
+    "apiKey": "cae9e4eface0d5ec5b9d27647bf7add05f36087ee901c53fa75c5ba0212a1990"
+  },
+  {
+    "name": "bot-15",
+    "keyBase64": "tyFMs1x0y68ig9GvX4owB0fGs8TIlLkpmNxFFoiT2UE=",
+    "principal": "6uk34-slhfo-k5rjm-3haig-6ywsc-o2r3j-tdqdy-lvndp-jrcmn-szorw-oae",
+    "apiKey": "33fe71cca35456832fe18c30d37d111955dd52addba99b06e4943d61f999982f"
+  }
+]
