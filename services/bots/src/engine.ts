@@ -338,24 +338,34 @@ export async function initEngine(): Promise<void> {
     addLog("system", "engine-init", "success",
       `Restoring ${restored.identities.length} bots from encrypted pool (${restored.idleNames.size} idle)...`);
 
+    let needsRepersist = false;
+
     for (const id of restored.identities) {
       // Skip idle identities — they go back to the pool, not as active bots
       if (restored.idleNames.has(id.name)) continue;
 
       try {
         const index = parseInt(id.name.replace("bot-", "")) - 1;
-        const strategyName = id.profile?.strategy;
+
+        // Backfill profile if missing (bots persisted before profile feature)
+        if (!id.profile) {
+          id.profile = index < 15 ? buildProfileFromIndex(index) : generateRandomProfile();
+          needsRepersist = true;
+        }
+
+        const strategyName = id.profile.strategy;
         const strategy = (strategyName ? strategyMap.get(strategyName) : undefined) ?? getStrategyForIndex(index);
         const provisioned = await reconstructBot(id, strategy.tier === "mcp");
         const state = await createBotState(
           id, index, provisioned.candid, provisioned.mcp, id.profile,
         );
         bots.set(id.name, state);
-        const sportDesc = id.profile
-          ? (id.profile.secondarySport ? `${id.profile.primarySport}/${id.profile.secondarySport}` : id.profile.primarySport)
-          : "?";
+        registerIdentity(id); // Re-register with profile for persistence
+        const sportDesc = id.profile.secondarySport
+          ? `${id.profile.primarySport}/${id.profile.secondarySport}`
+          : id.profile.primarySport;
         addLog(id.name, "engine-init", "success",
-          `Restored: ${strategy.name} (${strategy.tier}) | ${state.activity.persona} UTC${state.activity.utcOffset >= 0 ? "+" : ""}${state.activity.utcOffset} | ${sportDesc}`);
+          `Restored: ${strategy.name} (${strategy.tier}) | ${state.activity.persona} UTC${state.activity.utcOffset >= 0 ? "+" : ""}${state.activity.utcOffset} | ${sportDesc} | ${id.profile.budgetTier}/${id.profile.discipline}`);
       } catch (e) {
         addLog(id.name, "engine-init", "error", `Failed to restore: ${String(e).slice(0, 200)}`);
       }
@@ -364,8 +374,13 @@ export async function initEngine(): Promise<void> {
     // Reconstruct idle pool entries
     for (const id of restored.identities) {
       if (!restored.idleNames.has(id.name)) continue;
+      if (!id.profile) {
+        const index = parseInt(id.name.replace("bot-", "")) - 1;
+        id.profile = index < 15 ? buildProfileFromIndex(index) : generateRandomProfile();
+        needsRepersist = true;
+      }
       try {
-        const strategy = getStrategyForIndex(0); // strategy doesn't matter for idle
+        const strategy = strategyMap.get(id.profile.strategy) ?? ALL_STRATEGIES[0];
         const provisioned = await reconstructBot(id, strategy.tier === "mcp");
         returnToPool(provisioned);
       } catch (e) {
@@ -374,6 +389,12 @@ export async function initEngine(): Promise<void> {
     }
 
     setNextBotIndex(restored.nextBotIndex);
+
+    // Re-persist if we backfilled any profiles
+    if (needsRepersist) {
+      persistToDisk();
+      addLog("system", "engine-init", "success", "Backfilled missing profiles and re-persisted");
+    }
   } else {
     // 2. Fall back to BOT_IDENTITIES env var (original 15)
     const existingIdentities = loadExistingIdentities();
