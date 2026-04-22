@@ -16,7 +16,7 @@ export const portfolioBuilder = {
             for (let i = 0; i < numMarkets + 3; i++) { // extra attempts for collisions/skips
                 if (placed >= numMarkets)
                     break;
-                const market = await getRandomOpenMarket(ctx.candid);
+                const market = await getRandomOpenMarket(ctx.candid, ctx.sport);
                 if (!market)
                     continue;
                 if (visited.has(market.marketId))

@@ -4,22 +4,20 @@ export function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Pick a random open market
+// Pick a random open market (optionally filtered by sport)
 export async function getRandomOpenMarket(
   candid: CandidClient,
+  sport?: string,
 ): Promise<{ marketId: string; question: string; sport: string } | null> {
-  // First get total count with offset 0
-  const probe = await candid.listMarkets(undefined, 0, 1, "Open");
+  const probe = await candid.listMarkets(sport, 0, 1, "Open");
   const total = Number(probe.total);
   if (total === 0) return null;
 
-  // Pick a random offset and fetch a small page
   const randomOffset = randomInt(0, Math.max(0, total - 1));
-  let result = await candid.listMarkets(undefined, randomOffset, 20, "Open");
+  let result = await candid.listMarkets(sport, randomOffset, 20, "Open");
 
-  // If we overshot (e.g. markets closed between calls), fall back to offset 0
   if (result.markets.length === 0 && randomOffset > 0) {
-    result = await candid.listMarkets(undefined, 0, 20, "Open");
+    result = await candid.listMarkets(sport, 0, 20, "Open");
   }
 
   if (result.markets.length === 0) return null;
@@ -35,10 +33,10 @@ export async function getRandomOpenMarket(
 // Pick a market that has liquidity (non-empty order book)
 export async function getMarketWithLiquidity(
   candid: CandidClient,
+  sport?: string,
 ): Promise<{ marketId: string; yesAsk: number; noAsk: number } | null> {
-  // Try up to 5 random open markets looking for one with liquidity
   for (let i = 0; i < 5; i++) {
-    const market = await getRandomOpenMarket(candid);
+    const market = await getRandomOpenMarket(candid, sport);
     if (!market) return null;
 
     try {

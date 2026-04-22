@@ -3,7 +3,7 @@ import { loadIdentityFromPem } from "./identity.js";
 import { CandidClient } from "./candid-client.js";
 import { McpClient } from "./mcp-client.js";
 import { BotWallet } from "./wallet.js";
-import { assignPersona, shouldTradeThisCycle, isInActiveWindow } from "./activity.js";
+import { assignPersona, shouldTradeThisCycle, isInActiveWindow, pickSport } from "./activity.js";
 import { ALL_STRATEGIES } from "./strategies/index.js";
 import { addLog, registerEngine, incrementStat } from "./index.js";
 // ─── Strategy assignment plan ────────────────────────────────
@@ -78,11 +78,14 @@ async function runBot(state) {
             return;
         }
         // 4. Run the strategy with wallet-aware context
+        const sport = pickSport(state.activity);
         const ctx = {
             name: state.identity.name,
             candid: state.candid,
             mcp: state.mcp,
             wallet: state.wallet,
+            activity: state.activity,
+            sport,
             log: (action, result, message) => {
                 addLog(state.identity.name, action, result, message);
                 if (result === "error") {
@@ -230,6 +233,8 @@ export function getStats() {
                 utcOffset: state.activity.utcOffset,
                 baseRate: state.activity.baseActivityRate,
                 awake: isInActiveWindow(state.activity),
+                primarySport: state.activity.primarySport,
+                secondarySport: state.activity.secondarySport,
             },
         };
     }

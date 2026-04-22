@@ -20,8 +20,8 @@ export const mcpFullFlow: Strategy = {
 
     try {
       // ── Step 1: List markets to find a market ID ──
-      ctx.log("step-1-markets", "success", "Listing markets via MCP...");
-      const marketsResponse = await ctx.mcp.listMarkets(undefined, "Open");
+      ctx.log("step-1-markets", "success", `Listing ${ctx.sport} markets via MCP...`);
+      const marketsResponse = await ctx.mcp.listMarkets(ctx.sport, "Open");
       const markets = parseMarketList(marketsResponse);
 
       if (markets.length === 0) {

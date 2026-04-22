@@ -8,7 +8,7 @@ export const panicSeller: Strategy = {
   budget: { tier: "medium", discipline: "impulsive" },
   act: async (ctx) => {
     try {
-      const market = await getMarketWithLiquidity(ctx.candid);
+      const market = await getMarketWithLiquidity(ctx.candid, ctx.sport);
       if (!market) {
         ctx.log("panic-seller", "skip", "No market with liquidity found");
         return;
@@ -34,7 +34,7 @@ export const panicSeller: Strategy = {
       await sleep(3000);
 
       // Re-fetch market to get current No ask
-      const freshMarket = await getMarketWithLiquidity(ctx.candid);
+      const freshMarket = await getMarketWithLiquidity(ctx.candid, ctx.sport);
       const noAskBps = freshMarket ? freshMarket.noAsk : market.noAsk;
       const noPrice = bpsToFloat(noAskBps);
 

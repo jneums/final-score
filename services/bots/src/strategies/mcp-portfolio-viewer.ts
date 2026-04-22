@@ -81,7 +81,7 @@ function countOccurrences(text: string, pattern: RegExp): number {
 async function placeSmallOrder(ctx: BotContext): Promise<void> {
   try {
     // Use MCP to discover markets, then get book-aware pricing
-    const marketsResponse = await ctx.mcp!.listMarkets(undefined, "Open");
+    const marketsResponse = await ctx.mcp!.listMarkets(ctx.sport, "Open");
     const markets = parseMarketList(marketsResponse);
 
     if (markets.length === 0) {

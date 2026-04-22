@@ -59,7 +59,7 @@ function countOccurrences(text, pattern) {
 async function placeSmallOrder(ctx) {
     try {
         // Use MCP to discover markets, then get book-aware pricing
-        const marketsResponse = await ctx.mcp.listMarkets(undefined, "Open");
+        const marketsResponse = await ctx.mcp.listMarkets(ctx.sport, "Open");
         const markets = parseMarketList(marketsResponse);
         if (markets.length === 0) {
             ctx.log("small-order", "skip", "No market found for small order");

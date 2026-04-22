@@ -8,7 +8,7 @@ export const pennyBidder: Strategy = {
   budget: { tier: "low", discipline: "impulsive" },
   act: async (ctx) => {
     try {
-      const market = await getRandomOpenMarket(ctx.candid);
+      const market = await getRandomOpenMarket(ctx.candid, ctx.sport);
       if (!market) {
         ctx.log("penny-bidder", "skip", "No open market found");
         return;

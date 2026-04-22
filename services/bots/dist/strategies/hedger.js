@@ -6,7 +6,7 @@ export const hedger = {
     budget: { tier: "medium", discipline: "disciplined" },
     act: async (ctx) => {
         try {
-            const market = await getMarketWithLiquidity(ctx.candid);
+            const market = await getMarketWithLiquidity(ctx.candid, ctx.sport);
             if (!market) {
                 ctx.log("hedger", "skip", "No market with liquidity found");
                 return;

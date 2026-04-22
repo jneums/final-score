@@ -6,7 +6,7 @@ export const scalper = {
     budget: { tier: "low", discipline: "disciplined" },
     act: async (ctx) => {
         try {
-            const market = await getRandomOpenMarket(ctx.candid);
+            const market = await getRandomOpenMarket(ctx.candid, ctx.sport);
             if (!market) {
                 ctx.log("scalper", "skip", "No open market found");
                 return;

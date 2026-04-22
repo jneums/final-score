@@ -24,6 +24,12 @@ export interface ActivityConfig {
   utcOffset: number;
   /** Base probability of trading on any given 30s cycle (0.0-1.0) */
   baseActivityRate: number;
+  /** Primary sport interest — bot mostly trades this sport */
+  primarySport: string;
+  /** Secondary sport — occasionally browses (null = primary only) */
+  secondarySport: string | null;
+  /** Probability of trading primary vs secondary (0.0-1.0, e.g. 0.8 = 80% primary) */
+  primaryBias: number;
 }
 
 interface HourRange {
@@ -159,7 +165,7 @@ const NA_OFFSETS = [-5, -5, -5, -6, -6, -7, -8, -8];
 
 /**
  * Generate an activity config for a bot index.
- * Spreads personas and timezones across the bot fleet.
+ * Spreads personas, timezones, and sport interests across the fleet.
  */
 export function assignPersona(botIndex: number): ActivityConfig {
   // Persona assignment by strategy type (matches engine.ts STRATEGY_PLAN)
@@ -181,9 +187,48 @@ export function assignPersona(botIndex: number): ActivityConfig {
     "weekend-warrior",  // bot-15 mcp-full-flow — weekend deep dives
   ];
 
+  // Sport interest per bot — designed for natural coverage with realistic fan profiles.
+  // primaryBias: 1.0 = single-sport fan, 0.7 = follows one closely but browses another
+  const SPORT_PLAN: { primary: string; secondary: string | null; bias: number }[] = [
+    { primary: "nba",  secondary: "nhl",  bias: 0.75 }, // bot-1  basketball fan, catches some hockey
+    { primary: "mlb",  secondary: null,   bias: 1.0  }, // bot-2  baseball purist
+    { primary: "nhl",  secondary: "nba",  bias: 0.70 }, // bot-3  hockey degen, dabbles basketball
+    { primary: "nba",  secondary: "mlb",  bias: 0.80 }, // bot-4  NBA scalper, catches baseball lines
+    { primary: "mlb",  secondary: "nhl",  bias: 0.75 }, // bot-5  baseball scalper, some hockey
+    { primary: "nba",  secondary: "nhl",  bias: 0.60 }, // bot-6  whale bets big on basketball + hockey
+    { primary: "nhl",  secondary: null,   bias: 1.0  }, // bot-7  pure hockey head
+    { primary: "mlb",  secondary: "nba",  bias: 0.65 }, // bot-8  penny bids across baseball + NBA
+    { primary: "nba",  secondary: "mlb",  bias: 0.70 }, // bot-9  portfolio across NBA + baseball
+    { primary: "nhl",  secondary: "nba",  bias: 0.70 }, // bot-10 panics about hockey, stress-bets NBA
+    { primary: "mlb",  secondary: null,   bias: 1.0  }, // bot-11 MCP baseball casual
+    { primary: "nba",  secondary: "nhl",  bias: 0.80 }, // bot-12 MCP basketball morning bettor
+    { primary: "nba",  secondary: "mlb",  bias: 0.70 }, // bot-13 MCP portfolio viewer, follows NBA+MLB
+    { primary: "mlb",  secondary: "nba",  bias: 0.75 }, // bot-14 MCP full-flow baseball power user
+    { primary: "nhl",  secondary: "mlb",  bias: 0.70 }, // bot-15 MCP full-flow hockey weekend warrior
+  ];
+
   const persona = PERSONA_PLAN[botIndex % PERSONA_PLAN.length];
   const utcOffset = NA_OFFSETS[botIndex % NA_OFFSETS.length];
   const baseActivityRate = BASE_RATES[persona];
+  const sport = SPORT_PLAN[botIndex % SPORT_PLAN.length];
 
-  return { persona, utcOffset, baseActivityRate };
+  return {
+    persona,
+    utcOffset,
+    baseActivityRate,
+    primarySport: sport.primary,
+    secondarySport: sport.secondary,
+    primaryBias: sport.bias,
+  };
+}
+
+/**
+ * Pick which sport the bot should browse this cycle.
+ * Respects primaryBias probability.
+ */
+export function pickSport(config: ActivityConfig): string {
+  if (!config.secondarySport || Math.random() < config.primaryBias) {
+    return config.primarySport;
+  }
+  return config.secondarySport;
 }

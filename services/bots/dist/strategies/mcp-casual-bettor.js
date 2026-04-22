@@ -16,8 +16,7 @@ export const mcpCasualBettor = {
         }
         try {
             // Step 1: List markets via MCP
-            const sports = ["nba", "nfl", "mlb", "nhl", "soccer"];
-            const sport = randomChoice(sports);
+            const sport = ctx.sport;
             ctx.log("list-markets", "success", `Browsing ${sport} markets via MCP`);
             const marketsResponse = await ctx.mcp.listMarkets(sport, "Open");
             const markets = parseMarketList(marketsResponse);

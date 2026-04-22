@@ -4,7 +4,7 @@ import { CandidClient } from "./candid-client.js";
 import { McpClient } from "./mcp-client.js";
 import { BotContext, Strategy } from "./strategy.js";
 import { BotWallet } from "./wallet.js";
-import { ActivityConfig, assignPersona, shouldTradeThisCycle, isInActiveWindow } from "./activity.js";
+import { ActivityConfig, assignPersona, shouldTradeThisCycle, isInActiveWindow, pickSport } from "./activity.js";
 import { ALL_STRATEGIES } from "./strategies/index.js";
 import { addLog, registerEngine, incrementStat } from "./index.js";
 
@@ -117,11 +117,14 @@ async function runBot(state: BotState): Promise<void> {
     }
 
     // 4. Run the strategy with wallet-aware context
+    const sport = pickSport(state.activity);
     const ctx: BotContext = {
       name: state.identity.name,
       candid: state.candid,
       mcp: state.mcp,
       wallet: state.wallet,
+      activity: state.activity,
+      sport,
       log: (action: string, result: "success" | "error" | "skip", message: string) => {
         addLog(state.identity.name, action, result, message);
         if (result === "error") {
@@ -290,6 +293,8 @@ export function getStats(): Record<string, unknown> {
         utcOffset: state.activity.utcOffset,
         baseRate: state.activity.baseActivityRate,
         awake: isInActiveWindow(state.activity),
+        primarySport: state.activity.primarySport,
+        secondarySport: state.activity.secondarySport,
       },
     };
   }

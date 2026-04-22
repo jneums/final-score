@@ -8,7 +8,7 @@ export const whale: Strategy = {
   budget: { tier: "high", discipline: "impulsive" },
   act: async (ctx) => {
     try {
-      const market = await getMarketWithLiquidity(ctx.candid);
+      const market = await getMarketWithLiquidity(ctx.candid, ctx.sport);
       if (!market) {
         ctx.log("whale", "skip", "No market with liquidity found");
         return;
