@@ -188,23 +188,24 @@ export function assignPersona(botIndex: number): ActivityConfig {
   ];
 
   // Sport interest per bot — designed for natural coverage with realistic fan profiles.
+  // Available sports: nba, nhl, mlb, cricipl, epl, lal, sea, fl1, bun, ucl
   // primaryBias: 1.0 = single-sport fan, 0.7 = follows one closely but browses another
   const SPORT_PLAN: { primary: string; secondary: string | null; bias: number }[] = [
-    { primary: "nba",  secondary: "nhl",  bias: 0.75 }, // bot-1  basketball fan, catches some hockey
-    { primary: "mlb",  secondary: null,   bias: 1.0  }, // bot-2  baseball purist
-    { primary: "nhl",  secondary: "nba",  bias: 0.70 }, // bot-3  hockey degen, dabbles basketball
-    { primary: "nba",  secondary: "mlb",  bias: 0.80 }, // bot-4  NBA scalper, catches baseball lines
-    { primary: "mlb",  secondary: "nhl",  bias: 0.75 }, // bot-5  baseball scalper, some hockey
-    { primary: "nba",  secondary: "nhl",  bias: 0.60 }, // bot-6  whale bets big on basketball + hockey
-    { primary: "nhl",  secondary: null,   bias: 1.0  }, // bot-7  pure hockey head
-    { primary: "mlb",  secondary: "nba",  bias: 0.65 }, // bot-8  penny bids across baseball + NBA
-    { primary: "nba",  secondary: "mlb",  bias: 0.70 }, // bot-9  portfolio across NBA + baseball
-    { primary: "nhl",  secondary: "nba",  bias: 0.70 }, // bot-10 panics about hockey, stress-bets NBA
-    { primary: "mlb",  secondary: null,   bias: 1.0  }, // bot-11 MCP baseball casual
-    { primary: "nba",  secondary: "nhl",  bias: 0.80 }, // bot-12 MCP basketball morning bettor
-    { primary: "nba",  secondary: "mlb",  bias: 0.70 }, // bot-13 MCP portfolio viewer, follows NBA+MLB
-    { primary: "mlb",  secondary: "nba",  bias: 0.75 }, // bot-14 MCP full-flow baseball power user
-    { primary: "nhl",  secondary: "mlb",  bias: 0.70 }, // bot-15 MCP full-flow hockey weekend warrior
+    { primary: "nba",     secondary: "nhl",     bias: 0.75 }, // bot-1  basketball fan, catches some hockey
+    { primary: "mlb",     secondary: null,       bias: 1.0  }, // bot-2  baseball purist
+    { primary: "nhl",     secondary: "nba",      bias: 0.70 }, // bot-3  hockey degen, dabbles basketball
+    { primary: "epl",     secondary: "ucl",      bias: 0.80 }, // bot-4  Premier League scalper, UCL when available
+    { primary: "cricipl", secondary: null,        bias: 1.0  }, // bot-5  cricket IPL devotee
+    { primary: "nba",     secondary: "epl",      bias: 0.60 }, // bot-6  whale: NBA + follows EPL
+    { primary: "lal",     secondary: "sea",      bias: 0.70 }, // bot-7  La Liga head, watches Serie A
+    { primary: "mlb",     secondary: "nba",      bias: 0.65 }, // bot-8  penny bids across baseball + NBA
+    { primary: "nba",     secondary: "mlb",      bias: 0.70 }, // bot-9  portfolio across NBA + baseball
+    { primary: "epl",     secondary: "bun",      bias: 0.70 }, // bot-10 EPL panic-seller, stress-bets Bundesliga
+    { primary: "cricipl", secondary: "nba",      bias: 0.80 }, // bot-11 MCP cricket casual, catches NBA highlights
+    { primary: "bun",     secondary: "fl1",      bias: 0.75 }, // bot-12 MCP Bundesliga morning bettor, French league
+    { primary: "mlb",     secondary: "cricipl",  bias: 0.70 }, // bot-13 MCP portfolio viewer, MLB + cricket
+    { primary: "fl1",     secondary: "sea",      bias: 0.75 }, // bot-14 MCP full-flow Ligue 1, Serie A
+    { primary: "nhl",     secondary: "mlb",      bias: 0.70 }, // bot-15 MCP full-flow hockey weekend warrior
   ];
 
   const persona = PERSONA_PLAN[botIndex % PERSONA_PLAN.length];
