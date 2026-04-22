@@ -76,7 +76,14 @@ async function runBot(state: BotState): Promise<void> {
   if (!state.running) return;
 
   try {
-    // 0. Activity window check — skip if bot is "asleep"
+    // 0. Payday check — runs regardless of activity window (you get paid even when sleeping)
+    await state.wallet.refreshBalance();
+    await state.wallet.runPaydayIfDue(
+      () => state.candid.callFaucet(),
+      (msg) => addLog(state.identity.name, "payday", "success", msg),
+    );
+
+    // 1. Activity window check — skip if bot is "asleep"
     if (!shouldTradeThisCycle(state.activity)) {
       // Silent skip — don't log every 30s cycle when sleeping.
       // Only log occasionally so we know it's alive.
@@ -92,14 +99,8 @@ async function runBot(state: BotState): Promise<void> {
       return;
     }
 
-    // 1. Refresh balance (cached, only hits chain every 5 min)
+    // 2. Refresh balance (may have changed from payday or other activity)
     await state.wallet.refreshBalance();
-
-    // 2. Payday check — auto-fund from faucet if due
-    await state.wallet.runPaydayIfDue(
-      () => state.candid.callFaucet(),
-      (msg) => addLog(state.identity.name, "payday", "success", msg),
-    );
 
     // 3. Budget gate — skip if can't afford anything
     if (!state.wallet.canAfford(0.10)) { // $0.10 minimum order cost
