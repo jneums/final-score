@@ -2,13 +2,16 @@
  * Bot provisioner — creates new bot identities at runtime.
  *
  * Handles: identity generation, token approval, API key creation,
- * and an identity pool so bots can be re-used after scaling down.
+ * identity pool for reuse, and encrypted persistence to disk.
  */
-import { generateIdentity } from "./identity.js";
+import { generateIdentity, loadIdentityFromPem } from "./identity.js";
 import { CandidClient, TokenClient } from "./candid-client.js";
 import { McpClient } from "./mcp-client.js";
 import { CONFIG } from "./config.js";
 import { addLog } from "./index.js";
+import { loadPool, savePool, isPersistenceEnabled, } from "./persistence.js";
+// ─── Config ─────────────────────────────────────────────────
+const POOL_FILE = process.env.BOT_POOL_PATH || "/data/bot-pool.enc";
 // ─── Identity Pool ──────────────────────────────────────────
 /**
  * Pool of provisioned identities that can be reused when scaling
@@ -24,6 +27,62 @@ export function setNextBotIndex(index) {
 }
 export function getNextBotIndex() {
     return nextBotIndex;
+}
+// ─── Persistence Integration ────────────────────────────────
+/**
+ * Restore identities from encrypted disk on startup.
+ * Returns the persisted identities that should be used instead of
+ * (or merged with) BOT_IDENTITIES env var.
+ */
+export async function restoreFromDisk() {
+    const pool = loadPool(POOL_FILE);
+    if (!pool)
+        return null;
+    return {
+        identities: pool.identities,
+        idleNames: new Set(pool.idleNames),
+        nextBotIndex: pool.nextBotIndex,
+    };
+}
+/**
+ * Persist the current state to encrypted disk.
+ * Called after every scale operation and periodically.
+ */
+export function persistToDisk() {
+    if (!isPersistenceEnabled())
+        return;
+    // Collect all known identities (active + idle pool)
+    const identities = [];
+    const idleNames = [];
+    // Active bots
+    for (const [name, bot] of allProvisioned) {
+        identities.push({
+            name,
+            keyBase64: bot.keyBase64,
+            principal: bot.principal,
+            apiKey: bot.apiKey,
+        });
+    }
+    // Idle pool (may overlap with allProvisioned by name, dedupe by principal)
+    const seenPrincipals = new Set(identities.map((i) => i.principal));
+    for (const bot of idlePool) {
+        if (!seenPrincipals.has(bot.principal)) {
+            identities.push({
+                name: bot.name,
+                keyBase64: bot.keyBase64,
+                principal: bot.principal,
+                apiKey: bot.apiKey,
+            });
+        }
+        idleNames.push(bot.name);
+    }
+    const pool = {
+        identities,
+        idleNames,
+        nextBotIndex,
+        updatedAt: new Date().toISOString(),
+    };
+    savePool(POOL_FILE, pool);
 }
 // ─── Provisioning ───────────────────────────────────────────
 /**
@@ -58,9 +117,7 @@ export async function provisionBot(botName, needsMcp) {
     }
     catch (e) {
         addLog("provisioner", "approve", "error", `${botName}: token approval failed: ${String(e).slice(0, 150)}`);
-        // Continue anyway — approval can be retried, and the bot can still do read operations
     }
-    // Small delay to avoid hammering the IC
     await sleep(1000);
     // 5. Create API key for MCP bots (self-serve — bot creates its own key)
     let apiKey = "";
@@ -85,6 +142,25 @@ export async function provisionBot(botName, needsMcp) {
     };
     allProvisioned.set(botName, provisioned);
     return provisioned;
+}
+/**
+ * Reconstruct a ProvisionedBot from a persisted identity.
+ * Used when restoring from disk.
+ */
+export async function reconstructBot(identity, needsMcp) {
+    const ident = loadIdentityFromPem(identity.keyBase64);
+    const candid = await CandidClient.create(ident);
+    const mcp = needsMcp && identity.apiKey ? new McpClient(identity.apiKey) : undefined;
+    const bot = {
+        name: identity.name,
+        keyBase64: identity.keyBase64,
+        principal: identity.principal,
+        apiKey: identity.apiKey,
+        candid,
+        mcp,
+    };
+    allProvisioned.set(identity.name, bot);
+    return bot;
 }
 /**
  * Return a bot identity to the idle pool for reuse.
@@ -114,6 +190,8 @@ export function getProvisionerStats() {
         totalProvisioned: allProvisioned.size,
         idlePoolSize: idlePool.length,
         nextBotIndex,
+        persistenceEnabled: isPersistenceEnabled(),
+        poolFile: POOL_FILE,
     };
 }
 // ─── Helpers ────────────────────────────────────────────────

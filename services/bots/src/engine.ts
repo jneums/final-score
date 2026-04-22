@@ -11,6 +11,9 @@ import {
   provisionBot,
   returnToPool,
   loadExistingIdentities,
+  restoreFromDisk,
+  reconstructBot,
+  persistToDisk,
   setNextBotIndex,
   getNextBotIndex,
   getProvisionerStats,
@@ -216,27 +219,72 @@ function stopBotState(state: BotState): void {
 // ─── Engine API ─────────────────────────────────────────────
 
 export async function initEngine(): Promise<void> {
-  const existingIdentities = loadExistingIdentities();
+  // 1. Try restoring from encrypted disk first (has all dynamically scaled bots)
+  const restored = await restoreFromDisk();
 
-  if (existingIdentities.length === 0) {
-    addLog("system", "engine-init", "skip", "BOT_IDENTITIES is empty — engine ready for dynamic scaling via /scale");
-    setNextBotIndex(0);
-  } else {
-    addLog("system", "engine-init", "success", `Initializing ${existingIdentities.length} bots from BOT_IDENTITIES...`);
+  if (restored && restored.identities.length > 0) {
+    addLog("system", "engine-init", "success",
+      `Restoring ${restored.identities.length} bots from encrypted pool (${restored.idleNames.size} idle)...`);
 
-    for (let i = 0; i < existingIdentities.length; i++) {
-      const id = existingIdentities[i];
+    for (const id of restored.identities) {
+      // Skip idle identities — they go back to the pool, not as active bots
+      if (restored.idleNames.has(id.name)) continue;
+
       try {
-        const state = await createBotState(id, i);
+        const index = parseInt(id.name.replace("bot-", "")) - 1;
+        const strategy = getStrategyForIndex(index);
+        const provisioned = await reconstructBot(id, strategy.tier === "mcp");
+        const state = await createBotState(
+          id, index, provisioned.candid, provisioned.mcp,
+        );
         bots.set(id.name, state);
         addLog(id.name, "engine-init", "success",
-          `${state.strategy.name} (${state.strategy.tier}) | $${state.wallet.paycheck}/14d [${state.strategy.budget.discipline}] | ${state.activity.persona} UTC${state.activity.utcOffset >= 0 ? "+" : ""}${state.activity.utcOffset} (${Math.round(state.activity.baseActivityRate * 100)}% rate)`);
+          `Restored: ${strategy.name} (${strategy.tier}) | ${state.activity.persona}`);
       } catch (e) {
-        addLog(id.name, "engine-init", "error", `Failed to init bot: ${String(e).slice(0, 200)}`);
+        addLog(id.name, "engine-init", "error", `Failed to restore: ${String(e).slice(0, 200)}`);
       }
     }
 
-    setNextBotIndex(existingIdentities.length);
+    // Reconstruct idle pool entries
+    for (const id of restored.identities) {
+      if (!restored.idleNames.has(id.name)) continue;
+      try {
+        const strategy = getStrategyForIndex(0); // strategy doesn't matter for idle
+        const provisioned = await reconstructBot(id, strategy.tier === "mcp");
+        returnToPool(provisioned);
+      } catch (e) {
+        addLog(id.name, "engine-init", "error", `Failed to restore idle: ${String(e).slice(0, 200)}`);
+      }
+    }
+
+    setNextBotIndex(restored.nextBotIndex);
+  } else {
+    // 2. Fall back to BOT_IDENTITIES env var (original 15)
+    const existingIdentities = loadExistingIdentities();
+
+    if (existingIdentities.length === 0) {
+      addLog("system", "engine-init", "skip", "No identities found — engine ready for dynamic scaling via /scale");
+      setNextBotIndex(0);
+    } else {
+      addLog("system", "engine-init", "success", `Initializing ${existingIdentities.length} bots from BOT_IDENTITIES...`);
+
+      for (let i = 0; i < existingIdentities.length; i++) {
+        const id = existingIdentities[i];
+        try {
+          const state = await createBotState(id, i);
+          bots.set(id.name, state);
+          addLog(id.name, "engine-init", "success",
+            `${state.strategy.name} (${state.strategy.tier}) | $${state.wallet.paycheck}/14d [${state.strategy.budget.discipline}] | ${state.activity.persona} UTC${state.activity.utcOffset >= 0 ? "+" : ""}${state.activity.utcOffset} (${Math.round(state.activity.baseActivityRate * 100)}% rate)`);
+        } catch (e) {
+          addLog(id.name, "engine-init", "error", `Failed to init bot: ${String(e).slice(0, 200)}`);
+        }
+      }
+
+      setNextBotIndex(existingIdentities.length);
+    }
+
+    // Persist initial state if persistence is enabled
+    persistToDisk();
   }
 
   registerEngine({
@@ -331,6 +379,7 @@ export async function scaleTo(
     return { before: currentCount, after: currentCount, added, removed };
   }
 
+  try {
   if (targetCount > currentCount) {
     // ─── Scale UP ─────────────────────────────────────
     const toAdd = targetCount - currentCount;
@@ -405,6 +454,10 @@ export async function scaleTo(
     added,
     removed,
   };
+  } finally {
+    // Always persist after scaling
+    persistToDisk();
+  }
 }
 
 // ─── Stats ──────────────────────────────────────────────────

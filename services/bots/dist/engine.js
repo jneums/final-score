@@ -6,7 +6,7 @@ import { BotWallet } from "./wallet.js";
 import { assignPersona, shouldTradeThisCycle, isInActiveWindow, pickSport } from "./activity.js";
 import { ALL_STRATEGIES } from "./strategies/index.js";
 import { addLog, registerEngine, incrementStat } from "./index.js";
-import { provisionBot, returnToPool, loadExistingIdentities, setNextBotIndex, getNextBotIndex, getProvisionerStats, } from "./provisioner.js";
+import { provisionBot, returnToPool, loadExistingIdentities, restoreFromDisk, reconstructBot, persistToDisk, setNextBotIndex, getNextBotIndex, getProvisionerStats, } from "./provisioner.js";
 // ─── Strategy assignment plan (cyclic for any index) ─────────
 const STRATEGY_PLAN = [
     "favorite-buyer", // 0
@@ -153,25 +153,65 @@ function stopBotState(state) {
 }
 // ─── Engine API ─────────────────────────────────────────────
 export async function initEngine() {
-    const existingIdentities = loadExistingIdentities();
-    if (existingIdentities.length === 0) {
-        addLog("system", "engine-init", "skip", "BOT_IDENTITIES is empty — engine ready for dynamic scaling via /scale");
-        setNextBotIndex(0);
-    }
-    else {
-        addLog("system", "engine-init", "success", `Initializing ${existingIdentities.length} bots from BOT_IDENTITIES...`);
-        for (let i = 0; i < existingIdentities.length; i++) {
-            const id = existingIdentities[i];
+    // 1. Try restoring from encrypted disk first (has all dynamically scaled bots)
+    const restored = await restoreFromDisk();
+    if (restored && restored.identities.length > 0) {
+        addLog("system", "engine-init", "success", `Restoring ${restored.identities.length} bots from encrypted pool (${restored.idleNames.size} idle)...`);
+        for (const id of restored.identities) {
+            // Skip idle identities — they go back to the pool, not as active bots
+            if (restored.idleNames.has(id.name))
+                continue;
             try {
-                const state = await createBotState(id, i);
+                const index = parseInt(id.name.replace("bot-", "")) - 1;
+                const strategy = getStrategyForIndex(index);
+                const provisioned = await reconstructBot(id, strategy.tier === "mcp");
+                const state = await createBotState(id, index, provisioned.candid, provisioned.mcp);
                 bots.set(id.name, state);
-                addLog(id.name, "engine-init", "success", `${state.strategy.name} (${state.strategy.tier}) | $${state.wallet.paycheck}/14d [${state.strategy.budget.discipline}] | ${state.activity.persona} UTC${state.activity.utcOffset >= 0 ? "+" : ""}${state.activity.utcOffset} (${Math.round(state.activity.baseActivityRate * 100)}% rate)`);
+                addLog(id.name, "engine-init", "success", `Restored: ${strategy.name} (${strategy.tier}) | ${state.activity.persona}`);
             }
             catch (e) {
-                addLog(id.name, "engine-init", "error", `Failed to init bot: ${String(e).slice(0, 200)}`);
+                addLog(id.name, "engine-init", "error", `Failed to restore: ${String(e).slice(0, 200)}`);
             }
         }
-        setNextBotIndex(existingIdentities.length);
+        // Reconstruct idle pool entries
+        for (const id of restored.identities) {
+            if (!restored.idleNames.has(id.name))
+                continue;
+            try {
+                const strategy = getStrategyForIndex(0); // strategy doesn't matter for idle
+                const provisioned = await reconstructBot(id, strategy.tier === "mcp");
+                returnToPool(provisioned);
+            }
+            catch (e) {
+                addLog(id.name, "engine-init", "error", `Failed to restore idle: ${String(e).slice(0, 200)}`);
+            }
+        }
+        setNextBotIndex(restored.nextBotIndex);
+    }
+    else {
+        // 2. Fall back to BOT_IDENTITIES env var (original 15)
+        const existingIdentities = loadExistingIdentities();
+        if (existingIdentities.length === 0) {
+            addLog("system", "engine-init", "skip", "No identities found — engine ready for dynamic scaling via /scale");
+            setNextBotIndex(0);
+        }
+        else {
+            addLog("system", "engine-init", "success", `Initializing ${existingIdentities.length} bots from BOT_IDENTITIES...`);
+            for (let i = 0; i < existingIdentities.length; i++) {
+                const id = existingIdentities[i];
+                try {
+                    const state = await createBotState(id, i);
+                    bots.set(id.name, state);
+                    addLog(id.name, "engine-init", "success", `${state.strategy.name} (${state.strategy.tier}) | $${state.wallet.paycheck}/14d [${state.strategy.budget.discipline}] | ${state.activity.persona} UTC${state.activity.utcOffset >= 0 ? "+" : ""}${state.activity.utcOffset} (${Math.round(state.activity.baseActivityRate * 100)}% rate)`);
+                }
+                catch (e) {
+                    addLog(id.name, "engine-init", "error", `Failed to init bot: ${String(e).slice(0, 200)}`);
+                }
+            }
+            setNextBotIndex(existingIdentities.length);
+        }
+        // Persist initial state if persistence is enabled
+        persistToDisk();
     }
     registerEngine({
         start: async () => { startAll(); },
@@ -249,66 +289,72 @@ export async function scaleTo(targetCount, shouldAutoStart) {
     if (targetCount === currentCount) {
         return { before: currentCount, after: currentCount, added, removed };
     }
-    if (targetCount > currentCount) {
-        // ─── Scale UP ─────────────────────────────────────
-        const toAdd = targetCount - currentCount;
-        addLog("system", "scale", "success", `Scaling UP: ${currentCount} → ${targetCount} (+${toAdd})`);
-        for (let i = 0; i < toAdd; i++) {
-            const botIndex = getNextBotIndex();
-            const botName = `bot-${botIndex + 1}`;
-            const strategy = getStrategyForIndex(botIndex);
-            const needsMcp = strategy.tier === "mcp";
-            try {
-                const provisioned = await provisionBot(botName, needsMcp);
-                const state = await createBotState({
-                    name: provisioned.name,
-                    keyBase64: provisioned.keyBase64,
-                    principal: provisioned.principal,
-                    apiKey: provisioned.apiKey,
-                }, botIndex, provisioned.candid, provisioned.mcp);
-                bots.set(botName, state);
-                setNextBotIndex(botIndex + 1);
-                if (shouldAutoStart) {
-                    startBotState(state);
+    try {
+        if (targetCount > currentCount) {
+            // ─── Scale UP ─────────────────────────────────────
+            const toAdd = targetCount - currentCount;
+            addLog("system", "scale", "success", `Scaling UP: ${currentCount} → ${targetCount} (+${toAdd})`);
+            for (let i = 0; i < toAdd; i++) {
+                const botIndex = getNextBotIndex();
+                const botName = `bot-${botIndex + 1}`;
+                const strategy = getStrategyForIndex(botIndex);
+                const needsMcp = strategy.tier === "mcp";
+                try {
+                    const provisioned = await provisionBot(botName, needsMcp);
+                    const state = await createBotState({
+                        name: provisioned.name,
+                        keyBase64: provisioned.keyBase64,
+                        principal: provisioned.principal,
+                        apiKey: provisioned.apiKey,
+                    }, botIndex, provisioned.candid, provisioned.mcp);
+                    bots.set(botName, state);
+                    setNextBotIndex(botIndex + 1);
+                    if (shouldAutoStart) {
+                        startBotState(state);
+                    }
+                    addLog(botName, "scale", "success", `Added: ${strategy.name} (${strategy.tier}) | ${state.activity.persona}`);
+                    added.push(botName);
                 }
-                addLog(botName, "scale", "success", `Added: ${strategy.name} (${strategy.tier}) | ${state.activity.persona}`);
-                added.push(botName);
-            }
-            catch (e) {
-                addLog(botName, "scale", "error", `Failed to provision: ${String(e).slice(0, 200)}`);
+                catch (e) {
+                    addLog(botName, "scale", "error", `Failed to provision: ${String(e).slice(0, 200)}`);
+                }
             }
         }
-    }
-    else {
-        // ─── Scale DOWN ───────────────────────────────────
-        const toRemove = currentCount - targetCount;
-        addLog("system", "scale", "success", `Scaling DOWN: ${currentCount} → ${targetCount} (-${toRemove})`);
-        // Remove highest-index bots first (LIFO)
-        const sortedBots = Array.from(bots.entries())
-            .sort((a, b) => b[1].botIndex - a[1].botIndex);
-        for (let i = 0; i < toRemove && i < sortedBots.length; i++) {
-            const [name, state] = sortedBots[i];
-            stopBotState(state);
-            // Return identity to pool for reuse
-            returnToPool({
-                name: state.identity.name,
-                keyBase64: state.identity.keyBase64,
-                principal: state.identity.principal,
-                apiKey: state.identity.apiKey,
-                candid: state.candid,
-                mcp: state.mcp,
-            });
-            bots.delete(name);
-            addLog(name, "scale", "success", `Removed (returned to pool)`);
-            removed.push(name);
+        else {
+            // ─── Scale DOWN ───────────────────────────────────
+            const toRemove = currentCount - targetCount;
+            addLog("system", "scale", "success", `Scaling DOWN: ${currentCount} → ${targetCount} (-${toRemove})`);
+            // Remove highest-index bots first (LIFO)
+            const sortedBots = Array.from(bots.entries())
+                .sort((a, b) => b[1].botIndex - a[1].botIndex);
+            for (let i = 0; i < toRemove && i < sortedBots.length; i++) {
+                const [name, state] = sortedBots[i];
+                stopBotState(state);
+                // Return identity to pool for reuse
+                returnToPool({
+                    name: state.identity.name,
+                    keyBase64: state.identity.keyBase64,
+                    principal: state.identity.principal,
+                    apiKey: state.identity.apiKey,
+                    candid: state.candid,
+                    mcp: state.mcp,
+                });
+                bots.delete(name);
+                addLog(name, "scale", "success", `Removed (returned to pool)`);
+                removed.push(name);
+            }
         }
+        return {
+            before: currentCount,
+            after: bots.size,
+            added,
+            removed,
+        };
     }
-    return {
-        before: currentCount,
-        after: bots.size,
-        added,
-        removed,
-    };
+    finally {
+        // Always persist after scaling
+        persistToDisk();
+    }
 }
 // ─── Stats ──────────────────────────────────────────────────
 export function getStats() {
