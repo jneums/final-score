@@ -4,8 +4,8 @@
  * Handles: identity generation, token approval, API key creation,
  * and an identity pool so bots can be re-used after scaling down.
  */
-import { generateIdentity, loadAdminIdentity } from "./identity.js";
-import { AdminClient, CandidClient, TokenClient } from "./candid-client.js";
+import { generateIdentity } from "./identity.js";
+import { CandidClient, TokenClient } from "./candid-client.js";
 import { McpClient } from "./mcp-client.js";
 import { CONFIG } from "./config.js";
 import { addLog } from "./index.js";
@@ -24,25 +24,6 @@ export function setNextBotIndex(index) {
 }
 export function getNextBotIndex() {
     return nextBotIndex;
-}
-// ─── Admin client singleton ─────────────────────────────────
-let adminClient = null;
-async function getAdminClient() {
-    if (adminClient)
-        return adminClient;
-    if (!CONFIG.ADMIN_IDENTITY_PEM) {
-        addLog("provisioner", "admin", "skip", "No ADMIN_IDENTITY_PEM — cannot create API keys for MCP bots");
-        return null;
-    }
-    try {
-        const adminIdentity = loadAdminIdentity();
-        adminClient = await AdminClient.create(adminIdentity);
-        return adminClient;
-    }
-    catch (e) {
-        addLog("provisioner", "admin", "error", `Failed to create admin client: ${String(e).slice(0, 200)}`);
-        return null;
-    }
 }
 // ─── Provisioning ───────────────────────────────────────────
 /**
@@ -81,20 +62,17 @@ export async function provisionBot(botName, needsMcp) {
     }
     // Small delay to avoid hammering the IC
     await sleep(1000);
-    // 5. Create API key for MCP bots
+    // 5. Create API key for MCP bots (self-serve — bot creates its own key)
     let apiKey = "";
     if (needsMcp) {
-        const admin = await getAdminClient();
-        if (admin) {
-            try {
-                apiKey = await admin.createApiKey(gen.principal, botName, ["all"]);
-                addLog("provisioner", "api-key", "success", `${botName}: API key created`);
-            }
-            catch (e) {
-                addLog("provisioner", "api-key", "error", `${botName}: API key failed: ${String(e).slice(0, 150)}`);
-            }
-            await sleep(1000);
+        try {
+            apiKey = await candid.createMyApiKey(botName, ["all"]);
+            addLog("provisioner", "api-key", "success", `${botName}: API key created (self-serve)`);
         }
+        catch (e) {
+            addLog("provisioner", "api-key", "error", `${botName}: API key failed: ${String(e).slice(0, 150)}`);
+        }
+        await sleep(1000);
     }
     const mcp = needsMcp && apiKey ? new McpClient(apiKey) : undefined;
     const provisioned = {
@@ -136,7 +114,6 @@ export function getProvisionerStats() {
         totalProvisioned: allProvisioned.size,
         idlePoolSize: idlePool.length,
         nextBotIndex,
-        hasAdminClient: !!adminClient,
     };
 }
 // ─── Helpers ────────────────────────────────────────────────

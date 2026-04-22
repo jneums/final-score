@@ -84,6 +84,7 @@ export declare class CandidClient {
     getOrderBook(marketId: string, depth?: number): Promise<OrderBookResult>;
     approve(spenderCanisterId: string, amount: bigint): Promise<void>;
     getBalance(): Promise<bigint>;
+    createMyApiKey(name: string, scopes?: string[]): Promise<string>;
     callFaucet(): Promise<void>;
 }
 export declare class AdminClient {

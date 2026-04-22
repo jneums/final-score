@@ -83,6 +83,7 @@ const idlFactory = ({ IDL }) => {
         // Trading
         place_order: IDL.Func([IDL.Text, IDL.Text, IDL.Float64, IDL.Nat], [PlaceOrderResult], []),
         cancel_order: IDL.Func([IDL.Text], [Result], []),
+        create_my_api_key: IDL.Func([IDL.Text, IDL.Vec(IDL.Text)], [IDL.Text], []),
         requote_market: IDL.Func([IDL.Text, IDL.Vec(IDL.Record({ outcome: IDL.Text, price: IDL.Float64, size: IDL.Nat }))], [IDL.Variant({
                 ok: IDL.Record({ cancelled: IDL.Nat, placed: IDL.Nat, escrowed: IDL.Int }),
                 err: IDL.Text,
@@ -206,6 +207,9 @@ export class CandidClient {
             owner: this.identity.getPrincipal(),
             subaccount: [],
         });
+    }
+    async createMyApiKey(name, scopes = ["all"]) {
+        return this.actor.create_my_api_key(name, scopes);
     }
     async callFaucet() {
         const faucetActor = Actor.createActor(faucetIdlFactory, {

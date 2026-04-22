@@ -110,6 +110,7 @@ const idlFactory = ({ IDL }: { IDL: any }) => {
       [],
     ),
     cancel_order: IDL.Func([IDL.Text], [Result], []),
+    create_my_api_key: IDL.Func([IDL.Text, IDL.Vec(IDL.Text)], [IDL.Text], []),
     requote_market: IDL.Func(
       [IDL.Text, IDL.Vec(IDL.Record({ outcome: IDL.Text, price: IDL.Float64, size: IDL.Nat }))],
       [IDL.Variant({
@@ -360,6 +361,10 @@ export class CandidClient {
       owner: this.identity.getPrincipal(),
       subaccount: [],
     });
+  }
+
+  async createMyApiKey(name: string, scopes: string[] = ["all"]): Promise<string> {
+    return this.actor.create_my_api_key(name, scopes);
   }
 
   async callFaucet(): Promise<void> {
