@@ -15,6 +15,8 @@ export declare class BotWallet {
     private _spentToday;
     private _spentThisPeriod;
     private _lastSpendDate;
+    private _paydayJitterMs;
+    private _booted;
     constructor(candid: CandidClient, profile: BudgetProfile);
     get balance(): bigint;
     get balanceUsd(): number;

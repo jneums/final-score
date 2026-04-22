@@ -7,6 +7,7 @@ const PAY_PERIOD_DAYS = 14;
 const BALANCE_CACHE_MS = 5 * 60 * 1000; // refresh every 5 min
 const TOKEN_DECIMALS = 1e8; // 8 decimals
 const FAUCET_AMOUNT_USD = 10; // each faucet call gives ~$10
+const FAUCET_DELAY_MS = 2500; // delay between faucet calls to avoid rate limits
 export class BotWallet {
     candid;
     profile;
@@ -18,13 +19,18 @@ export class BotWallet {
     _spentToday = 0;
     _spentThisPeriod = 0;
     _lastSpendDate = ""; // YYYY-MM-DD for daily reset
+    _paydayJitterMs = 0;
+    _booted = false;
     constructor(candid, profile) {
         this.candid = candid;
         this.profile = profile;
         this.config = TIER_CONFIG[profile.tier];
-        // First boot = payday is now (will trigger funding on first check)
+        // First boot = payday is due, but add random jitter (0-60s) so bots
+        // don't all slam the faucet at the exact same moment
         this._lastPayday = new Date();
-        this._lastPayday.setDate(this._lastPayday.getDate() - PAY_PERIOD_DAYS); // Force immediate payday
+        this._lastPayday.setDate(this._lastPayday.getDate() - PAY_PERIOD_DAYS);
+        this._paydayJitterMs = Math.floor(Math.random() * 60_000);
+        this._booted = false;
     }
     // ─── Getters ──────────────────────────────────────────────
     get balance() { return this._balance; }
@@ -103,6 +109,14 @@ export class BotWallet {
     async runPaydayIfDue(faucetFn, log) {
         if (!this.isPaydayDue)
             return false;
+        // First-boot jitter: wait 0-60s so bots don't all hit faucet simultaneously
+        if (!this._booted) {
+            this._booted = true;
+            if (this._paydayJitterMs > 0) {
+                log(`Payday jitter: waiting ${Math.round(this._paydayJitterMs / 1000)}s...`);
+                await new Promise((r) => setTimeout(r, this._paydayJitterMs));
+            }
+        }
         // Calculate how many faucet calls needed
         const numCalls = Math.ceil(this.config.paycheck / FAUCET_AMOUNT_USD);
         log(`Payday! Depositing ~$${this.config.paycheck} (${numCalls} faucet calls)...`);
@@ -114,6 +128,10 @@ export class BotWallet {
             }
             catch (e) {
                 log(`Faucet call ${i + 1}/${numCalls} failed: ${String(e).slice(0, 100)}`);
+            }
+            // Delay between calls to avoid hammering the faucet canister
+            if (i < numCalls - 1) {
+                await new Promise((r) => setTimeout(r, FAUCET_DELAY_MS));
             }
         }
         // Reset period tracking
