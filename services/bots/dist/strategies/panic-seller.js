@@ -3,6 +3,7 @@ export const panicSeller = {
     name: "panic-seller",
     description: "Buys one side then immediately exits by buying the opposite to trigger netting",
     tier: "candid",
+    budget: { tier: "medium", discipline: "impulsive" },
     act: async (ctx) => {
         try {
             const market = await getMarketWithLiquidity(ctx.candid);

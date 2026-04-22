@@ -3,13 +3,12 @@ import { loadIdentityFromPem } from "./identity.js";
 import { CandidClient } from "./candid-client.js";
 import { McpClient } from "./mcp-client.js";
 import { BotContext, Strategy } from "./strategy.js";
+import { BotWallet } from "./wallet.js";
 import { ALL_STRATEGIES } from "./strategies/index.js";
 import { addLog, registerEngine, incrementStat } from "./index.js";
 
 // ─── Strategy assignment plan ────────────────────────────────
 
-// Maps bot index → strategy name for the first 15 bots.
-// If fewer bots, assign what we have. If more, cycle through.
 const STRATEGY_PLAN: string[] = [
   "favorite-buyer",    // 0
   "favorite-buyer",    // 1
@@ -42,6 +41,7 @@ interface BotState {
   strategy: Strategy;
   candid: CandidClient;
   mcp?: McpClient;
+  wallet: BotWallet;
   running: boolean;
   timer: ReturnType<typeof setInterval> | null;
   lastRun: Date | null;
@@ -52,7 +52,6 @@ interface BotState {
 
 const bots = new Map<string, BotState>();
 
-// Build a map from strategy name → Strategy object
 const strategyMap = new Map<string, Strategy>();
 for (const s of ALL_STRATEGIES) {
   strategyMap.set(s.name, s);
@@ -65,7 +64,6 @@ function getStrategyForIndex(index: number): Strategy {
   const name = STRATEGY_PLAN[planIndex];
   const strategy = strategyMap.get(name);
   if (!strategy) {
-    // Fallback to first available strategy
     addLog("system", "engine", "error", `Strategy "${name}" not found, falling back to ${ALL_STRATEGIES[0].name}`);
     return ALL_STRATEGIES[0];
   }
@@ -75,32 +73,46 @@ function getStrategyForIndex(index: number): Strategy {
 async function runBot(state: BotState): Promise<void> {
   if (!state.running) return;
 
-  const ctx: BotContext = {
-    name: state.identity.name,
-    candid: state.candid,
-    mcp: state.mcp,
-    log: (action: string, result: "success" | "error" | "skip", message: string) => {
-      addLog(state.identity.name, action, result, message);
-      if (result === "error") {
-        state.stats.errors++;
-        incrementStat("totalErrors");
-      }
-    },
-  };
-
   try {
-    // Pre-flight balance check for candid bots — skip if too low to place any order
-    if (state.strategy.tier === "candid") {
-      const balance = await state.candid.getBalance();
-      const MIN_BALANCE = BigInt(100_000_000); // $1.00 minimum (8 decimals)
-      if (balance < MIN_BALANCE) {
-        addLog(state.identity.name, "balance-check", "skip",
-          `Balance too low: ${balance.toString()} (min: ${MIN_BALANCE.toString()}). Skipping run.`);
-        state.stats.runs++;
-        state.lastRun = new Date();
-        return;
+    // 1. Refresh balance (cached, only hits chain every 5 min)
+    await state.wallet.refreshBalance();
+
+    // 2. Payday check — auto-fund from faucet if due
+    await state.wallet.runPaydayIfDue(
+      () => state.candid.callFaucet(),
+      (msg) => addLog(state.identity.name, "payday", "success", msg),
+    );
+
+    // 3. Budget gate — skip if can't afford anything
+    if (!state.wallet.canAfford(0.10)) { // $0.10 minimum order cost
+      const w = state.wallet;
+      if (w.balanceUsd < 1) {
+        addLog(state.identity.name, "budget", "skip",
+          `Broke ($${w.balanceUsd.toFixed(2)}). Day ${w.dayOfPeriod}/14, ${w.daysUntilPayday} days to payday.`);
+      } else {
+        addLog(state.identity.name, "budget", "skip",
+          `Daily budget exhausted ($${w.spentToday.toFixed(2)}/$${w.dailySpendLimit.toFixed(2)}). Remaining this period: $${w.remainingBudget.toFixed(2)}`);
       }
+      state.stats.runs++;
+      state.lastRun = new Date();
+      return;
     }
+
+    // 4. Run the strategy with wallet-aware context
+    const ctx: BotContext = {
+      name: state.identity.name,
+      candid: state.candid,
+      mcp: state.mcp,
+      wallet: state.wallet,
+      log: (action: string, result: "success" | "error" | "skip", message: string) => {
+        addLog(state.identity.name, action, result, message);
+        if (result === "error") {
+          state.stats.errors++;
+          incrementStat("totalErrors");
+        }
+      },
+    };
+
     await state.strategy.act(ctx);
     state.stats.runs++;
   } catch (e) {
@@ -114,7 +126,6 @@ async function runBot(state: BotState): Promise<void> {
 // ─── Engine API ─────────────────────────────────────────────
 
 export async function initEngine(): Promise<void> {
-  // Parse BOT_IDENTITIES
   let identities: BotIdentity[];
   try {
     identities = JSON.parse(CONFIG.BOT_IDENTITIES);
@@ -134,21 +145,23 @@ export async function initEngine(): Promise<void> {
     const strategy = getStrategyForIndex(i);
 
     try {
-      // Load identity and create clients
       const identity = loadIdentityFromPem(id.keyBase64);
       const candid = await CandidClient.create(identity);
 
-      // Create MCP client only for MCP-tier strategies
       let mcp: McpClient | undefined;
       if (strategy.tier === "mcp" && id.apiKey) {
         mcp = new McpClient(id.apiKey);
       }
+
+      // Create wallet with strategy's budget profile
+      const wallet = new BotWallet(candid, strategy.budget);
 
       const state: BotState = {
         identity: id,
         strategy,
         candid,
         mcp,
+        wallet,
         running: false,
         timer: null,
         lastRun: null,
@@ -156,13 +169,13 @@ export async function initEngine(): Promise<void> {
       };
 
       bots.set(id.name, state);
-      addLog(id.name, "engine-init", "success", `Assigned strategy: ${strategy.name} (${strategy.tier})`);
+      addLog(id.name, "engine-init", "success",
+        `Assigned strategy: ${strategy.name} (${strategy.tier}) | budget: $${wallet.paycheck}/14d [${strategy.budget.discipline}]`);
     } catch (e) {
       addLog(id.name, "engine-init", "error", `Failed to init bot: ${String(e).slice(0, 200)}`);
     }
   }
 
-  // Register engine callbacks with Express server
   registerEngine({
     start: async () => { startAll(); },
     stop: async () => { stopAll(); },
@@ -188,14 +201,11 @@ export function startAll(): void {
     state.running = true;
     const delay = i * staggerMs;
 
-    // Initial staggered run, then interval
     const initialTimeout = setTimeout(() => {
       runBot(state);
       state.timer = setInterval(() => runBot(state), CONFIG.BOT_INTERVAL_MS);
     }, delay);
 
-    // Store the initial timeout so we can clear it on stop
-    // We'll use a trick: store the interval timer; clear both on stop
     state.timer = initialTimeout as unknown as ReturnType<typeof setInterval>;
     i++;
   }
@@ -252,6 +262,7 @@ export function getStats(): Record<string, unknown> {
       running: state.running,
       lastRun: state.lastRun?.toISOString() ?? null,
       ...state.stats,
+      wallet: state.wallet.toJSON(),
     };
   }
   return {

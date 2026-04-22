@@ -61,7 +61,8 @@ export declare class CandidClient {
     private actor;
     private tokenActor;
     private identity;
-    constructor(actor: CanisterActor, tokenActor: CanisterActor, identity: Secp256k1KeyIdentity);
+    private agent;
+    constructor(actor: CanisterActor, tokenActor: CanisterActor, identity: Secp256k1KeyIdentity, agent: CanisterActor);
     static create(identity: Secp256k1KeyIdentity, host?: string): Promise<CandidClient>;
     getPrincipal(): string;
     placeOrder(marketId: string, outcome: string, price: number, size: number): Promise<{
@@ -83,6 +84,7 @@ export declare class CandidClient {
     getOrderBook(marketId: string, depth?: number): Promise<OrderBookResult>;
     approve(spenderCanisterId: string, amount: bigint): Promise<void>;
     getBalance(): Promise<bigint>;
+    callFaucet(): Promise<void>;
 }
 export declare class AdminClient {
     private actor;

@@ -3,6 +3,7 @@ export const scalper = {
     name: "scalper",
     description: "Places resting limit orders away from mid on both sides",
     tier: "candid",
+    budget: { tier: "low", discipline: "disciplined" },
     act: async (ctx) => {
         try {
             const market = await getRandomOpenMarket(ctx.candid);

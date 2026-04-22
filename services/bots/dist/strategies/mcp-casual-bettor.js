@@ -8,6 +8,7 @@ export const mcpCasualBettor = {
     name: "mcp-casual-bettor",
     description: "Uses MCP tools to browse markets and place bets at book-aware prices",
     tier: "mcp",
+    budget: { tier: "medium", discipline: "moderate" },
     async act(ctx) {
         if (!ctx.mcp) {
             ctx.log("mcp-casual-bettor", "error", "MCP client not available");

@@ -10,6 +10,7 @@ export const mcpFullFlow: Strategy = {
   name: "mcp-full-flow",
   description: "Full lifecycle test with book-aware pricing: place, verify, cancel, and check via MCP",
   tier: "mcp",
+  budget: { tier: "medium", discipline: "disciplined" },
 
   async act(ctx: BotContext): Promise<void> {
     if (!ctx.mcp) {

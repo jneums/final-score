@@ -5,6 +5,7 @@ export const portfolioBuilder: Strategy = {
   name: "portfolio-builder",
   description: "Spreads small bets across multiple markets, skipping ones already held",
   tier: "candid",
+  budget: { tier: "medium", discipline: "moderate" },
   act: async (ctx) => {
     try {
       const numMarkets = randomInt(3, 5);

@@ -5,6 +5,7 @@ export const whale: Strategy = {
   name: "whale",
   description: "Drops a large order to sweep multiple maker levels",
   tier: "candid",
+  budget: { tier: "high", discipline: "impulsive" },
   act: async (ctx) => {
     try {
       const market = await getMarketWithLiquidity(ctx.candid);

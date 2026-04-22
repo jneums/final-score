@@ -9,6 +9,7 @@ export const mcpPortfolioViewer: Strategy = {
   name: "mcp-portfolio-viewer",
   description: "Read-heavy MCP bot that monitors account, positions, and orders",
   tier: "mcp",
+  budget: { tier: "low", discipline: "disciplined" },
 
   async act(ctx: BotContext): Promise<void> {
     if (!ctx.mcp) {

@@ -10,6 +10,7 @@ export const mcpCasualBettor: Strategy = {
   name: "mcp-casual-bettor",
   description: "Uses MCP tools to browse markets and place bets at book-aware prices",
   tier: "mcp",
+  budget: { tier: "medium", discipline: "moderate" },
 
   async act(ctx: BotContext): Promise<void> {
     if (!ctx.mcp) {

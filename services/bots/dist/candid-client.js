@@ -127,10 +127,12 @@ export class CandidClient {
     actor;
     tokenActor;
     identity;
-    constructor(actor, tokenActor, identity) {
+    agent;
+    constructor(actor, tokenActor, identity, agent) {
         this.actor = actor;
         this.tokenActor = tokenActor;
         this.identity = identity;
+        this.agent = agent;
     }
     static async create(identity, host) {
         const agent = await createAgent(identity, host);
@@ -142,7 +144,7 @@ export class CandidClient {
             agent,
             canisterId: CONFIG.TOKEN_LEDGER,
         });
-        return new CandidClient(actor, tokenActor, identity);
+        return new CandidClient(actor, tokenActor, identity, agent);
     }
     getPrincipal() {
         return this.identity.getPrincipal().toText();
@@ -204,6 +206,13 @@ export class CandidClient {
             owner: this.identity.getPrincipal(),
             subaccount: [],
         });
+    }
+    async callFaucet() {
+        const faucetActor = Actor.createActor(faucetIdlFactory, {
+            agent: this.agent,
+            canisterId: CONFIG.FAUCET_CANISTER,
+        });
+        await faucetActor.transfer_icrc1(this.identity.getPrincipal());
     }
 }
 // ─── AdminClient (admin operations) ─────────────────────────

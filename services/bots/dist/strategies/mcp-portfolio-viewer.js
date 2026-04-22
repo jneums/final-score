@@ -7,6 +7,7 @@ export const mcpPortfolioViewer = {
     name: "mcp-portfolio-viewer",
     description: "Read-heavy MCP bot that monitors account, positions, and orders",
     tier: "mcp",
+    budget: { tier: "low", discipline: "disciplined" },
     async act(ctx) {
         if (!ctx.mcp) {
             ctx.log("mcp-portfolio-viewer", "error", "MCP client not available");

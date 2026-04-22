@@ -8,6 +8,7 @@ export const mcpFullFlow = {
     name: "mcp-full-flow",
     description: "Full lifecycle test with book-aware pricing: place, verify, cancel, and check via MCP",
     tier: "mcp",
+    budget: { tier: "medium", discipline: "disciplined" },
     async act(ctx) {
         if (!ctx.mcp) {
             ctx.log("mcp-full-flow", "error", "MCP client not available");

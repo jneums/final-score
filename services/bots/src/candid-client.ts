@@ -258,11 +258,13 @@ export class CandidClient {
   private actor: CanisterActor;
   private tokenActor: CanisterActor;
   private identity: Secp256k1KeyIdentity;
+  private agent: CanisterActor;
 
-  constructor(actor: CanisterActor, tokenActor: CanisterActor, identity: Secp256k1KeyIdentity) {
+  constructor(actor: CanisterActor, tokenActor: CanisterActor, identity: Secp256k1KeyIdentity, agent: CanisterActor) {
     this.actor = actor;
     this.tokenActor = tokenActor;
     this.identity = identity;
+    this.agent = agent;
   }
 
   static async create(identity: Secp256k1KeyIdentity, host?: string): Promise<CandidClient> {
@@ -275,7 +277,7 @@ export class CandidClient {
       agent,
       canisterId: CONFIG.TOKEN_LEDGER,
     });
-    return new CandidClient(actor, tokenActor, identity);
+    return new CandidClient(actor, tokenActor, identity, agent);
   }
 
   getPrincipal(): string {
@@ -359,7 +361,15 @@ export class CandidClient {
       subaccount: [],
     });
   }
-}
+
+  async callFaucet(): Promise<void> {
+    const faucetActor = Actor.createActor(faucetIdlFactory, {
+      agent: this.agent,
+      canisterId: CONFIG.FAUCET_CANISTER,
+    });
+    await (faucetActor as any).transfer_icrc1(this.identity.getPrincipal());
+  }
+} 
 
 // ─── AdminClient (admin operations) ─────────────────────────
 

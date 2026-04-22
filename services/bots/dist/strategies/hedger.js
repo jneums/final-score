@@ -3,6 +3,7 @@ export const hedger = {
     name: "hedger",
     description: "Buys both Yes and No in the same market to trigger position netting",
     tier: "candid",
+    budget: { tier: "medium", discipline: "disciplined" },
     act: async (ctx) => {
         try {
             const market = await getMarketWithLiquidity(ctx.candid);

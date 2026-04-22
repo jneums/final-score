@@ -5,6 +5,7 @@ export const favoriteBuyer: Strategy = {
   name: "favorite-buyer",
   description: "Buys the favorite (lower implied ask)",
   tier: "candid",
+  budget: { tier: "medium", discipline: "moderate" },
   act: async (ctx) => {
     try {
       const market = await getMarketWithLiquidity(ctx.candid);

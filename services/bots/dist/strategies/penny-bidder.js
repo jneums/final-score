@@ -3,6 +3,7 @@ export const pennyBidder = {
     name: "penny-bidder",
     description: "Places extreme low bids at $0.01-$0.05 to test edge of book",
     tier: "candid",
+    budget: { tier: "low", discipline: "impulsive" },
     act: async (ctx) => {
         try {
             const market = await getRandomOpenMarket(ctx.candid);

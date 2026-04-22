@@ -3,6 +3,7 @@ export const underdogHunter = {
     name: "underdog-hunter",
     description: "Buys the underdog (higher implied ask)",
     tier: "candid",
+    budget: { tier: "medium", discipline: "moderate" },
     act: async (ctx) => {
         try {
             const market = await getMarketWithLiquidity(ctx.candid);
