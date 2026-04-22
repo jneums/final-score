@@ -8,6 +8,7 @@ const BALANCE_CACHE_MS = 5 * 60 * 1000; // refresh every 5 min
 const TOKEN_DECIMALS = 1e8; // 8 decimals
 const FAUCET_AMOUNT_USD = 10; // each faucet call gives ~$10
 const FAUCET_DELAY_MS = 2500; // delay between faucet calls to avoid rate limits
+const FAUCET_CALLS_PER_CYCLE = 3; // max faucet calls per bot per 30s cycle
 // ─── Global faucet semaphore ────────────────────────────────
 // Only one bot can call the faucet at a time. Others queue up.
 // Prevents concurrent faucet calls from overwhelming the canister.
@@ -35,6 +36,8 @@ export class BotWallet {
     _lastSpendDate = ""; // YYYY-MM-DD for daily reset
     _paydayJitterMs = 0;
     _booted = false;
+    /** Remaining faucet calls for current payday (0 = no payday in progress) */
+    _faucetCallsRemaining = 0;
     constructor(candid, profile) {
         this.candid = candid;
         this.profile = profile;
@@ -119,40 +122,53 @@ export class BotWallet {
         }
         return this._balance;
     }
-    /** Run payday: top up from faucet if due */
+    /** Run payday: top up from faucet if due.
+     *  Does at most FAUCET_CALLS_PER_CYCLE calls per invocation.
+     *  Returns true if payday is in progress or just completed.
+     *  Call every cycle — it picks up where it left off.
+     */
     async runPaydayIfDue(faucetFn, log) {
-        if (!this.isPaydayDue)
-            return false;
-        // First-boot jitter: wait 0-60s so bots don't all hit faucet simultaneously
-        if (!this._booted) {
-            this._booted = true;
-            if (this._paydayJitterMs > 0) {
-                log(`Payday jitter: waiting ${Math.round(this._paydayJitterMs / 1000)}s...`);
-                await new Promise((r) => setTimeout(r, this._paydayJitterMs));
+        // Start a new payday if due and not already in progress
+        if (this._faucetCallsRemaining === 0) {
+            if (!this.isPaydayDue)
+                return false;
+            // First-boot jitter: wait 0-60s so bots don't all hit faucet simultaneously
+            if (!this._booted) {
+                this._booted = true;
+                if (this._paydayJitterMs > 0) {
+                    log(`Payday jitter: waiting ${Math.round(this._paydayJitterMs / 1000)}s...`);
+                    await new Promise((r) => setTimeout(r, this._paydayJitterMs));
+                }
             }
+            this._faucetCallsRemaining = Math.ceil(this.config.paycheck / FAUCET_AMOUNT_USD);
+            log(`Payday! Need ~$${this.config.paycheck} (${this._faucetCallsRemaining} faucet calls, ${FAUCET_CALLS_PER_CYCLE}/cycle)...`);
         }
-        // Calculate how many faucet calls needed
-        const numCalls = Math.ceil(this.config.paycheck / FAUCET_AMOUNT_USD);
-        log(`Payday! Depositing ~$${this.config.paycheck} (${numCalls} faucet calls)...`);
+        // Do up to FAUCET_CALLS_PER_CYCLE this cycle
+        const batch = Math.min(this._faucetCallsRemaining, FAUCET_CALLS_PER_CYCLE);
         let successCount = 0;
-        for (let i = 0; i < numCalls; i++) {
+        for (let i = 0; i < batch; i++) {
             try {
-                // All faucet calls go through a global queue — only 1 at a time
                 await enqueueFaucetCall(faucetFn);
                 successCount++;
             }
             catch (e) {
-                log(`Faucet call ${i + 1}/${numCalls} failed: ${String(e).slice(0, 100)}`);
+                log(`Faucet call failed: ${String(e).slice(0, 100)}`);
             }
+            this._faucetCallsRemaining--;
         }
-        // Reset period tracking
-        this._lastPayday = new Date();
-        this._spentThisPeriod = 0;
-        this._spentToday = 0;
-        this._lastSpendDate = this._todayStr();
-        // Refresh balance after funding
-        await this.refreshBalance(true);
-        log(`Payday complete: ${successCount}/${numCalls} deposits. Balance: $${this.balanceUsd.toFixed(2)}`);
+        // If all calls done, finalize payday
+        if (this._faucetCallsRemaining <= 0) {
+            this._faucetCallsRemaining = 0;
+            this._lastPayday = new Date();
+            this._spentThisPeriod = 0;
+            this._spentToday = 0;
+            this._lastSpendDate = this._todayStr();
+            await this.refreshBalance(true);
+            log(`Payday complete. Balance: $${this.balanceUsd.toFixed(2)}`);
+        }
+        else {
+            log(`Payday progress: ${this._faucetCallsRemaining} calls remaining`);
+        }
         return true;
     }
     /** Get a summary for stats endpoint */

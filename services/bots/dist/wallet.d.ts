@@ -18,6 +18,8 @@ export declare class BotWallet {
     private _lastSpendDate;
     private _paydayJitterMs;
     private _booted;
+    /** Remaining faucet calls for current payday (0 = no payday in progress) */
+    private _faucetCallsRemaining;
     constructor(candid: CandidClient, profile: BudgetProfile);
     get balance(): bigint;
     get balanceUsd(): number;
@@ -37,7 +39,11 @@ export declare class BotWallet {
     recordSpend(usd: number): void;
     /** Refresh balance from chain (respects cache) */
     refreshBalance(force?: boolean): Promise<bigint>;
-    /** Run payday: top up from faucet if due */
+    /** Run payday: top up from faucet if due.
+     *  Does at most FAUCET_CALLS_PER_CYCLE calls per invocation.
+     *  Returns true if payday is in progress or just completed.
+     *  Call every cycle — it picks up where it left off.
+     */
     runPaydayIfDue(faucetFn: () => Promise<void>, log: (msg: string) => void): Promise<boolean>;
     /** Get a summary for stats endpoint */
     toJSON(): Record<string, unknown>;
