@@ -20,6 +20,8 @@ export declare class BotWallet {
     private _booted;
     /** Remaining faucet calls for current payday (0 = no payday in progress) */
     private _faucetCallsRemaining;
+    /** Guard against overlapping payday calls from concurrent runBot cycles */
+    private _paydayRunning;
     constructor(candid: CandidClient, profile: BudgetProfile);
     get balance(): bigint;
     get balanceUsd(): number;

@@ -38,6 +38,8 @@ export class BotWallet {
     _booted = false;
     /** Remaining faucet calls for current payday (0 = no payday in progress) */
     _faucetCallsRemaining = 0;
+    /** Guard against overlapping payday calls from concurrent runBot cycles */
+    _paydayRunning = false;
     constructor(candid, profile) {
         this.candid = candid;
         this.profile = profile;
@@ -128,6 +130,9 @@ export class BotWallet {
      *  Call every cycle — it picks up where it left off.
      */
     async runPaydayIfDue(faucetFn, log) {
+        // Guard: if another cycle is already running payday, skip
+        if (this._paydayRunning)
+            return true;
         // Start a new payday if due and not already in progress
         if (this._faucetCallsRemaining === 0) {
             if (!this.isPaydayDue)
@@ -143,33 +148,39 @@ export class BotWallet {
             this._faucetCallsRemaining = Math.ceil(this.config.paycheck / FAUCET_AMOUNT_USD);
             log(`Payday! Need ~$${this.config.paycheck} (${this._faucetCallsRemaining} faucet calls, ${FAUCET_CALLS_PER_CYCLE}/cycle)...`);
         }
-        // Do up to FAUCET_CALLS_PER_CYCLE this cycle
-        const batch = Math.min(this._faucetCallsRemaining, FAUCET_CALLS_PER_CYCLE);
-        let successCount = 0;
-        for (let i = 0; i < batch; i++) {
-            try {
-                await enqueueFaucetCall(faucetFn);
-                successCount++;
+        this._paydayRunning = true;
+        try {
+            // Do up to FAUCET_CALLS_PER_CYCLE this cycle
+            const batch = Math.min(this._faucetCallsRemaining, FAUCET_CALLS_PER_CYCLE);
+            let successCount = 0;
+            for (let i = 0; i < batch; i++) {
+                try {
+                    await enqueueFaucetCall(faucetFn);
+                    successCount++;
+                }
+                catch (e) {
+                    log(`Faucet call failed: ${String(e).slice(0, 100)}`);
+                }
+                this._faucetCallsRemaining--;
             }
-            catch (e) {
-                log(`Faucet call failed: ${String(e).slice(0, 100)}`);
+            // If all calls done, finalize payday
+            if (this._faucetCallsRemaining <= 0) {
+                this._faucetCallsRemaining = 0;
+                this._lastPayday = new Date();
+                this._spentThisPeriod = 0;
+                this._spentToday = 0;
+                this._lastSpendDate = this._todayStr();
+                await this.refreshBalance(true);
+                log(`Payday complete. Balance: $${this.balanceUsd.toFixed(2)}`);
             }
-            this._faucetCallsRemaining--;
+            else {
+                log(`Payday progress: ${this._faucetCallsRemaining} calls remaining`);
+            }
+            return true;
         }
-        // If all calls done, finalize payday
-        if (this._faucetCallsRemaining <= 0) {
-            this._faucetCallsRemaining = 0;
-            this._lastPayday = new Date();
-            this._spentThisPeriod = 0;
-            this._spentToday = 0;
-            this._lastSpendDate = this._todayStr();
-            await this.refreshBalance(true);
-            log(`Payday complete. Balance: $${this.balanceUsd.toFixed(2)}`);
+        finally {
+            this._paydayRunning = false;
         }
-        else {
-            log(`Payday progress: ${this._faucetCallsRemaining} calls remaining`);
-        }
-        return true;
     }
     /** Get a summary for stats endpoint */
     toJSON() {

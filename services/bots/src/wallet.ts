@@ -55,6 +55,8 @@ export class BotWallet {
   private _booted: boolean = false;
   /** Remaining faucet calls for current payday (0 = no payday in progress) */
   private _faucetCallsRemaining: number = 0;
+  /** Guard against overlapping payday calls from concurrent runBot cycles */
+  private _paydayRunning: boolean = false;
 
   constructor(candid: CandidClient, profile: BudgetProfile) {
     this.candid = candid;
@@ -161,6 +163,9 @@ export class BotWallet {
     faucetFn: () => Promise<void>,
     log: (msg: string) => void,
   ): Promise<boolean> {
+    // Guard: if another cycle is already running payday, skip
+    if (this._paydayRunning) return true;
+
     // Start a new payday if due and not already in progress
     if (this._faucetCallsRemaining === 0) {
       if (!this.isPaydayDue) return false;
@@ -178,6 +183,8 @@ export class BotWallet {
       log(`Payday! Need ~$${this.config.paycheck} (${this._faucetCallsRemaining} faucet calls, ${FAUCET_CALLS_PER_CYCLE}/cycle)...`);
     }
 
+    this._paydayRunning = true;
+    try {
     // Do up to FAUCET_CALLS_PER_CYCLE this cycle
     const batch = Math.min(this._faucetCallsRemaining, FAUCET_CALLS_PER_CYCLE);
     let successCount = 0;
@@ -205,6 +212,9 @@ export class BotWallet {
     }
 
     return true;
+    } finally {
+      this._paydayRunning = false;
+    }
   }
 
   /** Get a summary for stats endpoint */
