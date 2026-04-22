@@ -183,3 +183,44 @@ export function pickSport(config) {
     }
     return config.secondarySport;
 }
+// ─── Random Profile Generator ────────────────────────────────
+/** All available sports for random assignment */
+const ALL_SPORTS = ["nba", "nhl", "mlb", "cricipl", "epl", "lal", "sea", "fl1", "bun", "ucl"];
+/** All persona types */
+const ALL_PERSONAS = [
+    "early-bird", "nine-to-five", "evening", "night-owl", "all-day", "weekend-warrior",
+];
+/** UTC offsets spread across North American timezones + some international */
+const ALL_OFFSETS = [-5, -5, -6, -6, -7, -8, -8, 0, 1, 5.5, 8, 10]; // ET, CT, MT, PT, GMT, CET, IST, SGT, AEST
+function pickRandom(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
+}
+/**
+ * Generate a randomized activity config for a dynamically scaled bot.
+ * Every bot gets a unique combination of persona, timezone, and sport interests.
+ */
+export function generateRandomPersona() {
+    const persona = pickRandom(ALL_PERSONAS);
+    const utcOffset = pickRandom(ALL_OFFSETS);
+    const baseActivityRate = BASE_RATES[persona];
+    // Pick primary sport, then optionally a different secondary
+    const primarySport = pickRandom(ALL_SPORTS);
+    const hasSecondary = Math.random() < 0.7; // 70% of bots follow 2 sports
+    let secondarySport = null;
+    if (hasSecondary) {
+        const others = ALL_SPORTS.filter((s) => s !== primarySport);
+        secondarySport = pickRandom(others);
+    }
+    // Bias: single-sport fans get 1.0, dual-sport between 0.6-0.85
+    const primaryBias = secondarySport
+        ? 0.6 + Math.random() * 0.25 // 0.60-0.85
+        : 1.0;
+    return {
+        persona,
+        utcOffset,
+        baseActivityRate,
+        primarySport,
+        secondarySport,
+        primaryBias,
+    };
+}

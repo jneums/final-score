@@ -47,3 +47,8 @@ export declare function assignPersona(botIndex: number): ActivityConfig;
  * Respects primaryBias probability.
  */
 export declare function pickSport(config: ActivityConfig): string;
+/**
+ * Generate a randomized activity config for a dynamically scaled bot.
+ * Every bot gets a unique combination of persona, timezone, and sport interests.
+ */
+export declare function generateRandomPersona(): ActivityConfig;

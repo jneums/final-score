@@ -61,6 +61,7 @@ export function persistToDisk() {
             keyBase64: bot.keyBase64,
             principal: bot.principal,
             apiKey: bot.apiKey,
+            profile: bot.profile,
         });
     }
     // Idle pool (may overlap with allProvisioned by name, dedupe by principal)
@@ -72,6 +73,7 @@ export function persistToDisk() {
                 keyBase64: bot.keyBase64,
                 principal: bot.principal,
                 apiKey: bot.apiKey,
+                profile: bot.profile,
             });
         }
         idleNames.push(bot.name);
@@ -182,6 +184,7 @@ export function registerIdentity(id) {
             principal: id.principal,
             apiKey: id.apiKey,
             candid: undefined, // not needed for persistence
+            profile: id.profile,
         });
     }
 }

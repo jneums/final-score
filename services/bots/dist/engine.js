@@ -3,7 +3,7 @@ import { loadIdentityFromPem } from "./identity.js";
 import { CandidClient } from "./candid-client.js";
 import { McpClient } from "./mcp-client.js";
 import { BotWallet } from "./wallet.js";
-import { assignPersona, shouldTradeThisCycle, isInActiveWindow, pickSport } from "./activity.js";
+import { assignPersona, generateRandomPersona, shouldTradeThisCycle, isInActiveWindow, pickSport } from "./activity.js";
 import { ALL_STRATEGIES } from "./strategies/index.js";
 import { addLog, registerEngine, incrementStat } from "./index.js";
 import { provisionBot, returnToPool, loadExistingIdentities, restoreFromDisk, reconstructBot, persistToDisk, registerIdentity, setNextBotIndex, getNextBotIndex, getProvisionerStats, } from "./provisioner.js";
@@ -41,6 +41,85 @@ function getStrategyForIndex(index) {
         return ALL_STRATEGIES[0];
     }
     return strategy;
+}
+// ─── Random Profile Generation ──────────────────────────────
+const BUDGET_TIERS = ["low", "medium", "high"];
+const BUDGET_WEIGHTS = [0.25, 0.55, 0.20]; // 25% low, 55% medium, 20% high
+const DISCIPLINES = ["disciplined", "moderate", "impulsive"];
+const DISCIPLINE_WEIGHTS = [0.30, 0.45, 0.25]; // 30% disciplined, 45% moderate, 25% impulsive
+function weightedPick(items, weights) {
+    const r = Math.random();
+    let cum = 0;
+    for (let i = 0; i < items.length; i++) {
+        cum += weights[i];
+        if (r < cum)
+            return items[i];
+    }
+    return items[items.length - 1];
+}
+/**
+ * Generate a fully random bot profile for dynamically scaled bots.
+ * Picks random strategy, persona, timezone, sport, budget, discipline.
+ */
+function generateRandomProfile() {
+    // Pick a random strategy from the full pool
+    const strategy = ALL_STRATEGIES[Math.floor(Math.random() * ALL_STRATEGIES.length)];
+    const activity = generateRandomPersona();
+    const budgetTier = weightedPick(BUDGET_TIERS, BUDGET_WEIGHTS);
+    const discipline = weightedPick(DISCIPLINES, DISCIPLINE_WEIGHTS);
+    return {
+        strategy: strategy.name,
+        persona: activity.persona,
+        utcOffset: activity.utcOffset,
+        primarySport: activity.primarySport,
+        secondarySport: activity.secondarySport,
+        primaryBias: activity.primaryBias,
+        budgetTier,
+        discipline,
+    };
+}
+/**
+ * Convert a BotProfile back into the runtime objects needed by the engine.
+ */
+function profileToRuntime(profile) {
+    const strategy = strategyMap.get(profile.strategy) ?? ALL_STRATEGIES[0];
+    const activity = {
+        persona: profile.persona,
+        utcOffset: profile.utcOffset,
+        baseActivityRate: 0.15, // Will be overridden below
+        primarySport: profile.primarySport,
+        secondarySport: profile.secondarySport,
+        primaryBias: profile.primaryBias,
+    };
+    // Set correct base rate for the persona
+    const BASE_RATES = {
+        "early-bird": 0.15, "nine-to-five": 0.10, "evening": 0.20,
+        "night-owl": 0.12, "all-day": 0.08, "weekend-warrior": 0.25,
+    };
+    activity.baseActivityRate = BASE_RATES[profile.persona] ?? 0.15;
+    return {
+        strategy,
+        activity,
+        budgetTier: profile.budgetTier,
+        discipline: profile.discipline,
+    };
+}
+/**
+ * Build a BotProfile from the hardcoded plans (for original 15 bots).
+ */
+function buildProfileFromIndex(index) {
+    const strategy = getStrategyForIndex(index);
+    const activity = assignPersona(index);
+    return {
+        strategy: strategy.name,
+        persona: activity.persona,
+        utcOffset: activity.utcOffset,
+        primarySport: activity.primarySport,
+        secondarySport: activity.secondarySport,
+        primaryBias: activity.primaryBias,
+        budgetTier: strategy.budget.tier,
+        discipline: strategy.budget.discipline,
+    };
 }
 async function runBot(state) {
     if (!state.running)
@@ -108,11 +187,30 @@ async function runBot(state) {
 }
 // ─── Bot Lifecycle ──────────────────────────────────────────
 /**
- * Create a BotState from an identity + index. Used for both
+ * Create a BotState from an identity + profile. Used for both
  * initial bootstrap and dynamic scaling.
+ *
+ * If profile is provided, it determines strategy/persona/budget.
+ * If not, falls back to index-based derivation (original 15 bots).
  */
-async function createBotState(id, index, candid, mcp) {
-    const strategy = getStrategyForIndex(index);
+async function createBotState(id, index, candid, mcp, profile) {
+    let strategy;
+    let activity;
+    let budgetTier;
+    let discipline;
+    if (profile) {
+        const runtime = profileToRuntime(profile);
+        strategy = runtime.strategy;
+        activity = runtime.activity;
+        budgetTier = runtime.budgetTier;
+        discipline = runtime.discipline;
+    }
+    else {
+        strategy = getStrategyForIndex(index);
+        activity = assignPersona(index);
+        budgetTier = strategy.budget.tier;
+        discipline = strategy.budget.discipline;
+    }
     if (!candid) {
         const identity = loadIdentityFromPem(id.keyBase64);
         candid = await CandidClient.create(identity);
@@ -120,8 +218,7 @@ async function createBotState(id, index, candid, mcp) {
     if (!mcp && strategy.tier === "mcp" && id.apiKey) {
         mcp = new McpClient(id.apiKey);
     }
-    const wallet = new BotWallet(candid, strategy.budget);
-    const activity = assignPersona(index);
+    const wallet = new BotWallet(candid, { tier: budgetTier, discipline });
     return {
         identity: id,
         strategy,
@@ -163,11 +260,15 @@ export async function initEngine() {
                 continue;
             try {
                 const index = parseInt(id.name.replace("bot-", "")) - 1;
-                const strategy = getStrategyForIndex(index);
+                const strategyName = id.profile?.strategy;
+                const strategy = (strategyName ? strategyMap.get(strategyName) : undefined) ?? getStrategyForIndex(index);
                 const provisioned = await reconstructBot(id, strategy.tier === "mcp");
-                const state = await createBotState(id, index, provisioned.candid, provisioned.mcp);
+                const state = await createBotState(id, index, provisioned.candid, provisioned.mcp, id.profile);
                 bots.set(id.name, state);
-                addLog(id.name, "engine-init", "success", `Restored: ${strategy.name} (${strategy.tier}) | ${state.activity.persona}`);
+                const sportDesc = id.profile
+                    ? (id.profile.secondarySport ? `${id.profile.primarySport}/${id.profile.secondarySport}` : id.profile.primarySport)
+                    : "?";
+                addLog(id.name, "engine-init", "success", `Restored: ${strategy.name} (${strategy.tier}) | ${state.activity.persona} UTC${state.activity.utcOffset >= 0 ? "+" : ""}${state.activity.utcOffset} | ${sportDesc}`);
             }
             catch (e) {
                 addLog(id.name, "engine-init", "error", `Failed to restore: ${String(e).slice(0, 200)}`);
@@ -200,9 +301,10 @@ export async function initEngine() {
             for (let i = 0; i < existingIdentities.length; i++) {
                 const id = existingIdentities[i];
                 try {
-                    const state = await createBotState(id, i);
+                    const profile = buildProfileFromIndex(i);
+                    const state = await createBotState(id, i, undefined, undefined, profile);
                     bots.set(id.name, state);
-                    registerIdentity(id); // Track for persistence
+                    registerIdentity({ ...id, profile }); // Track with profile for persistence
                     addLog(id.name, "engine-init", "success", `${state.strategy.name} (${state.strategy.tier}) | $${state.wallet.paycheck}/14d [${state.strategy.budget.discipline}] | ${state.activity.persona} UTC${state.activity.utcOffset >= 0 ? "+" : ""}${state.activity.utcOffset} (${Math.round(state.activity.baseActivityRate * 100)}% rate)`);
                 }
                 catch (e) {
@@ -298,7 +400,8 @@ export async function scaleTo(targetCount, shouldAutoStart) {
             for (let i = 0; i < toAdd; i++) {
                 const botIndex = getNextBotIndex();
                 const botName = `bot-${botIndex + 1}`;
-                const strategy = getStrategyForIndex(botIndex);
+                const profile = generateRandomProfile();
+                const strategy = strategyMap.get(profile.strategy) ?? ALL_STRATEGIES[0];
                 const needsMcp = strategy.tier === "mcp";
                 try {
                     const provisioned = await provisionBot(botName, needsMcp);
@@ -307,13 +410,24 @@ export async function scaleTo(targetCount, shouldAutoStart) {
                         keyBase64: provisioned.keyBase64,
                         principal: provisioned.principal,
                         apiKey: provisioned.apiKey,
-                    }, botIndex, provisioned.candid, provisioned.mcp);
+                    }, botIndex, provisioned.candid, provisioned.mcp, profile);
                     bots.set(botName, state);
                     setNextBotIndex(botIndex + 1);
+                    // Register with profile for persistence
+                    registerIdentity({
+                        name: provisioned.name,
+                        keyBase64: provisioned.keyBase64,
+                        principal: provisioned.principal,
+                        apiKey: provisioned.apiKey,
+                        profile,
+                    });
                     if (shouldAutoStart) {
                         startBotState(state);
                     }
-                    addLog(botName, "scale", "success", `Added: ${strategy.name} (${strategy.tier}) | ${state.activity.persona}`);
+                    const sportDesc = profile.secondarySport
+                        ? `${profile.primarySport}/${profile.secondarySport}`
+                        : profile.primarySport;
+                    addLog(botName, "scale", "success", `Added: ${profile.strategy} (${strategy.tier}) | ${profile.persona} UTC${profile.utcOffset >= 0 ? "+" : ""}${profile.utcOffset} | ${sportDesc} | ${profile.budgetTier}/${profile.discipline}`);
                     added.push(botName);
                 }
                 catch (e) {

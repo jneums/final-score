@@ -6,7 +6,7 @@
  */
 import { CandidClient } from "./candid-client.js";
 import { McpClient } from "./mcp-client.js";
-import { type PersistedIdentity } from "./persistence.js";
+import { type PersistedIdentity, type BotProfile } from "./persistence.js";
 export interface ProvisionedBot {
     name: string;
     keyBase64: string;
@@ -14,6 +14,7 @@ export interface ProvisionedBot {
     apiKey: string;
     candid: CandidClient;
     mcp?: McpClient;
+    profile?: BotProfile;
 }
 export declare function setNextBotIndex(index: number): void;
 export declare function getNextBotIndex(): number;

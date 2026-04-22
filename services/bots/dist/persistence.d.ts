@@ -7,11 +7,23 @@
  *
  * File format: base64(iv:authTag:ciphertext)
  */
+export interface BotProfile {
+    strategy: string;
+    persona: string;
+    utcOffset: number;
+    primarySport: string;
+    secondarySport: string | null;
+    primaryBias: number;
+    budgetTier: string;
+    discipline: string;
+}
 export interface PersistedIdentity {
     name: string;
     keyBase64: string;
     principal: string;
     apiKey: string;
+    /** Full bot profile — persona, strategy, sport, budget. Persisted so bots keep their personality across redeploys. */
+    profile?: BotProfile;
 }
 export interface PersistedPool {
     /** All known identities (active + idle) */

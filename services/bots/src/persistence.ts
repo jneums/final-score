@@ -23,11 +23,24 @@ const SALT = "final-score-bot-pool-v1"; // Static salt — key derivation is fro
 
 // ─── Types ──────────────────────────────────────────────────
 
+export interface BotProfile {
+  strategy: string;
+  persona: string;
+  utcOffset: number;
+  primarySport: string;
+  secondarySport: string | null;
+  primaryBias: number;
+  budgetTier: string;
+  discipline: string;
+}
+
 export interface PersistedIdentity {
   name: string;
   keyBase64: string;
   principal: string;
   apiKey: string;
+  /** Full bot profile — persona, strategy, sport, budget. Persisted so bots keep their personality across redeploys. */
+  profile?: BotProfile;
 }
 
 export interface PersistedPool {

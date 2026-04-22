@@ -16,6 +16,7 @@ import {
   isPersistenceEnabled,
   type PersistedIdentity,
   type PersistedPool,
+  type BotProfile,
 } from "./persistence.js";
 
 // ─── Config ─────────────────────────────────────────────────
@@ -31,6 +32,7 @@ export interface ProvisionedBot {
   apiKey: string;
   candid: CandidClient;
   mcp?: McpClient;
+  profile?: BotProfile;
 }
 
 // ─── Identity Pool ──────────────────────────────────────────
@@ -94,6 +96,7 @@ export function persistToDisk(): void {
       keyBase64: bot.keyBase64,
       principal: bot.principal,
       apiKey: bot.apiKey,
+      profile: bot.profile,
     });
   }
 
@@ -106,6 +109,7 @@ export function persistToDisk(): void {
         keyBase64: bot.keyBase64,
         principal: bot.principal,
         apiKey: bot.apiKey,
+        profile: bot.profile,
       });
     }
     idleNames.push(bot.name);
@@ -237,6 +241,7 @@ export function registerIdentity(id: PersistedIdentity): void {
       principal: id.principal,
       apiKey: id.apiKey,
       candid: undefined as any, // not needed for persistence
+      profile: id.profile,
     });
   }
 }
