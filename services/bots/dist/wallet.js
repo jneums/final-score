@@ -8,6 +8,20 @@ const BALANCE_CACHE_MS = 5 * 60 * 1000; // refresh every 5 min
 const TOKEN_DECIMALS = 1e8; // 8 decimals
 const FAUCET_AMOUNT_USD = 10; // each faucet call gives ~$10
 const FAUCET_DELAY_MS = 2500; // delay between faucet calls to avoid rate limits
+// ─── Global faucet semaphore ────────────────────────────────
+// Only one bot can call the faucet at a time. Others queue up.
+// Prevents concurrent faucet calls from overwhelming the canister.
+let faucetQueue = Promise.resolve();
+export function enqueueFaucetCall(fn) {
+    const next = faucetQueue.then(async () => {
+        await fn();
+        await new Promise((r) => setTimeout(r, FAUCET_DELAY_MS));
+    }).catch(() => {
+        // Don't let one failure break the chain
+    });
+    faucetQueue = next;
+    return next;
+}
 export class BotWallet {
     candid;
     profile;
@@ -123,15 +137,12 @@ export class BotWallet {
         let successCount = 0;
         for (let i = 0; i < numCalls; i++) {
             try {
-                await faucetFn();
+                // All faucet calls go through a global queue — only 1 at a time
+                await enqueueFaucetCall(faucetFn);
                 successCount++;
             }
             catch (e) {
                 log(`Faucet call ${i + 1}/${numCalls} failed: ${String(e).slice(0, 100)}`);
-            }
-            // Delay between calls to avoid hammering the faucet canister
-            if (i < numCalls - 1) {
-                await new Promise((r) => setTimeout(r, FAUCET_DELAY_MS));
             }
         }
         // Reset period tracking

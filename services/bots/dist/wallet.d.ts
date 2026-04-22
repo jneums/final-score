@@ -5,6 +5,7 @@ export interface BudgetProfile {
     tier: BudgetTier;
     discipline: Discipline;
 }
+export declare function enqueueFaucetCall(fn: () => Promise<void>): Promise<void>;
 export declare class BotWallet {
     private candid;
     private profile;
