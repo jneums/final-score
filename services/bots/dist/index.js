@@ -154,6 +154,31 @@ app.get("/engine-stats", async (_req, res) => {
         res.json({ error: String(e) });
     }
 });
+// ─── Dynamic Scaling ──────────────────────────────────────────
+// Scale the bot army: POST /scale { count: 25 }
+app.post("/scale", async (req, res) => {
+    const { count } = req.body;
+    if (typeof count !== "number" || count < 0 || count > 100) {
+        res.status(400).json({
+            error: "Invalid count. Must be a number between 0 and 100.",
+        });
+        return;
+    }
+    const targetCount = Math.floor(count);
+    try {
+        const { scaleTo } = await import("./engine.js");
+        const result = await scaleTo(targetCount, isRunning);
+        res.json({
+            status: "ok",
+            ...result,
+            autoStarted: isRunning,
+        });
+    }
+    catch (e) {
+        addLog("system", "scale", "error", String(e).slice(0, 200));
+        res.status(500).json({ error: String(e).slice(0, 200) });
+    }
+});
 // ─── Start server ────────────────────────────────────────────
 app.listen(CONFIG.PORT, async () => {
     console.log(`🤖 Final Score Bot Simulator listening on port ${CONFIG.PORT}`);
