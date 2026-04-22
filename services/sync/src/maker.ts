@@ -245,6 +245,166 @@ async function requoteMarket(
   return { cancelled, placed, kept: 0, errors };
 }
 
+// ─── Seed mode — quote all unquoted markets ─────────────────
+
+export interface SeedResult {
+  marketsFound: number;
+  marketsUnquoted: number;
+  marketsSeeded: number;
+  marketsSkipped: number;
+  ordersPlaced: number;
+  errors: number;
+}
+
+let isSeedRunning = false;
+
+export function isSeedActive(): boolean {
+  return isSeedRunning;
+}
+
+/**
+ * Seed mode: find all open markets that have NO maker orders and quote them.
+ * No per-tick cap — runs through every unquoted market in one pass.
+ * Uses the batch requote_market endpoint (cancel-all + place-all per market).
+ *
+ * Called:
+ * 1. After sync creates new markets (automatic)
+ * 2. Via POST /maker/seed (manual recovery after state wipe)
+ * 3. On startup if many markets are unquoted
+ */
+export async function seedUnquotedMarkets(): Promise<SeedResult> {
+  if (isSeedRunning) {
+    log("seed", "skip", "Seed already running");
+    return { marketsFound: 0, marketsUnquoted: 0, marketsSeeded: 0, marketsSkipped: 0, ordersPlaced: 0, errors: 0 };
+  }
+
+  isSeedRunning = true;
+  const result: SeedResult = {
+    marketsFound: 0,
+    marketsUnquoted: 0,
+    marketsSeeded: 0,
+    marketsSkipped: 0,
+    ordersPlaced: 0,
+    errors: 0,
+  };
+
+  try {
+    if (cacheSize() === 0) {
+      log("seed", "skip", "Price cache empty — nothing to seed");
+      return result;
+    }
+
+    // 1. Fetch all open markets
+    let allMarkets: MarketRecord[] = [];
+    const conditionIdMap = new Map<string, string>();
+
+    try {
+      let offset = 0;
+      const pageSize = 100;
+      while (true) {
+        const page = await listMarkets(undefined, offset, pageSize);
+        const openMarkets = page.markets.filter((m) => m.status === "Open");
+        allMarkets.push(...openMarkets);
+        if (Number(page.returned) < pageSize) break;
+        offset += pageSize;
+      }
+
+      const unresolved = await getUnresolvedMarkets();
+      for (const m of unresolved) {
+        conditionIdMap.set(m.marketId, m.polymarketConditionId);
+      }
+    } catch (e) {
+      log("seed", "error", `Failed to fetch markets: ${String(e).slice(0, 150)}`);
+      result.errors++;
+      return result;
+    }
+
+    result.marketsFound = allMarkets.length;
+
+    if (allMarkets.length === 0) {
+      log("seed", "skip", "No open markets found");
+      return result;
+    }
+
+    // 2. Fetch maker's existing open orders
+    let existingOrders: OrderRecord[] = [];
+    try {
+      existingOrders = await getMyOrders("Open");
+    } catch (e) {
+      log("seed", "error", `Failed to fetch orders: ${String(e).slice(0, 150)}`);
+      result.errors++;
+      return result;
+    }
+
+    const quotedMarkets = new Set<string>();
+    for (const order of existingOrders) {
+      quotedMarkets.add(order.marketId);
+    }
+
+    // 3. Find unquoted markets (have price data but no maker orders)
+    const unquoted: Array<{ market: MarketRecord; conditionId: string }> = [];
+    for (const market of allMarkets) {
+      if (quotedMarkets.has(market.marketId)) continue;
+
+      const conditionId = conditionIdMap.get(market.marketId);
+      if (!conditionId) continue;
+
+      const cached = getPrice(conditionId);
+      if (!cached || isStale(conditionId, CONFIG.MAKER.MAX_PRICE_AGE_MS)) continue;
+      if (cached.yesPrice === 0 && cached.noPrice === 0) continue;
+
+      const desired = calculateDesiredOrders(cached.yesPrice, cached.noPrice);
+      if (desired.length === 0) continue;
+
+      unquoted.push({ market, conditionId });
+    }
+
+    result.marketsUnquoted = unquoted.length;
+
+    if (unquoted.length === 0) {
+      log("seed", "info", `All ${result.marketsFound} markets already quoted`);
+      return result;
+    }
+
+    log("seed", "info", `Seeding ${unquoted.length} unquoted markets (${quotedMarkets.size} already quoted)...`);
+
+    // 4. Quote each unquoted market — no cap, just rate-limit spacing
+    for (const { market, conditionId } of unquoted) {
+      const cached = getPrice(conditionId);
+      if (!cached) { result.marketsSkipped++; continue; }
+
+      const desired = calculateDesiredOrders(cached.yesPrice, cached.noPrice);
+      if (desired.length === 0) { result.marketsSkipped++; continue; }
+
+      const batchOrders = desired.map(o => ({
+        outcome: o.outcome,
+        price: o.price,
+        size: o.size,
+      }));
+
+      const res = await requoteMarketBatch(market.marketId, batchOrders);
+      if (res.ok) {
+        result.marketsSeeded++;
+        result.ordersPlaced += res.data?.placed ?? 0;
+      } else {
+        log("seed", "error", `${market.marketId}: ${res.message}`);
+        result.errors++;
+      }
+
+      await sleep(CONFIG.MAKER.ORDER_DELAY_MS);
+    }
+
+    log("seed", "done",
+      `Seeded ${result.marketsSeeded}/${result.marketsUnquoted} markets, ` +
+      `${result.ordersPlaced} orders placed, ${result.errors} errors`);
+
+  } finally {
+    isSeedRunning = false;
+  }
+
+  return result;
+}
+
 // ─── Main maker loop ────────────────────────────────────────
 
 export async function runMaker(): Promise<MakerResult> {
