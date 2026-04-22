@@ -308,8 +308,24 @@ async function createBotState(
     candid = await CandidClient.create(identity);
   }
 
-  if (!mcp && strategy.tier === "mcp" && id.apiKey) {
-    mcp = new McpClient(id.apiKey);
+  if (!mcp && strategy.tier === "mcp") {
+    if (id.apiKey) {
+      mcp = new McpClient(id.apiKey);
+    } else {
+      // Lazy API key creation — bot was provisioned without one (e.g. pool reuse or failed provisioning)
+      try {
+        const newKey = await candid!.createMyApiKey(id.name, ["all"]);
+        if (newKey) {
+          id.apiKey = newKey;
+          mcp = new McpClient(newKey);
+          addLog(id.name, "lazy-api-key", "success", `Created missing API key for MCP bot`);
+          // Re-persist so the key survives restarts
+          persistToDisk();
+        }
+      } catch (e) {
+        addLog(id.name, "lazy-api-key", "error", `Failed to create API key: ${String(e).slice(0, 150)}`);
+      }
+    }
   }
 
   const wallet = new BotWallet(candid, { tier: budgetTier, discipline });
