@@ -6,7 +6,7 @@
  */
 
 import { generateIdentity, loadIdentityFromPem } from "./identity.js";
-import { CandidClient, TokenClient } from "./candid-client.js";
+import { CandidClient } from "./candid-client.js";
 import { McpClient } from "./mcp-client.js";
 import { CONFIG } from "./config.js";
 import { addLog } from "./index.js";
@@ -159,8 +159,7 @@ export async function provisionBot(
 
   // 4. Approve tokens (bot approves the canister to spend its tokens)
   try {
-    const tokenClient = await TokenClient.create(gen.identity);
-    await tokenClient.approve(CONFIG.CANISTER_ID, CONFIG.APPROVE_AMOUNT);
+    await candid.approve(CONFIG.CANISTER_ID, CONFIG.APPROVE_AMOUNT);
     addLog("provisioner", "approve", "success", `${botName}: token approval set`);
   } catch (e) {
     addLog("provisioner", "approve", "error", `${botName}: token approval failed: ${String(e).slice(0, 150)}`);
