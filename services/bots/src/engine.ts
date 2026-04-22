@@ -192,7 +192,7 @@ async function runBot(state: BotState): Promise<void> {
       (msg) => addLog(state.identity.name, "payday", "success", msg),
     );
 
-    // 0b. Auto-approve tokens if not yet done (self-healing for bots that missed approval)
+    // 0b. Ensure token approval is set (re-approves if allowance runs out)
     if (!state.approved) {
       try {
         await state.candid.approve(CONFIG.CANISTER_ID, CONFIG.APPROVE_AMOUNT);
@@ -200,7 +200,6 @@ async function runBot(state: BotState): Promise<void> {
         addLog(state.identity.name, "approve", "success", "Token approval set");
       } catch (e) {
         addLog(state.identity.name, "approve", "error", `Token approval failed: ${String(e).slice(0, 150)}`);
-        // Don't block — try again next cycle
       }
     }
 
@@ -252,6 +251,10 @@ async function runBot(state: BotState): Promise<void> {
         if (result === "error") {
           state.stats.errors++;
           incrementStat("totalErrors");
+          // Reset approval flag if allowance ran out — will re-approve next cycle
+          if (message.includes("InsufficientAllowance")) {
+            state.approved = false;
+          }
         }
       },
     };
