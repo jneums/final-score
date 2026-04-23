@@ -125,9 +125,9 @@ async function runBot(state) {
     if (!state.running)
         return;
     try {
-        // 0. Payday check — runs regardless of activity window (you get paid even when sleeping)
+        // 0. Lazy refill — top up from faucet if balance is low
         await state.wallet.refreshBalance();
-        await state.wallet.runPaydayIfDue(() => state.candid.callFaucet(), (msg) => addLog(state.identity.name, "payday", "success", msg));
+        await state.wallet.refillIfNeeded(() => state.candid.callFaucet(), (msg) => addLog(state.identity.name, "refill", "success", msg));
         // 0b. Ensure token approval is set (re-approves if allowance runs out)
         if (!state.approved) {
             try {
@@ -154,23 +154,18 @@ async function runBot(state) {
             state.lastRun = new Date();
             return;
         }
-        // 2. Refresh balance (may have changed from payday or other activity)
+        // 2. Refresh balance
         await state.wallet.refreshBalance();
-        // 3. Budget gate — skip if can't afford anything
-        if (!state.wallet.canAfford(0.10)) { // $0.10 minimum order cost
-            const w = state.wallet;
-            if (w.balanceUsd < 1) {
-                addLog(state.identity.name, "budget", "skip", `Broke ($${w.balanceUsd.toFixed(2)}). Day ${w.dayOfPeriod}/14, ${w.daysUntilPayday} days to payday.`);
-            }
-            else {
-                addLog(state.identity.name, "budget", "skip", `Daily budget exhausted ($${w.spentToday.toFixed(2)}/$${w.dailySpendLimit.toFixed(2)}). Remaining this period: $${w.remainingBudget.toFixed(2)}`);
-            }
+        // 3. Balance check — skip if can't afford anything
+        if (!state.wallet.canAfford(0.10)) {
+            addLog(state.identity.name, "balance-check", "skip", `Low balance ($${state.wallet.balanceUsd.toFixed(2)}), waiting for refill`);
             state.stats.runs++;
             state.lastRun = new Date();
             return;
         }
         // 4. Run the strategy with wallet-aware context
         const sport = pickSport(state.activity);
+        let saw401 = false;
         const ctx = {
             name: state.identity.name,
             candid: state.candid,
@@ -187,16 +182,54 @@ async function runBot(state) {
                     if (message.includes("InsufficientAllowance")) {
                         state.approved = false;
                     }
+                    // Flag 401/503 for auto-rekey after strategy completes
+                    // 503 = boundary node returns this when canister traps validating an invalid API key
+                    if (message.includes("401") || message.includes("503")) {
+                        saw401 = true;
+                    }
                 }
             },
         };
         await state.strategy.act(ctx);
         state.stats.runs++;
+        // Auto-rekey: if MCP got 401 or 503, the API key was invalidated (e.g. canister state wipe)
+        // 503 = boundary node returns this when canister traps on invalid API key validation
+        if (saw401 && state.strategy.tier === "mcp" && state.candid) {
+            try {
+                const newKey = await state.candid.createMyApiKey(state.identity.name, ["all"]);
+                if (newKey) {
+                    state.identity.apiKey = newKey;
+                    state.mcp = new McpClient(newKey);
+                    addLog(state.identity.name, "auto-rekey", "success", "Recreated API key after 401 — will use new key next cycle");
+                    persistToDisk();
+                }
+            }
+            catch (rekeyErr) {
+                addLog(state.identity.name, "auto-rekey", "error", `Rekey failed: ${String(rekeyErr).slice(0, 150)}`);
+            }
+        }
     }
     catch (e) {
-        addLog(state.identity.name, "engine", "error", String(e).slice(0, 200));
+        const msg = String(e);
+        addLog(state.identity.name, "engine", "error", msg.slice(0, 200));
         state.stats.errors++;
         incrementStat("totalErrors");
+        // Auto-rekey: if MCP got 401 or 503, the API key was invalidated (e.g. canister state wipe)
+        // 503 = boundary node returns this when canister traps on invalid API key validation
+        if ((msg.includes("401") || msg.includes("503")) && state.strategy.tier === "mcp" && state.candid) {
+            try {
+                const newKey = await state.candid.createMyApiKey(state.identity.name, ["all"]);
+                if (newKey) {
+                    state.identity.apiKey = newKey;
+                    state.mcp = new McpClient(newKey);
+                    addLog(state.identity.name, "auto-rekey", "success", "Recreated API key after 401");
+                    persistToDisk();
+                }
+            }
+            catch (rekeyErr) {
+                addLog(state.identity.name, "auto-rekey", "error", `Rekey failed: ${String(rekeyErr).slice(0, 150)}`);
+            }
+        }
     }
     state.lastRun = new Date();
 }
@@ -230,8 +263,26 @@ async function createBotState(id, index, candid, mcp, profile) {
         const identity = loadIdentityFromPem(id.keyBase64);
         candid = await CandidClient.create(identity);
     }
-    if (!mcp && strategy.tier === "mcp" && id.apiKey) {
-        mcp = new McpClient(id.apiKey);
+    if (!mcp && strategy.tier === "mcp") {
+        if (id.apiKey) {
+            mcp = new McpClient(id.apiKey);
+        }
+        else {
+            // Lazy API key creation — bot was provisioned without one (e.g. pool reuse or failed provisioning)
+            try {
+                const newKey = await candid.createMyApiKey(id.name, ["all"]);
+                if (newKey) {
+                    id.apiKey = newKey;
+                    mcp = new McpClient(newKey);
+                    addLog(id.name, "lazy-api-key", "success", `Created missing API key for MCP bot`);
+                    // Re-persist so the key survives restarts
+                    persistToDisk();
+                }
+            }
+            catch (e) {
+                addLog(id.name, "lazy-api-key", "error", `Failed to create API key: ${String(e).slice(0, 150)}`);
+            }
+        }
     }
     const wallet = new BotWallet(candid, { tier: budgetTier, discipline });
     return {
@@ -338,7 +389,7 @@ export async function initEngine() {
                     const state = await createBotState(id, i, undefined, undefined, profile);
                     bots.set(id.name, state);
                     registerIdentity({ ...id, profile }); // Track with profile for persistence
-                    addLog(id.name, "engine-init", "success", `${state.strategy.name} (${state.strategy.tier}) | $${state.wallet.paycheck}/14d [${state.strategy.budget.discipline}] | ${state.activity.persona} UTC${state.activity.utcOffset >= 0 ? "+" : ""}${state.activity.utcOffset} (${Math.round(state.activity.baseActivityRate * 100)}% rate)`);
+                    addLog(id.name, "engine-init", "success", `${state.strategy.name} (${state.strategy.tier}) [${state.strategy.budget.tier}/${state.strategy.budget.discipline}] | ${state.activity.persona} UTC${state.activity.utcOffset >= 0 ? "+" : ""}${state.activity.utcOffset} (${Math.round(state.activity.baseActivityRate * 100)}% rate)`);
                 }
                 catch (e) {
                     addLog(id.name, "engine-init", "error", `Failed to init bot: ${String(e).slice(0, 200)}`);

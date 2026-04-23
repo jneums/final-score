@@ -185,11 +185,11 @@ async function runBot(state: BotState): Promise<void> {
   if (!state.running) return;
 
   try {
-    // 0. Payday check — runs regardless of activity window (you get paid even when sleeping)
+    // 0. Lazy refill — top up from faucet if balance is low
     await state.wallet.refreshBalance();
-    await state.wallet.runPaydayIfDue(
+    await state.wallet.refillIfNeeded(
       () => state.candid.callFaucet(),
-      (msg) => addLog(state.identity.name, "payday", "success", msg),
+      (msg) => addLog(state.identity.name, "refill", "success", msg),
     );
 
     // 0b. Ensure token approval is set (re-approves if allowance runs out)
@@ -219,19 +219,13 @@ async function runBot(state: BotState): Promise<void> {
       return;
     }
 
-    // 2. Refresh balance (may have changed from payday or other activity)
+    // 2. Refresh balance
     await state.wallet.refreshBalance();
 
-    // 3. Budget gate — skip if can't afford anything
-    if (!state.wallet.canAfford(0.10)) { // $0.10 minimum order cost
-      const w = state.wallet;
-      if (w.balanceUsd < 1) {
-        addLog(state.identity.name, "budget", "skip",
-          `Broke ($${w.balanceUsd.toFixed(2)}). Day ${w.dayOfPeriod}/14, ${w.daysUntilPayday} days to payday.`);
-      } else {
-        addLog(state.identity.name, "budget", "skip",
-          `Daily budget exhausted ($${w.spentToday.toFixed(2)}/$${w.dailySpendLimit.toFixed(2)}). Remaining this period: $${w.remainingBudget.toFixed(2)}`);
-      }
+    // 3. Balance check — skip if can't afford anything
+    if (!state.wallet.canAfford(0.10)) {
+      addLog(state.identity.name, "balance-check", "skip",
+        `Low balance ($${state.wallet.balanceUsd.toFixed(2)}), waiting for refill`);
       state.stats.runs++;
       state.lastRun = new Date();
       return;
@@ -256,8 +250,9 @@ async function runBot(state: BotState): Promise<void> {
           if (message.includes("InsufficientAllowance")) {
             state.approved = false;
           }
-          // Flag 401 for auto-rekey after strategy completes
-          if (message.includes("401")) {
+          // Flag 401/503 for auto-rekey after strategy completes
+          // 503 = boundary node returns this when canister traps validating an invalid API key
+          if (message.includes("401") || message.includes("503")) {
             saw401 = true;
           }
         }
@@ -267,7 +262,8 @@ async function runBot(state: BotState): Promise<void> {
     await state.strategy.act(ctx);
     state.stats.runs++;
 
-    // Auto-rekey: if MCP got 401, the API key was invalidated (e.g. canister state wipe)
+    // Auto-rekey: if MCP got 401 or 503, the API key was invalidated (e.g. canister state wipe)
+    // 503 = boundary node returns this when canister traps on invalid API key validation
     if (saw401 && state.strategy.tier === "mcp" && state.candid) {
       try {
         const newKey = await state.candid.createMyApiKey(state.identity.name, ["all"]);
@@ -287,8 +283,9 @@ async function runBot(state: BotState): Promise<void> {
     state.stats.errors++;
     incrementStat("totalErrors");
 
-    // Auto-rekey: if MCP got 401, the API key was invalidated (e.g. canister state wipe)
-    if (msg.includes("401") && state.strategy.tier === "mcp" && state.candid) {
+    // Auto-rekey: if MCP got 401 or 503, the API key was invalidated (e.g. canister state wipe)
+    // 503 = boundary node returns this when canister traps on invalid API key validation
+    if ((msg.includes("401") || msg.includes("503")) && state.strategy.tier === "mcp" && state.candid) {
       try {
         const newKey = await state.candid.createMyApiKey(state.identity.name, ["all"]);
         if (newKey) {
@@ -483,7 +480,7 @@ export async function initEngine(): Promise<void> {
           bots.set(id.name, state);
           registerIdentity({ ...id, profile }); // Track with profile for persistence
           addLog(id.name, "engine-init", "success",
-            `${state.strategy.name} (${state.strategy.tier}) | $${state.wallet.paycheck}/14d [${state.strategy.budget.discipline}] | ${state.activity.persona} UTC${state.activity.utcOffset >= 0 ? "+" : ""}${state.activity.utcOffset} (${Math.round(state.activity.baseActivityRate * 100)}% rate)`);
+            `${state.strategy.name} (${state.strategy.tier}) [${state.strategy.budget.tier}/${state.strategy.budget.discipline}] | ${state.activity.persona} UTC${state.activity.utcOffset >= 0 ? "+" : ""}${state.activity.utcOffset} (${Math.round(state.activity.baseActivityRate * 100)}% rate)`);
         } catch (e) {
           addLog(id.name, "engine-init", "error", `Failed to init bot: ${String(e).slice(0, 200)}`);
         }
