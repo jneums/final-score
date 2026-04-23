@@ -972,6 +972,11 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     orderBooks;
   };
 
+  transient let marketsListContext : markets_list.MarketsListContext = {
+    toolContext;
+    orderBooks;
+  };
+
   transient let mcpConfig : McpTypes.McpConfig = {
     self = Principal.fromActor(self);
     allowanceUrl = ?allowanceUrl;
@@ -988,7 +993,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     toolImplementations = [
       ("account_get_info", account_get_info.handle(toolContext)),
       ("account_get_history", account_get_history.handle(toolContext)),
-      ("markets_list", markets_list.handle(toolContext)),
+      ("markets_list", markets_list.handle(marketsListContext)),
       ("market_detail", market_detail.handle(detailContext)),
       ("order_place", order_place.handle(placeContext)),
       ("order_cancel", order_cancel.handle(cancelContext)),
@@ -1659,8 +1664,10 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       book := OrderBook.removeOrder(book, order.orderId, order.outcome);
     };
 
-    // Place new orders (resting only, no matching)
+    // Place new orders — run through matching engine to prevent crossed books
     var placedCount : Nat = 0;
+    var totalFills : Nat = 0;
+    var nettedUsers = Map.new<Principal, Bool>();
     for (newOrd in newOrders.vals()) {
       switch (ToolContext.parseOutcome(newOrd.outcome)) {
         case (?outcome) {
@@ -1680,7 +1687,85 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           };
           Map.set(toolContext.orders, Map.thash, orderId, order);
           ToolContext.trackUserOrder(toolContext, caller, orderId);
-          book := OrderBook.insertOrder(book, order);
+
+          // Run through matching engine (same as place_order)
+          let result = OrderBook.matchOrder(book, order);
+          var currentBook = result.updatedBook;
+          var actualFilledSize : Nat = 0;
+
+          for (fill in result.fills.vals()) {
+            let tradeId = ToolContext.getNextTradeId(toolContext);
+
+            let takerCostPerShare = (order.price * ToolContext.SHARE_VALUE(toolContext)) / ToolContext.BPS_DENOM;
+            let takerCost = takerCostPerShare * fill.size;
+            let makerCostPerShare = (fill.price * ToolContext.SHARE_VALUE(toolContext)) / ToolContext.BPS_DENOM;
+            let makerCost = makerCostPerShare * fill.size;
+
+            let trade : ToolContext.Trade = {
+              tradeId;
+              marketId;
+              makerOrderId = fill.makerOrderId;
+              takerOrderId = fill.takerOrderId;
+              maker = fill.maker;
+              taker = fill.taker;
+              outcome = fill.outcome;
+              price = fill.price;
+              size = fill.size;
+              timestamp = now;
+            };
+            Map.set(toolContext.trades, Map.thash, tradeId, trade);
+
+            ignore ToolContext.upsertPosition(toolContext, fill.taker, marketId, outcome, fill.size, takerCost, order.price);
+            let makerOutcome : ToolContext.Outcome = switch (outcome) {
+              case (#Yes) #No;
+              case (#No) #Yes;
+            };
+            ignore ToolContext.upsertPosition(toolContext, fill.maker, marketId, makerOutcome, fill.size, makerCost, fill.price);
+
+            ToolContext.recordTrade(toolContext, fill.taker, takerCost);
+            ToolContext.recordTrade(toolContext, fill.maker, makerCost);
+
+            // Update maker order status
+            switch (Map.get(toolContext.orders, Map.thash, fill.makerOrderId)) {
+              case (?makerOrder) {
+                let newFilled = makerOrder.filledSize + fill.size;
+                let newStatus = if (newFilled >= makerOrder.size) #Filled else #PartiallyFilled;
+                Map.set(toolContext.orders, Map.thash, fill.makerOrderId, {
+                  makerOrder with filledSize = newFilled; status = newStatus;
+                });
+              };
+              case null {};
+            };
+
+            Map.set(nettedUsers, Map.phash, fill.taker, true);
+            Map.set(nettedUsers, Map.phash, fill.maker, true);
+
+            actualFilledSize += fill.size;
+            totalFills += 1;
+          };
+
+          // Handle unfilled remainder — insert onto book
+          if (actualFilledSize >= order.size) {
+            Map.set(toolContext.orders, Map.thash, orderId, { order with filledSize = order.size; status = #Filled });
+          } else if (actualFilledSize > 0) {
+            let partial = { order with filledSize = actualFilledSize; status = #PartiallyFilled };
+            currentBook := OrderBook.insertOrder(currentBook, partial);
+            Map.set(toolContext.orders, Map.thash, orderId, partial);
+          } else {
+            switch (result.remainingOrder) {
+              case (?remaining) {
+                currentBook := OrderBook.insertOrder(currentBook, remaining);
+                Map.set(toolContext.orders, Map.thash, orderId, remaining);
+              };
+              case null {
+                let rebooked = { order with filledSize = 0; status = #Open };
+                currentBook := OrderBook.insertOrder(currentBook, rebooked);
+                Map.set(toolContext.orders, Map.thash, orderId, rebooked);
+              };
+            };
+          };
+
+          book := currentBook;
           placedCount += 1;
         };
         case null {
@@ -1690,6 +1775,11 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
 
     Map.set(orderBooks, thash, marketId, book);
+
+    // Update market last price if fills occurred
+    if (totalFills > 0) {
+      Debug.print("requote_market: " # Nat.toText(totalFills) # " fills in market " # marketId);
+    };
 
     #ok({ cancelled = cancelledCount; placed = placedCount; escrowed = delta });
   };
@@ -2337,6 +2427,28 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         };
         case _ {};
       };
+    };
+    result;
+  };
+
+  /// Get open market counts grouped by sport code — single query for landing page
+  public query func get_sport_counts() : async [{ sport : Text; count : Nat }] {
+    let sportMap = Map.new<Text, Nat>();
+    for ((_, market) in Map.entries(markets)) {
+      switch (market.status) {
+        case (#Open) {
+          let current = switch (Map.get(sportMap, thash, market.sport)) {
+            case (?n) n;
+            case null 0;
+          };
+          ignore Map.put(sportMap, thash, market.sport, current + 1);
+        };
+        case _ {};
+      };
+    };
+    var result : [{ sport : Text; count : Nat }] = [];
+    for ((sport, count) in Map.entries(sportMap)) {
+      result := Array.append(result, [{ sport; count }]);
     };
     result;
   };
