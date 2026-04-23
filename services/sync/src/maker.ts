@@ -405,6 +405,159 @@ export async function seedUnquotedMarkets(): Promise<SeedResult> {
   return result;
 }
 
+// ─── Replenishment — restock depleted books ─────────────────
+
+export interface ReplenishResult {
+  marketsChecked: number;
+  marketsDepleted: number;
+  marketsReplenished: number;
+  ordersPlaced: number;
+  ordersCancelled: number;
+  errors: number;
+}
+
+let isReplenishRunning = false;
+
+export function isReplenishActive(): boolean {
+  return isReplenishRunning;
+}
+
+/**
+ * Replenishment job: find markets where orders have been filled (fewer than
+ * desired count on the book) and restock them at current cached prices.
+ *
+ * Unlike seedUnquotedMarkets (which only finds markets with ZERO orders),
+ * this finds markets with FEWER than expected orders — partial depletion
+ * from user/bot fills while Polymarket prices haven't moved.
+ *
+ * Unlike the WS reactive path (which only fires on price drift), this
+ * runs on a timer regardless of price movement.
+ */
+export async function replenishDepleted(): Promise<ReplenishResult> {
+  if (isReplenishRunning) {
+    log("replenish", "skip", "Already running");
+    return { marketsChecked: 0, marketsDepleted: 0, marketsReplenished: 0, ordersPlaced: 0, ordersCancelled: 0, errors: 0 };
+  }
+
+  isReplenishRunning = true;
+  const result: ReplenishResult = {
+    marketsChecked: 0,
+    marketsDepleted: 0,
+    marketsReplenished: 0,
+    ordersPlaced: 0,
+    ordersCancelled: 0,
+    errors: 0,
+  };
+
+  try {
+    const mc = CONFIG.MAKER;
+
+    if (cacheSize() === 0) {
+      log("replenish", "skip", "Price cache empty");
+      return result;
+    }
+
+    // 1. Fetch maker's current open orders
+    let existingOrders: OrderRecord[] = [];
+    try {
+      existingOrders = await getMyOrders("Open");
+    } catch (e) {
+      log("replenish", "error", `Failed to fetch orders: ${String(e).slice(0, 150)}`);
+      result.errors++;
+      return result;
+    }
+
+    // 2. Group by marketId
+    const ordersByMarket = new Map<string, OrderRecord[]>();
+    for (const order of existingOrders) {
+      const list = ordersByMarket.get(order.marketId) || [];
+      list.push(order);
+      ordersByMarket.set(order.marketId, list);
+    }
+
+    // 3. Get conditionId mapping
+    let conditionIdMap: Map<string, string>;
+    try {
+      const unresolved = await getUnresolvedMarkets();
+      conditionIdMap = new Map(unresolved.map((m) => [m.marketId, m.polymarketConditionId]));
+    } catch (e) {
+      log("replenish", "error", `Failed to fetch unresolved markets: ${String(e).slice(0, 150)}`);
+      result.errors++;
+      return result;
+    }
+
+    // 4. Check each quoted market for depletion
+    //    We only look at markets that HAVE some orders (seed handles zero-order markets)
+    const depleted: Array<{ marketId: string; conditionId: string; currentCount: number; desiredCount: number }> = [];
+
+    for (const [marketId, orders] of ordersByMarket) {
+      result.marketsChecked++;
+
+      const conditionId = conditionIdMap.get(marketId);
+      if (!conditionId) continue;
+
+      const cached = getPrice(conditionId);
+      if (!cached || isStale(conditionId, mc.MAX_PRICE_AGE_MS)) continue;
+      if (cached.yesPrice === 0 && cached.noPrice === 0) continue;
+
+      const desired = calculateDesiredOrders(cached.yesPrice, cached.noPrice);
+      if (desired.length === 0) continue;
+
+      // Only act if we have fewer orders than desired
+      // (partially filled orders still count — requoteMarket handles cancel+replace)
+      if (orders.length < desired.length) {
+        depleted.push({ marketId, conditionId, currentCount: orders.length, desiredCount: desired.length });
+      }
+    }
+
+    result.marketsDepleted = depleted.length;
+
+    if (depleted.length === 0) {
+      log("replenish", "info", `All ${result.marketsChecked} quoted markets fully stocked`);
+      return result;
+    }
+
+    log("replenish", "info", `Found ${depleted.length} depleted markets out of ${result.marketsChecked} — restocking...`);
+
+    // 5. Requote each depleted market
+    for (const { marketId, conditionId, currentCount, desiredCount } of depleted) {
+      const cached = getPrice(conditionId);
+      if (!cached) continue;
+
+      const desired = calculateDesiredOrders(cached.yesPrice, cached.noPrice);
+      if (desired.length === 0) continue;
+
+      const batchOrders = desired.map(o => ({
+        outcome: o.outcome,
+        price: o.price,
+        size: o.size,
+      }));
+
+      const res = await requoteMarketBatch(marketId, batchOrders);
+      if (res.ok) {
+        result.marketsReplenished++;
+        result.ordersPlaced += res.data?.placed ?? 0;
+        result.ordersCancelled += res.data?.cancelled ?? 0;
+        log("replenish", "done", `${marketId}: ${currentCount}→${desiredCount} orders (cancelled=${res.data?.cancelled ?? 0}, placed=${res.data?.placed ?? 0})`);
+      } else {
+        log("replenish", "error", `${marketId}: ${res.message}`);
+        result.errors++;
+      }
+
+      await sleep(mc.ORDER_DELAY_MS);
+    }
+
+    log("replenish", "done",
+      `Restocked ${result.marketsReplenished}/${result.marketsDepleted} depleted markets, ` +
+      `${result.ordersPlaced} placed, ${result.ordersCancelled} cancelled, ${result.errors} errors`);
+
+  } finally {
+    isReplenishRunning = false;
+  }
+
+  return result;
+}
+
 // ─── Main maker loop ────────────────────────────────────────
 
 export async function runMaker(): Promise<MakerResult> {

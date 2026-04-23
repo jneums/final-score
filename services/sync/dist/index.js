@@ -2,7 +2,7 @@ import express from "express";
 import { CONFIG } from "./config.js";
 import { runSync, getLogs } from "./sync.js";
 import { runResolve, getResolveLogs } from "./resolve.js";
-import { runMaker, getMakerLogs, queueRequote } from "./maker.js";
+import { runMaker, getMakerLogs, queueRequote, seedUnquotedMarkets, isSeedActive, replenishDepleted, isReplenishActive } from "./maker.js";
 import { startWs, getWsLogs, getWsStats } from "./ws.js";
 const app = express();
 let isSyncRunning = false;
@@ -14,8 +14,11 @@ let lastMaker = null;
 let lastSyncResult = null;
 let lastResolveResult = null;
 let lastMakerResult = null;
+let lastReplenish = null;
+let lastReplenishResult = null;
 let nextSync = null;
 let nextResolve = null;
+let nextReplenish = null;
 async function main() {
     console.log("⚽ Final Score — Polymarket Sync + Resolve + Market Maker");
     console.log("==========================================================\n");
@@ -63,6 +66,13 @@ async function main() {
                 mode: "websocket-reactive",
                 isRunning: isMakerRunning,
                 config: CONFIG.MAKER,
+            },
+            replenish: {
+                lastRun: lastReplenish?.toISOString() || null,
+                lastResult: lastReplenishResult,
+                nextRun: nextReplenish?.toISOString() || null,
+                interval: CONFIG.MAKER.REPLENISH_INTERVAL,
+                isRunning: isReplenishActive(),
             },
             ws: getWsStats(),
         });
@@ -152,6 +162,43 @@ async function main() {
             isMakerRunning = false;
         }
     });
+    // Manual trigger — seed (quote all unquoted markets, no cap)
+    app.post("/maker/seed", async (_req, res) => {
+        if (!CONFIG.MAKER_IDENTITY_PEM) {
+            res.status(503).json({ error: "MAKER_IDENTITY_PEM not configured" });
+            return;
+        }
+        if (isSeedActive()) {
+            res.status(409).json({ error: "Seed already running" });
+            return;
+        }
+        try {
+            const result = await seedUnquotedMarkets();
+            res.json({ success: true, ...result });
+        }
+        catch (e) {
+            res.status(500).json({ error: String(e) });
+        }
+    });
+    // Manual trigger — replenish (restock depleted books)
+    app.post("/maker/replenish", async (_req, res) => {
+        if (!CONFIG.MAKER_IDENTITY_PEM) {
+            res.status(503).json({ error: "MAKER_IDENTITY_PEM not configured" });
+            return;
+        }
+        if (isReplenishActive()) {
+            res.status(409).json({ error: "Replenish already running" });
+            return;
+        }
+        try {
+            lastReplenishResult = await replenishDepleted();
+            lastReplenish = new Date();
+            res.json({ success: true, lastRun: lastReplenish.toISOString(), ...lastReplenishResult });
+        }
+        catch (e) {
+            res.status(500).json({ error: String(e) });
+        }
+    });
     // Start server
     app.listen(CONFIG.PORT, () => {
         console.log(`🚀 Server on port ${CONFIG.PORT}`);
@@ -162,7 +209,9 @@ async function main() {
         console.log(`   WS:      http://localhost:${CONFIG.PORT}/logs/ws`);
         console.log(`   Run:     POST http://localhost:${CONFIG.PORT}/run`);
         console.log(`   Resolve: POST http://localhost:${CONFIG.PORT}/resolve`);
-        console.log(`   Maker:   POST http://localhost:${CONFIG.PORT}/maker\n`);
+        console.log(`   Maker:   POST http://localhost:${CONFIG.PORT}/maker`);
+        console.log(`   Seed:    POST http://localhost:${CONFIG.PORT}/maker/seed`);
+        console.log(`   Replen:  POST http://localhost:${CONFIG.PORT}/maker/replenish\n`);
     });
     // Start loops
     if (CONFIG.DFX_IDENTITY_PEM) {
@@ -174,6 +223,15 @@ async function main() {
             try {
                 lastSyncResult = await runSync();
                 lastSync = new Date();
+                // Auto-seed: if sync created new markets, seed them with maker liquidity
+                if (lastSyncResult.created > 0 && CONFIG.MAKER_IDENTITY_PEM && !isSeedActive()) {
+                    console.log(`🌱 Sync created ${lastSyncResult.created} markets — triggering seed...`);
+                    seedUnquotedMarkets().then((seedResult) => {
+                        console.log(`🌱 Seed done: ${seedResult.marketsSeeded} seeded, ${seedResult.ordersPlaced} orders, ${seedResult.errors} errors`);
+                    }).catch((e) => {
+                        console.error("Seed error:", e);
+                    });
+                }
             }
             catch (e) {
                 console.error("Sync error:", e);
@@ -229,20 +287,35 @@ async function main() {
         setInterval(resolveLoop, CONFIG.RESOLVE_INTERVAL);
         console.log(`⏰ Sync every ${CONFIG.SYNC_INTERVAL / 1000 / 60}min, Resolve every ${CONFIG.RESOLVE_INTERVAL / 1000 / 60}min`);
     }
-    // Maker — WebSocket-driven (no timer). Initial run to bootstrap, then reactive re-quotes.
+    // Maker — WebSocket-driven (no timer). Seed unquoted markets on startup, then reactive re-quotes.
     if (CONFIG.MAKER_IDENTITY_PEM) {
-        isMakerRunning = true;
+        // Seed all unquoted markets first (handles state wipe recovery + new markets)
         try {
-            lastMakerResult = await runMaker();
-            lastMaker = new Date();
+            const seedResult = await seedUnquotedMarkets();
+            console.log(`🌱 Startup seed: ${seedResult.marketsSeeded} seeded, ${seedResult.ordersPlaced} orders, ${seedResult.errors} errors`);
         }
         catch (e) {
-            console.error("Maker error:", e);
+            console.error("Startup seed error:", e);
         }
-        finally {
-            isMakerRunning = false;
-        }
-        console.log(`🏦 Maker: WebSocket-driven (spread=${CONFIG.MAKER.SPREAD_BPS}bps, levels=${CONFIG.MAKER.LEVELS}, size=${CONFIG.MAKER.SIZE_PER_LEVEL})\n`);
+        console.log(`🏦 Maker: WebSocket-driven (spread=${CONFIG.MAKER.SPREAD_BPS}bps, levels=${CONFIG.MAKER.LEVELS}, size=${CONFIG.MAKER.SIZE_PER_LEVEL})`);
+        // Replenishment timer — restock depleted books every REPLENISH_INTERVAL
+        const replenishLoop = async () => {
+            if (isReplenishActive())
+                return;
+            try {
+                lastReplenishResult = await replenishDepleted();
+                lastReplenish = new Date();
+            }
+            catch (e) {
+                console.error("Replenish error:", e);
+            }
+            finally {
+                nextReplenish = new Date(Date.now() + CONFIG.MAKER.REPLENISH_INTERVAL);
+            }
+        };
+        nextReplenish = new Date(Date.now() + CONFIG.MAKER.REPLENISH_INTERVAL);
+        setInterval(replenishLoop, CONFIG.MAKER.REPLENISH_INTERVAL);
+        console.log(`🔄 Replenish every ${CONFIG.MAKER.REPLENISH_INTERVAL / 1000}s — restocks depleted books after fills\n`);
     }
 }
 main().catch(console.error);

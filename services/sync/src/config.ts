@@ -79,5 +79,8 @@ export const CONFIG = {
 
     // Don't quote if both sides are within this range of 50/50 (no signal)
     MIN_PRICE_EDGE_BPS: 200,  // skip if yesPrice is 4800-5200 (no clear reference)
+
+    // Replenish interval — check for depleted books and restock (2 minutes)
+    REPLENISH_INTERVAL: parseInt(process.env.MAKER_REPLENISH_INTERVAL || String(2 * 60 * 1000)),
   },
 };

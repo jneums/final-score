@@ -19,5 +19,6 @@ export declare const CONFIG: {
         MAX_MARKETS_PER_TICK: number;
         ORDER_DELAY_MS: number;
         MIN_PRICE_EDGE_BPS: number;
+        REPLENISH_INTERVAL: number;
     };
 };

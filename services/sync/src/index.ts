@@ -2,7 +2,7 @@ import express from "express";
 import { CONFIG } from "./config.js";
 import { runSync, getLogs } from "./sync.js";
 import { runResolve, getResolveLogs } from "./resolve.js";
-import { runMaker, getMakerLogs, queueRequote, seedUnquotedMarkets, isSeedActive } from "./maker.js";
+import { runMaker, getMakerLogs, queueRequote, seedUnquotedMarkets, isSeedActive, replenishDepleted, isReplenishActive } from "./maker.js";
 import { startWs, getWsLogs, getWsStats } from "./ws.js";
 
 const app = express();
@@ -20,8 +20,14 @@ let lastMakerResult: {
   ordersPlaced: number; ordersCancelled: number; ordersKept: number;
   errors: number; cursor: string;
 } | null = null;
+let lastReplenish: Date | null = null;
+let lastReplenishResult: {
+  marketsChecked: number; marketsDepleted: number; marketsReplenished: number;
+  ordersPlaced: number; ordersCancelled: number; errors: number;
+} | null = null;
 let nextSync: Date | null = null;
 let nextResolve: Date | null = null;
+let nextReplenish: Date | null = null;
 
 async function main() {
   console.log("⚽ Final Score — Polymarket Sync + Resolve + Market Maker");
@@ -71,6 +77,13 @@ async function main() {
         mode: "websocket-reactive",
         isRunning: isMakerRunning,
         config: CONFIG.MAKER,
+      },
+      replenish: {
+        lastRun: lastReplenish?.toISOString() || null,
+        lastResult: lastReplenishResult,
+        nextRun: nextReplenish?.toISOString() || null,
+        interval: CONFIG.MAKER.REPLENISH_INTERVAL,
+        isRunning: isReplenishActive(),
       },
       ws: getWsStats(),
     });
@@ -184,6 +197,26 @@ async function main() {
     }
   });
 
+  // Manual trigger — replenish (restock depleted books)
+  app.post("/maker/replenish", async (_req, res) => {
+    if (!CONFIG.MAKER_IDENTITY_PEM) {
+      res.status(503).json({ error: "MAKER_IDENTITY_PEM not configured" });
+      return;
+    }
+    if (isReplenishActive()) {
+      res.status(409).json({ error: "Replenish already running" });
+      return;
+    }
+
+    try {
+      lastReplenishResult = await replenishDepleted();
+      lastReplenish = new Date();
+      res.json({ success: true, lastRun: lastReplenish.toISOString(), ...lastReplenishResult });
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
   // Start server
   app.listen(CONFIG.PORT, () => {
     console.log(`🚀 Server on port ${CONFIG.PORT}`);
@@ -195,7 +228,8 @@ async function main() {
     console.log(`   Run:     POST http://localhost:${CONFIG.PORT}/run`);
     console.log(`   Resolve: POST http://localhost:${CONFIG.PORT}/resolve`);
     console.log(`   Maker:   POST http://localhost:${CONFIG.PORT}/maker`);
-    console.log(`   Seed:    POST http://localhost:${CONFIG.PORT}/maker/seed\n`);
+    console.log(`   Seed:    POST http://localhost:${CONFIG.PORT}/maker/seed`);
+    console.log(`   Replen:  POST http://localhost:${CONFIG.PORT}/maker/replenish\n`);
   });
 
   // Start loops
@@ -280,7 +314,23 @@ async function main() {
       console.error("Startup seed error:", e);
     }
 
-    console.log(`🏦 Maker: WebSocket-driven (spread=${CONFIG.MAKER.SPREAD_BPS}bps, levels=${CONFIG.MAKER.LEVELS}, size=${CONFIG.MAKER.SIZE_PER_LEVEL})\n`);
+    console.log(`🏦 Maker: WebSocket-driven (spread=${CONFIG.MAKER.SPREAD_BPS}bps, levels=${CONFIG.MAKER.LEVELS}, size=${CONFIG.MAKER.SIZE_PER_LEVEL})`);
+
+    // Replenishment timer — restock depleted books every REPLENISH_INTERVAL
+    const replenishLoop = async () => {
+      if (isReplenishActive()) return;
+      try {
+        lastReplenishResult = await replenishDepleted();
+        lastReplenish = new Date();
+      } catch (e) {
+        console.error("Replenish error:", e);
+      } finally {
+        nextReplenish = new Date(Date.now() + CONFIG.MAKER.REPLENISH_INTERVAL);
+      }
+    };
+    nextReplenish = new Date(Date.now() + CONFIG.MAKER.REPLENISH_INTERVAL);
+    setInterval(replenishLoop, CONFIG.MAKER.REPLENISH_INTERVAL);
+    console.log(`🔄 Replenish every ${CONFIG.MAKER.REPLENISH_INTERVAL / 1000}s — restocks depleted books after fills\n`);
   }
 }
 
