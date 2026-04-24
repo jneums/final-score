@@ -46,14 +46,14 @@ export function WalletDrawer() {
               {balanceLoading ? '—' : `$${Number(balance ?? 0).toFixed(2)}`}{' '}
               <span className="text-lg text-muted-foreground">USDC</span>
             </div>
-            {!balanceLoading && Number(balance ?? 0) === 0 && (() => {
+            {!balanceLoading && (() => {
               try {
                 const token = getToken();
                 const isTestToken = token.canisterId.toText() === '3jkp5-oyaaa-aaaaj-azwqa-cai';
                 if (!isTestToken) return null;
                 return (
                   <div className="p-3 bg-blue-950/30 border border-blue-800/50 rounded-lg text-sm">
-                    <p className="font-medium text-blue-400">No balance</p>
+                    <p className="font-medium text-blue-400">Test Token Faucet</p>
                     <p className="text-muted-foreground mt-1">
                       This platform uses test tokens. Visit the{' '}
                       <a
@@ -62,9 +62,9 @@ export function WalletDrawer() {
                         rel="noopener noreferrer"
                         className="text-blue-400 underline"
                       >
-                        faucet
+                        DFINITY faucet
                       </a>
-                      {' '}and request <span className="font-medium text-blue-400">TICRC1</span> tokens, then set an allowance below.
+                      {' '}and request <span className="font-medium text-blue-400">TICRC1</span> tokens to top up your balance.
                     </p>
                   </div>
                 );

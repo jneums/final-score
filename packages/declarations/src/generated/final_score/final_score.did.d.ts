@@ -41,6 +41,12 @@ export interface HttpResponse {
 export interface LeaderboardEntry { 'rank' : bigint, 'stats' : UserStats }
 export interface McpServer {
   /**
+   * / Admin: cancel ALL open/partially-filled orders across all markets, empty all books.
+   * / Used for migration (e.g., pre-escrow → escrowed orders). No refunds attempted
+   * / since pre-escrow orders have empty subaccounts.
+   */
+  'admin_cancel_all_orders' : ActorMethod<[], Result_1>,
+  /**
    * / Admin: cancel a market and refund all
    */
   'admin_cancel_market' : ActorMethod<[string], Result_1>,
@@ -69,6 +75,10 @@ export interface McpServer {
    */
   'admin_drain_market_subaccount' : ActorMethod<[string], Result_1>,
   /**
+   * / Admin: reopen a Closed market (e.g., premature deadline closure)
+   */
+  'admin_reopen_market' : ActorMethod<[string], Result_1>,
+  /**
    * / Admin: manually resolve a market
    */
   'admin_resolve_market' : ActorMethod<[string, string], Result_1>,
@@ -77,10 +87,23 @@ export interface McpServer {
    */
   'admin_trigger_sync' : ActorMethod<[], Result_1>,
   /**
-   * / Cancel an order (authenticated by wallet)
+   * / Cancel an order (authenticated by wallet) — refunds escrowed funds
    */
   'cancel_order' : ActorMethod<[string], Result_1>,
   'create_my_api_key' : ActorMethod<[string, Array<string>], string>,
+  'debug_all_positions' : ActorMethod<
+    [],
+    Array<
+      {
+        'shares' : bigint,
+        'user' : string,
+        'positionId' : string,
+        'marketId' : string,
+        'costBasis' : bigint,
+        'outcome' : string,
+      }
+    >
+  >,
   /**
    * / Debug: get a specific market
    */
@@ -160,6 +183,21 @@ export interface McpServer {
       'sportBreakdown' : Array<{ 'count' : bigint, 'sport' : string }>,
     }
   >,
+  'debug_user_orders' : ActorMethod<
+    [string],
+    Array<
+      {
+        'status' : string,
+        'size' : bigint,
+        'orderId' : string,
+        'marketId' : string,
+        'timestamp' : bigint,
+        'price' : bigint,
+        'outcome' : string,
+        'filledSize' : bigint,
+      }
+    >
+  >,
   /**
    * / Get all markets that belong to the same event (share polymarketSlug)
    */
@@ -215,6 +253,13 @@ export interface McpServer {
     }
   >,
   /**
+   * / Get open market counts grouped by sport code — single query for landing page
+   */
+  'get_sport_counts' : ActorMethod<
+    [],
+    Array<{ 'count' : bigint, 'sport' : string }>
+  >,
+  /**
    * / Public query: get token configuration (for frontend)
    */
   'get_token_info' : ActorMethod<
@@ -225,6 +270,29 @@ export interface McpServer {
       'ledger' : string,
       'symbol' : string,
     }
+  >,
+  /**
+   * / Returns the top N open markets sorted by totalVolume descending.
+   * / Used by the homepage "Popular Markets" strip.
+   */
+  'get_top_markets_by_volume' : ActorMethod<
+    [bigint],
+    Array<
+      {
+        'impliedNoAsk' : bigint,
+        'status' : string,
+        'polymarketSlug' : string,
+        'endDate' : bigint,
+        'totalVolume' : bigint,
+        'question' : string,
+        'impliedYesAsk' : bigint,
+        'sport' : string,
+        'eventTitle' : string,
+        'marketId' : string,
+        'noPrice' : bigint,
+        'yesPrice' : bigint,
+      }
+    >
   >,
   'get_treasury_balance' : ActorMethod<[Principal], bigint>,
   /**
@@ -288,7 +356,14 @@ export interface McpServer {
   /**
    * / Place a limit order (authenticated by wallet — msg.caller is the user)
    */
-  'place_order' : ActorMethod<[string, string, number, bigint], Result_3>,
+  'place_order' : ActorMethod<[string, string, number, bigint], Result_4>,
+  /**
+   * / Batch requote: cancel all caller's orders in a market and place new ones with delta escrow
+   */
+  'requote_market' : ActorMethod<
+    [string, Array<{ 'size' : bigint, 'price' : number, 'outcome' : string }>],
+    Result_3
+  >,
   'revoke_my_api_key' : ActorMethod<[string], undefined>,
   'set_owner' : ActorMethod<[Principal], Result_2>,
   'transformJwksResponse' : ActorMethod<
@@ -315,6 +390,10 @@ export type Result_1 = { 'ok' : string } |
 export type Result_2 = { 'ok' : null } |
   { 'err' : TreasuryError };
 export type Result_3 = {
+    'ok' : { 'cancelled' : bigint, 'placed' : bigint, 'escrowed' : bigint }
+  } |
+  { 'err' : string };
+export type Result_4 = {
     'ok' : {
       'fills' : Array<
         { 'size' : bigint, 'tradeId' : string, 'price' : bigint }

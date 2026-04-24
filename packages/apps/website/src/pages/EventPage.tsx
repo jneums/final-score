@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Card, CardContent } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
@@ -22,17 +22,17 @@ import {
   TrendingUp,
 } from 'lucide-react';
 
+// Reverse lookup: polymarket sport code → URL slug
+const SPORT_TO_SLUG: Record<string, string> = {
+  nba: 'basketball', wnba: 'basketball',
+  epl: 'football', lal: 'football', bun: 'football', fl1: 'football', sea: 'football', ucl: 'football',
+  cricipl: 'cricket', ipl: 'cricket',
+  mlb: 'baseball', kbo: 'baseball',
+  nhl: 'hockey',
+  nfl: 'american-football',
+};
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function bpsToPrice(bps: number): string {
-  if (bps <= 0) return '—';
-  return (bps / 10000).toFixed(2);
-}
-
-function bpsToDollar(bps: number): string {
-  if (bps <= 0) return '—';
-  return `$${(bps / 10000).toFixed(2)}`;
-}
 
 function bpsToCents(bps: number): string {
   if (bps <= 0) return '—';
@@ -63,8 +63,21 @@ function extractOutcomeName(question: string): string {
 
 // ─── Compact Order Book ──────────────────────────────────────────────────────
 
-function OrderBookCompact({ marketId, activeTab }: { marketId: string; activeTab: 'yes' | 'no' }) {
-  const { data: book, isLoading } = useOrderBook(marketId);
+function OrderBookCompact({ market, activeTab }: { market: MarketInfo; activeTab: 'yes' | 'no' }) {
+  const { data: book, isLoading } = useOrderBook(market.marketId);
+  const dividerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to center the divider when data loads
+  useEffect(() => {
+    if (dividerRef.current && scrollRef.current) {
+      const container = scrollRef.current;
+      const divider = dividerRef.current;
+      const dividerOffset = divider.offsetTop - container.offsetTop;
+      const scrollTarget = dividerOffset - container.clientHeight / 2 + divider.clientHeight / 2;
+      container.scrollTop = scrollTarget;
+    }
+  }, [book, activeTab]);
 
   if (isLoading) {
     return (
@@ -107,42 +120,61 @@ function OrderBookCompact({ marketId, activeTab }: { marketId: string; activeTab
   const allSizes = [...asks, ...sortedBids].map((l) => l.totalSize);
   const maxSize = Math.max(...allSizes, 1);
 
+  // Last traded price based on active tab
+  const lastPrice = activeTab === 'yes' ? Number(market.lastYesPrice) : Number(market.lastNoPrice);
+
+  // Row height ~28px, 8 rows = 224px + header + divider
+  const ROW_HEIGHT = 28;
+  const MAX_VISIBLE_ROWS = 8;
+  const maxScrollHeight = ROW_HEIGHT * MAX_VISIBLE_ROWS;
+
   return (
     <div className="rounded-lg border border-border/50 overflow-hidden text-xs">
       <div className="grid grid-cols-3 text-muted-foreground px-2 py-1.5 bg-muted/20 border-b border-border/50">
         <span>Price</span>
-        <span className="text-right">Size</span>
-        <span className="text-right">Orders</span>
+        <span className="text-right">Shares</span>
+        <span className="text-right">Total</span>
       </div>
 
-      {asks.map((level, i) => (
-        <div key={`ask-${i}`} className="relative grid grid-cols-3 px-2 py-1">
-          <div
-            className="absolute inset-0 bg-red-500/8"
-            style={{ width: `${(level.totalSize / maxSize) * 100}%` }}
-          />
-          <span className="relative text-red-400 font-mono">{bpsToPrice(level.price)}</span>
-          <span className="relative text-right font-mono">{level.totalSize}</span>
-          <span className="relative text-right text-muted-foreground">{level.orderCount}</span>
-        </div>
-      ))}
+      <div
+        ref={scrollRef}
+        className="overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        style={{ maxHeight: `${maxScrollHeight}px` }}
+      >
+        {asks.map((level, i) => (
+          <div key={`ask-${i}`} className="relative grid grid-cols-3 px-2 py-1">
+            <div
+              className="absolute inset-0 bg-red-500/8"
+              style={{ width: `${(level.totalSize / maxSize) * 100}%` }}
+            />
+            <span className="relative text-red-400 font-mono">{bpsToCents(level.price)}</span>
+            <span className="relative text-right font-mono">{level.totalSize}</span>
+            <span className="relative text-right font-mono text-muted-foreground">${(level.totalSize * level.price / 10000).toFixed(2)}</span>
+          </div>
+        ))}
 
-      <div className="flex items-center justify-center gap-2 py-1 px-2 border-y border-border/50 bg-muted/30">
-        <span className="text-muted-foreground">Spread</span>
-        <span className="font-mono font-medium">{spread > 0 ? bpsToDollar(spread) : '—'}</span>
+        <div ref={dividerRef} className="flex items-center justify-center gap-3 py-1 px-2 border-y border-border/50 bg-muted/30">
+          <span className="text-muted-foreground">Spread {spread > 0 ? bpsToCents(spread) : '—'}</span>
+          {lastPrice > 0 && (
+            <>
+              <span className="text-muted-foreground/40">·</span>
+              <span className="font-mono font-medium">Last: {bpsToCents(lastPrice)}</span>
+            </>
+          )}
+        </div>
+
+        {sortedBids.map((level, i) => (
+          <div key={`bid-${i}`} className="relative grid grid-cols-3 px-2 py-1">
+            <div
+              className="absolute inset-0 bg-green-500/8"
+              style={{ width: `${(level.totalSize / maxSize) * 100}%` }}
+            />
+            <span className="relative text-green-400 font-mono">{bpsToCents(level.price)}</span>
+            <span className="relative text-right font-mono">{level.totalSize}</span>
+            <span className="relative text-right font-mono text-muted-foreground">${(level.totalSize * level.price / 10000).toFixed(2)}</span>
+          </div>
+        ))}
       </div>
-
-      {sortedBids.map((level, i) => (
-        <div key={`bid-${i}`} className="relative grid grid-cols-3 px-2 py-1">
-          <div
-            className="absolute inset-0 bg-green-500/8"
-            style={{ width: `${(level.totalSize / maxSize) * 100}%` }}
-          />
-          <span className="relative text-green-400 font-mono">{bpsToPrice(level.price)}</span>
-          <span className="relative text-right font-mono">{level.totalSize}</span>
-          <span className="relative text-right text-muted-foreground">{level.orderCount}</span>
-        </div>
-      ))}
     </div>
   );
 }
@@ -481,7 +513,7 @@ function OrderForm({
           </div>
           {/* Quick amounts */}
           <div className="flex gap-1.5">
-            {[5, 10, 25, 50, 100].map((amt) => (
+            {[1, 5, 10, 100].map((amt) => (
               <Button
                 key={amt}
                 variant={dollars === String(amt) ? 'default' : 'outline'}
@@ -492,6 +524,19 @@ function OrderForm({
                 ${amt}
               </Button>
             ))}
+            <Button
+              variant={balance !== undefined && dollars === String(Math.floor(Number(balance))) ? 'default' : 'outline'}
+              size="sm"
+              className="flex-1 text-xs h-7"
+              onClick={() => {
+                if (balance !== undefined) {
+                  setDollars(String(Math.floor(Number(balance))));
+                }
+              }}
+              disabled={balance === undefined}
+            >
+              Max
+            </Button>
           </div>
         </div>
 
@@ -676,7 +721,18 @@ function OutcomeRow({
                 ? 'bg-green-600 text-white border-green-600 hover:bg-green-700'
                 : 'text-green-400 border-green-500/30 hover:bg-green-500/10 hover:border-green-500/50'
             }`}
-            onClick={(e) => { e.stopPropagation(); onClickYes(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClickYes();
+              if (!isBookOpen) {
+                onToggleBook();
+                setBookTab('yes');
+              } else if (bookTab === 'yes') {
+                onToggleBook();
+              } else {
+                setBookTab('yes');
+              }
+            }}
           >
             Yes {yesPrice > 0 ? bpsToCents(yesPrice) : ''}
           </Button>
@@ -688,7 +744,18 @@ function OutcomeRow({
                 ? 'bg-red-600 text-white border-red-600 hover:bg-red-700'
                 : 'text-red-400 border-red-500/30 hover:bg-red-500/10 hover:border-red-500/50'
             }`}
-            onClick={(e) => { e.stopPropagation(); onClickNo(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClickNo();
+              if (!isBookOpen) {
+                onToggleBook();
+                setBookTab('no');
+              } else if (bookTab === 'no') {
+                onToggleBook();
+              } else {
+                setBookTab('no');
+              }
+            }}
           >
             No {noPrice > 0 ? bpsToCents(noPrice) : ''}
           </Button>
@@ -716,7 +783,7 @@ function OutcomeRow({
               </TabsList>
             </Tabs>
           </div>
-          <OrderBookCompact marketId={market.marketId} activeTab={bookTab} />
+          <OrderBookCompact market={market} activeTab={bookTab} />
         </div>
       )}
     </div>
@@ -771,7 +838,7 @@ export default function EventPage() {
       {/* Header */}
       <section className="border-b border-border/50 bg-card/30">
         <div className="container mx-auto px-4 py-6">
-          <Link to="/" className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4">
+          <Link to={market?.sport ? `/sport/${SPORT_TO_SLUG[market.sport] || market.sport}` : '/'} className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4">
             <ArrowLeft className="w-4 h-4" />
             Back
           </Link>

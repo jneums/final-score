@@ -972,11 +972,6 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     orderBooks;
   };
 
-  transient let marketsListContext : markets_list.MarketsListContext = {
-    toolContext;
-    orderBooks;
-  };
-
   transient let mcpConfig : McpTypes.McpConfig = {
     self = Principal.fromActor(self);
     allowanceUrl = ?allowanceUrl;
@@ -993,7 +988,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     toolImplementations = [
       ("account_get_info", account_get_info.handle(toolContext)),
       ("account_get_history", account_get_history.handle(toolContext)),
-      ("markets_list", markets_list.handle(marketsListContext)),
+      ("markets_list", markets_list.handle(toolContext)),
       ("market_detail", market_detail.handle(detailContext)),
       ("order_place", order_place.handle(placeContext)),
       ("order_cancel", order_cancel.handle(cancelContext)),
@@ -2451,6 +2446,89 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       result := Array.append(result, [{ sport; count }]);
     };
     result;
+  };
+
+  /// Returns the top N open markets sorted by totalVolume descending.
+  /// Used by the homepage "Popular Markets" strip.
+  public query func get_top_markets_by_volume(limit : Nat) : async [{
+    marketId : Text;
+    question : Text;
+    eventTitle : Text;
+    sport : Text;
+    status : Text;
+    yesPrice : Nat;
+    noPrice : Nat;
+    impliedYesAsk : Nat;
+    impliedNoAsk : Nat;
+    polymarketSlug : Text;
+    endDate : Int;
+    totalVolume : Nat;
+  }] {
+    let maxLimit = if (limit > 50) 50 else if (limit == 0) 10 else limit;
+
+    // Collect all open markets with volume > 0
+    var all : [{
+      marketId : Text;
+      question : Text;
+      eventTitle : Text;
+      sport : Text;
+      status : Text;
+      yesPrice : Nat;
+      noPrice : Nat;
+      impliedYesAsk : Nat;
+      impliedNoAsk : Nat;
+      polymarketSlug : Text;
+      endDate : Int;
+      totalVolume : Nat;
+    }] = [];
+
+    for ((_, m) in Map.entries(markets)) {
+      switch (m.status) {
+        case (#Open) {
+          if (m.totalVolume > 0) {
+            let bp : OrderBook.BestPrices = switch (Map.get(orderBooks, thash, m.marketId)) {
+              case (?book) OrderBook.bestPrices(book);
+              case null ({
+                bestYesBid = 0;
+                bestNoBid = 0;
+                impliedYesAsk = 10000;
+                impliedNoAsk = 10000;
+                spread = 0;
+              });
+            };
+            all := Array.append(all, [{
+              marketId = m.marketId;
+              question = m.question;
+              eventTitle = m.eventTitle;
+              sport = m.sport;
+              status = "Open";
+              yesPrice = m.lastYesPrice;
+              noPrice = m.lastNoPrice;
+              impliedYesAsk = bp.impliedYesAsk;
+              impliedNoAsk = bp.impliedNoAsk;
+              polymarketSlug = m.polymarketSlug;
+              endDate = m.endDate;
+              totalVolume = m.totalVolume;
+            }]);
+          };
+        };
+        case _ {};
+      };
+    };
+
+    // Sort by volume descending
+    let sorted = Array.sort(all, func(
+      a : { marketId : Text; question : Text; eventTitle : Text; sport : Text; status : Text; yesPrice : Nat; noPrice : Nat; impliedYesAsk : Nat; impliedNoAsk : Nat; polymarketSlug : Text; endDate : Int; totalVolume : Nat },
+      b : { marketId : Text; question : Text; eventTitle : Text; sport : Text; status : Text; yesPrice : Nat; noPrice : Nat; impliedYesAsk : Nat; impliedNoAsk : Nat; polymarketSlug : Text; endDate : Int; totalVolume : Nat },
+    ) : { #less; #equal; #greater } {
+      if (a.totalVolume > b.totalVolume) #less
+      else if (a.totalVolume < b.totalVolume) #greater
+      else #equal;
+    });
+
+    // Take top N
+    let n = Nat.min(maxLimit, sorted.size());
+    Array.tabulate(n, func(i) { sorted[i] });
   };
 
   /// Debug: list markets with optional sport and status filters, paginated

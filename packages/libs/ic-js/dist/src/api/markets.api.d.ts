@@ -112,3 +112,4 @@ export interface UserPosition {
 }
 export declare const getMyPositions: (identity: Identity, marketFilter?: string) => Promise<UserPosition[]>;
 export declare const getEventMarkets: (polymarketSlug: string) => Promise<MarketInfo[]>;
+export declare const getTopMarketsByVolume: (limit?: number) => Promise<MarketListItem[]>;

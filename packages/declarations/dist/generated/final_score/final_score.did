@@ -54,7 +54,7 @@ type StreamingCallbackResponse =
  };
 type StreamingCallback = func (StreamingToken) ->
                           (opt StreamingCallbackResponse) query;
-type Result_3 = 
+type Result_4 = 
  variant {
    err: text;
    ok:
@@ -69,6 +69,15 @@ type Result_3 =
       remaining: nat;
       status: text;
     };
+ };
+type Result_3 = 
+ variant {
+   err: text;
+   ok: record {
+         cancelled: nat;
+         escrowed: int;
+         placed: nat;
+       };
  };
 type Result_2 = 
  variant {
@@ -87,6 +96,10 @@ type Result =
  };
 type McpServer = 
  service {
+   /// Admin: cancel ALL open/partially-filled orders across all markets, empty all books.
+   /// Used for migration (e.g., pre-escrow → escrowed orders). No refunds attempted
+   /// since pre-escrow orders have empty subaccounts.
+   admin_cancel_all_orders: () -> (Result_1);
    /// Admin: cancel a market and refund all
    admin_cancel_market: (marketId: text) -> (Result_1);
    admin_clear_markets: () -> (Result_1);
@@ -102,13 +115,25 @@ type McpServer =
    admin_delete_market: (marketId: text) -> (Result_1);
    /// Admin: drain stuck funds from a market subaccount
    admin_drain_market_subaccount: (marketId: text) -> (Result_1);
+   /// Admin: reopen a Closed market (e.g., premature deadline closure)
+   admin_reopen_market: (marketId: text) -> (Result_1);
    /// Admin: manually resolve a market
    admin_resolve_market: (marketId: text, winnerText: text) -> (Result_1);
    /// Admin: manually trigger Polymarket sync (bypasses timer)
    admin_trigger_sync: () -> (Result_1);
-   /// Cancel an order (authenticated by wallet)
+   /// Cancel an order (authenticated by wallet) — refunds escrowed funds
    cancel_order: (orderId: text) -> (Result_1);
    create_my_api_key: (name: text, scopes: vec text) -> (text);
+   debug_all_positions: () ->
+    (vec
+      record {
+        costBasis: nat;
+        marketId: text;
+        outcome: text;
+        positionId: text;
+        shares: nat;
+        user: text;
+      }) query;
    /// Debug: get a specific market
    debug_get_market: (marketId: text) ->
     (opt
@@ -179,6 +204,18 @@ type McpServer =
        totalMarkets: nat;
        totalSlugs: nat;
      }) query;
+   debug_user_orders: (userPrincipal: text) ->
+    (vec
+      record {
+        filledSize: nat;
+        marketId: text;
+        orderId: text;
+        outcome: text;
+        price: nat;
+        size: nat;
+        status: text;
+        timestamp: int;
+      }) query;
    /// Get all markets that belong to the same event (share polymarketSlug)
    get_event_markets: (polymarketSlug: text) ->
     (vec
@@ -216,6 +253,11 @@ type McpServer =
        totalUsers: nat;
        totalVolume: nat;
      }) query;
+   /// Get open market counts grouped by sport code — single query for landing page
+   get_sport_counts: () -> (vec record {
+                                  count: nat;
+                                  sport: text;
+                                }) query;
    /// Public query: get token configuration (for frontend)
    get_token_info: () ->
     (record {
@@ -224,6 +266,24 @@ type McpServer =
        ledger: text;
        symbol: text;
      }) query;
+   /// Returns the top N open markets sorted by totalVolume descending.
+   /// Used by the homepage "Popular Markets" strip.
+   get_top_markets_by_volume: (limit: nat) ->
+    (vec
+      record {
+        endDate: int;
+        eventTitle: text;
+        impliedNoAsk: nat;
+        impliedYesAsk: nat;
+        marketId: text;
+        noPrice: nat;
+        polymarketSlug: text;
+        question: text;
+        sport: text;
+        status: text;
+        totalVolume: nat;
+        yesPrice: nat;
+      }) query;
    get_treasury_balance: (ledger_id: principal) -> (nat);
    /// Get all unresolved markets (Open + Closed) with Polymarket data.
    /// Used by the off-chain Render sync service for resolution.
@@ -270,7 +330,14 @@ type McpServer =
       }) query;
    /// Place a limit order (authenticated by wallet — msg.caller is the user)
    place_order: (marketId: text, outcomeText: text, price: float64, size:
-    nat) -> (Result_3);
+    nat) -> (Result_4);
+   /// Batch requote: cancel all caller's orders in a market and place new ones with delta escrow
+   requote_market: (marketId: text, newOrders:
+    vec record {
+          outcome: text;
+          price: float64;
+          size: nat;
+        }) -> (Result_3);
    revoke_my_api_key: (key_id: text) -> ();
    set_owner: (new_owner: principal) -> (Result_2);
    transformJwksResponse:

@@ -61,7 +61,7 @@ export const idlFactory = ({ IDL }) => {
     'info' : ApiKeyInfo,
     'hashed_key' : HashedApiKey,
   });
-  const Result_3 = IDL.Variant({
+  const Result_4 = IDL.Variant({
     'ok' : IDL.Record({
       'fills' : IDL.Vec(
         IDL.Record({
@@ -74,6 +74,14 @@ export const idlFactory = ({ IDL }) => {
       'orderId' : IDL.Text,
       'filled' : IDL.Nat,
       'remaining' : IDL.Nat,
+    }),
+    'err' : IDL.Text,
+  });
+  const Result_3 = IDL.Variant({
+    'ok' : IDL.Record({
+      'cancelled' : IDL.Nat,
+      'placed' : IDL.Nat,
+      'escrowed' : IDL.Int,
     }),
     'err' : IDL.Text,
   });
@@ -110,6 +118,7 @@ export const idlFactory = ({ IDL }) => {
   });
   const Result = IDL.Variant({ 'ok' : IDL.Nat, 'err' : TreasuryError });
   const McpServer = IDL.Service({
+    'admin_cancel_all_orders' : IDL.Func([], [Result_1], []),
     'admin_cancel_market' : IDL.Func([IDL.Text], [Result_1], []),
     'admin_clear_markets' : IDL.Func([], [Result_1], []),
     'admin_create_api_key' : IDL.Func(
@@ -133,6 +142,7 @@ export const idlFactory = ({ IDL }) => {
       ),
     'admin_delete_market' : IDL.Func([IDL.Text], [Result_1], []),
     'admin_drain_market_subaccount' : IDL.Func([IDL.Text], [Result_1], []),
+    'admin_reopen_market' : IDL.Func([IDL.Text], [Result_1], []),
     'admin_resolve_market' : IDL.Func([IDL.Text, IDL.Text], [Result_1], []),
     'admin_trigger_sync' : IDL.Func([], [Result_1], []),
     'cancel_order' : IDL.Func([IDL.Text], [Result_1], []),
@@ -140,6 +150,22 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Text, IDL.Vec(IDL.Text)],
         [IDL.Text],
         [],
+      ),
+    'debug_all_positions' : IDL.Func(
+        [],
+        [
+          IDL.Vec(
+            IDL.Record({
+              'shares' : IDL.Nat,
+              'user' : IDL.Text,
+              'positionId' : IDL.Text,
+              'marketId' : IDL.Text,
+              'costBasis' : IDL.Nat,
+              'outcome' : IDL.Text,
+            })
+          ),
+        ],
+        ['query'],
       ),
     'debug_get_market' : IDL.Func(
         [IDL.Text],
@@ -230,6 +256,24 @@ export const idlFactory = ({ IDL }) => {
         ],
         ['query'],
       ),
+    'debug_user_orders' : IDL.Func(
+        [IDL.Text],
+        [
+          IDL.Vec(
+            IDL.Record({
+              'status' : IDL.Text,
+              'size' : IDL.Nat,
+              'orderId' : IDL.Text,
+              'marketId' : IDL.Text,
+              'timestamp' : IDL.Int,
+              'price' : IDL.Nat,
+              'outcome' : IDL.Text,
+              'filledSize' : IDL.Nat,
+            })
+          ),
+        ],
+        ['query'],
+      ),
     'get_event_markets' : IDL.Func(
         [IDL.Text],
         [
@@ -282,6 +326,11 @@ export const idlFactory = ({ IDL }) => {
         ],
         ['query'],
       ),
+    'get_sport_counts' : IDL.Func(
+        [],
+        [IDL.Vec(IDL.Record({ 'count' : IDL.Nat, 'sport' : IDL.Text }))],
+        ['query'],
+      ),
     'get_token_info' : IDL.Func(
         [],
         [
@@ -291,6 +340,28 @@ export const idlFactory = ({ IDL }) => {
             'ledger' : IDL.Text,
             'symbol' : IDL.Text,
           }),
+        ],
+        ['query'],
+      ),
+    'get_top_markets_by_volume' : IDL.Func(
+        [IDL.Nat],
+        [
+          IDL.Vec(
+            IDL.Record({
+              'impliedNoAsk' : IDL.Nat,
+              'status' : IDL.Text,
+              'polymarketSlug' : IDL.Text,
+              'endDate' : IDL.Int,
+              'totalVolume' : IDL.Nat,
+              'question' : IDL.Text,
+              'impliedYesAsk' : IDL.Nat,
+              'sport' : IDL.Text,
+              'eventTitle' : IDL.Text,
+              'marketId' : IDL.Text,
+              'noPrice' : IDL.Nat,
+              'yesPrice' : IDL.Nat,
+            })
+          ),
         ],
         ['query'],
       ),
@@ -358,6 +429,20 @@ export const idlFactory = ({ IDL }) => {
       ),
     'place_order' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Float64, IDL.Nat],
+        [Result_4],
+        [],
+      ),
+    'requote_market' : IDL.Func(
+        [
+          IDL.Text,
+          IDL.Vec(
+            IDL.Record({
+              'size' : IDL.Nat,
+              'price' : IDL.Float64,
+              'outcome' : IDL.Text,
+            })
+          ),
+        ],
         [Result_3],
         [],
       ),

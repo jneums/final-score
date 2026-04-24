@@ -8,6 +8,8 @@ import {
   getMyOrders,
   getMyPositions,
   getEventMarkets,
+  getSportCounts,
+  getTopMarketsByVolume,
   type MarketCount,
   type PlatformStats,
   type MarketInfo,
@@ -16,6 +18,7 @@ import {
   type OrderBookData,
   type UserOrder,
   type UserPosition,
+  type SportCount,
 } from '@final-score/ic-js';
 
 /**
@@ -205,5 +208,105 @@ export function useEventMarkets(polymarketSlug: string | undefined) {
     enabled: !!polymarketSlug,
     staleTime: 30 * 1000,
     refetchInterval: 60 * 1000,
+  });
+}
+
+/**
+ * A grouped event with aggregated volume across its markets.
+ */
+export interface PopularEvent {
+  slug: string;
+  eventTitle: string;
+  sport: string;
+  league: string;
+  status: string;
+  totalVolume: number;
+  endDate: bigint;
+  markets: MarketListItem[];
+  firstMarketId: string;
+}
+
+/**
+ * Hook to fetch the highest-volume open events.
+ * Single canister query via get_top_markets_by_volume.
+ */
+export function usePopularMarkets(topN = 6) {
+  return useQuery<PopularEvent[]>({
+    queryKey: ['popular-markets', topN],
+    queryFn: async () => {
+      const topMarkets = await getTopMarketsByVolume(topN * 5);
+
+      // Get unique event slugs from top markets
+      const slugs = [...new Set(topMarkets.map((m) => m.polymarketSlug))];
+
+      // Backfill full event markets for each slug
+      const eventResults = await Promise.all(
+        slugs.map((slug) => getEventMarkets(slug)),
+      );
+
+      // Build events with complete market data
+      const events: PopularEvent[] = [];
+      for (let i = 0; i < slugs.length; i++) {
+        const slug = slugs[i];
+        const fullMarkets = eventResults[i];
+        if (!fullMarkets.length) continue;
+
+        // Only include open markets in the card
+        const openMarkets: MarketListItem[] = fullMarkets
+          .filter((m) => m.status === 'Open')
+          .map((m) => ({
+            marketId: m.marketId,
+            question: m.question,
+            eventTitle: m.eventTitle,
+            sport: m.sport,
+            status: m.status,
+            yesPrice: Number(m.lastYesPrice),
+            noPrice: Number(m.lastNoPrice),
+            impliedYesAsk: 0,
+            impliedNoAsk: 0,
+            polymarketSlug: m.polymarketSlug,
+            endDate: m.endDate,
+            totalVolume: m.totalVolume,
+          }));
+        if (!openMarkets.length) continue;
+
+        // Overlay implied prices from topMarkets where available
+        for (const om of openMarkets) {
+          const top = topMarkets.find((t) => t.marketId === om.marketId);
+          if (top) {
+            om.impliedYesAsk = top.impliedYesAsk;
+            om.impliedNoAsk = top.impliedNoAsk;
+          }
+        }
+
+        const first = openMarkets[0];
+        const totalVolume = openMarkets.reduce(
+          (sum, m) => sum + Number(m.totalVolume),
+          0,
+        );
+        const endDate = openMarkets.reduce(
+          (min, m) =>
+            m.endDate > 0n && (min === 0n || m.endDate < min) ? m.endDate : min,
+          0n,
+        );
+        events.push({
+          slug,
+          eventTitle: first.eventTitle,
+          sport: first.sport,
+          league: first.sport.toUpperCase(),
+          status: first.status,
+          totalVolume,
+          endDate,
+          markets: openMarkets,
+          firstMarketId: first.marketId,
+        });
+      }
+
+      events.sort((a, b) => b.totalVolume - a.totalVolume);
+      return events.slice(0, topN);
+    },
+    staleTime: 2 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    refetchInterval: 3 * 60 * 1000,
   });
 }

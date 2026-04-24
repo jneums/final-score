@@ -2,9 +2,9 @@ import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { usePlatformStats, useMarketCount, useSportCounts } from '../hooks/useMarkets';
+import { usePlatformStats, useMarketCount, useSportCounts, usePopularMarkets } from '../hooks/useMarkets';
 import { atomicToDollars } from '../lib/tokenUtils';
-import type { SportCategory } from '../hooks/useMarkets';
+import type { SportCategory, PopularEvent } from '../hooks/useMarkets';
 import {
   TrendingUp,
   Users,
@@ -14,6 +14,9 @@ import {
   Zap,
   ArrowRight,
   Globe,
+  Flame,
+  Calendar,
+  Loader2,
 } from 'lucide-react';
 
 // Sport categories that map to Polymarket sport slugs
@@ -56,11 +59,32 @@ const SPORTS: (SportCategory & { name: string; emoji: string })[] = [
   },
 ];
 
+// League display names
+const LEAGUE_NAMES: Record<string, string> = {
+  nba: 'NBA', wnba: 'WNBA', epl: 'Premier League', lal: 'La Liga',
+  bun: 'Bundesliga', fl1: 'Ligue 1', sea: 'Serie A', ucl: 'Champions League',
+  cricipl: 'IPL', ipl: 'IPL', mlb: 'MLB', kbo: 'KBO', nhl: 'NHL', nfl: 'NFL',
+};
+
+const OUTCOME_COLORS = [
+  { bar: 'bg-green-500', text: 'text-green-400', border: 'border-green-500/30' },
+  { bar: 'bg-blue-500', text: 'text-blue-400', border: 'border-blue-500/30' },
+  { bar: 'bg-amber-500', text: 'text-amber-400', border: 'border-amber-500/30' },
+  { bar: 'bg-purple-500', text: 'text-purple-400', border: 'border-purple-500/30' },
+];
+
+function extractOutcomeName(question: string): string {
+  const willMatch = question.match(/^Will (.+?)(?:\s+win(?:\s+on\s+\d{4}-\d{2}-\d{2})?\??|$)/i);
+  if (willMatch) return willMatch[1];
+  if (/end in a draw/i.test(question)) return 'Draw';
+  return question;
+}
+
 export default function HomePage() {
   const { data: stats, isLoading: statsLoading } = usePlatformStats();
   const { data: marketCount, isLoading: countLoading } = useMarketCount();
-  // Fetch per-sport counts efficiently (one lightweight query per sport code)
   const { data: sportCounts } = useSportCounts(SPORTS);
+  const { data: popularEvents, isLoading: popularLoading } = usePopularMarkets(6);
 
   return (
     <div className="min-h-screen">
@@ -139,6 +163,88 @@ export default function HomePage() {
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Popular Markets */}
+      <section className="container mx-auto px-4 py-12">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+              <Flame className="w-6 h-6 text-orange-400" />
+              Popular Markets
+            </h2>
+            <p className="text-muted-foreground mt-1">Highest volume events right now</p>
+          </div>
+        </div>
+        {popularLoading ? (
+          <div className="flex items-center justify-center py-12 gap-3">
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+            <span className="text-muted-foreground">Loading popular markets...</span>
+          </div>
+        ) : popularEvents && popularEvents.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {popularEvents.map((event) => {
+              const league = LEAGUE_NAMES[event.sport] || event.sport.toUpperCase();
+              const endDate = event.endDate > 0n
+                ? new Date(Number(event.endDate / 1_000_000n))
+                : null;
+              const outcomes = event.markets.filter(m => !/end in a draw/i.test(m.question));
+              const getDisplayPrice = (m: typeof outcomes[0]) => {
+                const bookPrice = m.impliedYesAsk;
+                return (bookPrice > 0 && bookPrice < 10000) ? bookPrice : m.yesPrice;
+              };
+
+              return (
+                <Link key={event.slug} to={`/event/${event.firstMarketId}`}>
+                  <Card className="hover:border-primary/30 transition-colors cursor-pointer h-full py-0 gap-0">
+                    <CardContent className="p-5 flex flex-col h-full">
+                      <div className="flex items-center gap-2 mb-3">
+                        <Badge variant="outline" className="text-xs">{league}</Badge>
+                        <Badge variant="outline" className="border-green-500/30 text-green-400">Open</Badge>
+                      </div>
+                      <h3 className="font-semibold text-sm leading-snug mb-4">{event.eventTitle}</h3>
+                      <div className="space-y-2.5 flex-1">
+                        {outcomes.map((m, i) => {
+                          const name = extractOutcomeName(m.question);
+                          const price = getDisplayPrice(m);
+                          const percent = price > 0 ? Math.round(price / 100) : 0;
+                          const color = OUTCOME_COLORS[i % OUTCOME_COLORS.length];
+                          return (
+                            <div key={m.marketId} className="space-y-1">
+                              <div className="flex items-center justify-between">
+                                <span className="text-sm font-medium truncate mr-2">{name}</span>
+                                <Badge variant="outline" className={`text-xs font-mono shrink-0 ${color.border} ${color.text}`}>
+                                  {percent}%
+                                </Badge>
+                              </div>
+                              <div className="h-1 rounded-full bg-muted overflow-hidden">
+                                <div className={`h-full rounded-full ${color.bar} transition-all`} style={{ width: `${percent}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex items-center justify-between mt-4 pt-3 border-t border-border/50 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <Calendar className="w-3 h-3" />
+                          {endDate ? endDate.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : '—'}
+                        </span>
+                        {event.totalVolume > 0 && (
+                          <span className="flex items-center gap-1">
+                            <TrendingUp className="w-3 h-3" />
+                            ${atomicToDollars(event.totalVolume).toLocaleString(undefined, { maximumFractionDigits: 0 })} vol
+                          </span>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-muted-foreground text-center py-8">No markets available yet.</p>
+        )}
       </section>
 
       {/* All Sports Section */}
@@ -249,9 +355,11 @@ export default function HomePage() {
               </div>
             </div>
             <div className="pt-2">
-              <Button size="lg" className="text-base px-8">
-                Launch App
-                <Zap className="w-4 h-4 ml-2" />
+              <Button size="lg" className="text-base px-8" asChild>
+                <Link to="/sport/basketball">
+                  Browse Markets
+                  <ArrowRight className="w-4 h-4 ml-2" />
+                </Link>
               </Button>
             </div>
           </CardContent>

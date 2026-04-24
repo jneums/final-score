@@ -155,3 +155,22 @@ export const getEventMarkets = async (polymarketSlug) => {
         lastNoPrice: m.lastNoPrice,
     }));
 };
+// ─── Top Markets by Volume ───────────────────────────────────────────────────
+export const getTopMarketsByVolume = async (limit = 30) => {
+    const actor = await getFinalScoreActor();
+    const result = await actor.get_top_markets_by_volume(BigInt(limit));
+    return result.map((m) => ({
+        marketId: m.marketId,
+        question: m.question,
+        eventTitle: m.eventTitle,
+        sport: m.sport,
+        status: m.status,
+        yesPrice: Number(m.yesPrice),
+        noPrice: Number(m.noPrice),
+        impliedYesAsk: Number(m.impliedYesAsk),
+        impliedNoAsk: Number(m.impliedNoAsk),
+        polymarketSlug: m.polymarketSlug,
+        endDate: m.endDate,
+        totalVolume: m.totalVolume,
+    }));
+};
