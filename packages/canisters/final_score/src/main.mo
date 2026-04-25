@@ -837,6 +837,11 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   func admin_resolve_market_internal(marketId : Text, winner : ToolContext.Outcome) : async Result.Result<Text, Text> {
     switch (Map.get(markets, thash, marketId)) {
       case (?market) {
+        // Guard: skip if already resolved (prevents duplicate payout attempts from concurrent calls)
+        switch (market.status) {
+          case (#Resolved(_)) return #ok("Market " # marketId # " already resolved. Skipping.");
+          case _ {};
+        };
         // Update status
         Map.set(markets, thash, marketId, { market with status = #Resolved(winner) });
 
@@ -1185,7 +1190,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       case null return #err("Invalid outcome. Use 'yes' or 'no'.");
     };
 
-    let priceBps : Nat = Int.abs(Float.toInt(price * 10000.0));
+    let priceBps : Nat = Int.abs(Float.toInt(price * 10000.0 + 0.5));
     if (not ToolContext.isValidPrice(priceBps)) {
       return #err("Invalid price. Must be 0.01 to 0.99 in $0.01 increments.");
     };
@@ -1558,7 +1563,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     // Validate and calculate new escrow
     var newEscrow : Nat = 0;
     for (newOrd in newOrders.vals()) {
-      let priceBps : Nat = Int.abs(Float.toInt(newOrd.price * 10000.0));
+      let priceBps : Nat = Int.abs(Float.toInt(newOrd.price * 10000.0 + 0.5));
       if (not ToolContext.isValidPrice(priceBps)) {
         return #err("Invalid price. Must be 0.01 to 0.99 in $0.01 increments.");
       };
@@ -1666,7 +1671,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     for (newOrd in newOrders.vals()) {
       switch (ToolContext.parseOutcome(newOrd.outcome)) {
         case (?outcome) {
-          let priceBps : Nat = Int.abs(Float.toInt(newOrd.price * 10000.0));
+          let priceBps : Nat = Int.abs(Float.toInt(newOrd.price * 10000.0 + 0.5));
           let orderId = ToolContext.getNextOrderId(toolContext);
           let order : ToolContext.Order = {
             orderId;

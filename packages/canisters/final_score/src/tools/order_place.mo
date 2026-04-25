@@ -96,7 +96,7 @@ module {
         case null return ToolContext.makeError("price is required (0.01 to 0.99)", cb);
       };
 
-      let priceBps : Nat = Int.abs(Float.toInt(priceFloat * 10000.0));
+      let priceBps : Nat = Int.abs(Float.toInt(priceFloat * 10000.0 + 0.5));
       if (not ToolContext.isValidPrice(priceBps)) {
         return ToolContext.makeError("Invalid price. Must be 0.01 to 0.99 in $0.01 increments.", cb);
       };

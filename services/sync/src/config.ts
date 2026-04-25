@@ -63,7 +63,8 @@ export const CONFIG = {
     SIZE_PER_LEVEL: parseInt(process.env.MAKER_SIZE || "10"),
 
     // Re-quote if reference price moved more than this from resting order (bps)
-    REFRESH_THRESHOLD_BPS: parseInt(process.env.MAKER_REFRESH_THRESHOLD || "100"),
+    // 300 bps = 3¢ — within the 4¢ total spread, avoids excessive requotes on noise
+    REFRESH_THRESHOLD_BPS: parseInt(process.env.MAKER_REFRESH_THRESHOLD || "300"),
 
     // Skip markets within this many ms of endDate (1 hour)
     SKIP_NEAR_EXPIRY_MS: 60 * 60 * 1000,
@@ -80,7 +81,8 @@ export const CONFIG = {
     // Don't quote if both sides are within this range of 50/50 (no signal)
     MIN_PRICE_EDGE_BPS: 200,  // skip if yesPrice is 4800-5200 (no clear reference)
 
-    // Replenish interval — check for depleted books and restock (2 minutes)
-    REPLENISH_INTERVAL: parseInt(process.env.MAKER_REPLENISH_INTERVAL || String(2 * 60 * 1000)),
+    // Replenish interval — check for depleted books and restock (5 minutes)
+    // WS-reactive requotes handle price drift; replenish just catches fills
+    REPLENISH_INTERVAL: parseInt(process.env.MAKER_REPLENISH_INTERVAL || String(5 * 60 * 1000)),
   },
 };
