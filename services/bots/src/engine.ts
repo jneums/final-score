@@ -246,15 +246,17 @@ async function runBot(state: BotState): Promise<void> {
         if (result === "error") {
           state.stats.errors++;
           incrementStat("totalErrors");
-          // Reset approval flag if allowance ran out — will re-approve next cycle
-          if (message.includes("InsufficientAllowance")) {
-            state.approved = false;
-          }
           // Flag 401/503 for auto-rekey after strategy completes
           // 503 = boundary node returns this when canister traps validating an invalid API key
           if (message.includes("401") || message.includes("503")) {
             saw401 = true;
           }
+        }
+        // Reset approval flag if allowance ran out — will re-approve next cycle
+        // Check ALL results, not just errors — escrow failures come back as structured
+        // responses that strategies may log as "success"
+        if (message.includes("InsufficientAllowance")) {
+          state.approved = false;
         }
       },
     };
