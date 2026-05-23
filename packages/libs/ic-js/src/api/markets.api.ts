@@ -48,6 +48,23 @@ export const getMarketCount = async (): Promise<MarketCount> => {
 };
 
 /**
+ * Count of open markets per sport code — single canister query.
+ */
+export interface SportCount {
+  sport: string;
+  count: number;
+}
+
+export const getSportCounts = async (): Promise<SportCount[]> => {
+  const actor = await getFinalScoreActor();
+  const result = await actor.get_sport_counts();
+  return result.map((r) => ({
+    sport: r.sport,
+    count: Number(r.count),
+  }));
+};
+
+/**
  * Gets platform-wide statistics.
  */
 export const getPlatformStats = async (): Promise<PlatformStats> => {
@@ -213,6 +230,44 @@ export const cancelOrderCandid = async (
 ): Promise<string> => {
   const actor = await getFinalScoreActor(identity);
   const result = await actor.cancel_order(orderId);
+  if ('err' in result) throw new Error(result.err);
+  return result.ok;
+};
+
+export interface AccountBalance {
+  available: bigint;
+  lockedInOrders: bigint;
+  total: bigint;
+}
+
+export const getMyAccountBalance = async (
+  identity: Identity,
+): Promise<AccountBalance> => {
+  const actor = await getFinalScoreActor(identity);
+  const result = await actor.get_my_account_balance();
+  return {
+    available: result.available,
+    lockedInOrders: result.lockedInOrders,
+    total: result.total,
+  };
+};
+
+export const deposit = async (
+  identity: Identity,
+  amount: bigint,
+): Promise<bigint> => {
+  const actor = await getFinalScoreActor(identity);
+  const result = await actor.deposit(amount);
+  if ('err' in result) throw new Error(result.err);
+  return result.ok;
+};
+
+export const withdrawBalance = async (
+  identity: Identity,
+  amount: bigint,
+): Promise<bigint> => {
+  const actor = await getFinalScoreActor(identity);
+  const result = await actor.withdraw_balance(amount);
   if ('err' in result) throw new Error(result.err);
   return result.ok;
 };

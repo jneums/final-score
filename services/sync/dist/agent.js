@@ -1,4 +1,5 @@
 import { Actor, HttpAgent } from "@dfinity/agent";
+import { Principal } from "@dfinity/principal";
 import { Secp256k1KeyIdentity } from "@dfinity/identity-secp256k1";
 import { CONFIG } from "./config.js";
 // ─── Candid IDL ──────────────────────────────────────────────
@@ -62,6 +63,11 @@ const idlFactory = ({ IDL }) => {
         impliedNoAsk: IDL.Nat,
         spread: IDL.Nat,
     });
+    const AccountBalance = IDL.Record({
+        available: IDL.Nat,
+        lockedInOrders: IDL.Nat,
+        total: IDL.Nat,
+    });
     return IDL.Service({
         admin_create_market: IDL.Func([IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Text, IDL.Int, IDL.Nat, IDL.Nat], [Result], []),
         try_resolve_market: IDL.Func([IDL.Text], [Result], []),
@@ -69,14 +75,44 @@ const idlFactory = ({ IDL }) => {
         // Trading
         place_order: IDL.Func([IDL.Text, IDL.Text, IDL.Float64, IDL.Nat], [PlaceOrderResult], []),
         cancel_order: IDL.Func([IDL.Text], [Result], []),
+        get_my_account_balance: IDL.Func([], [AccountBalance], ["query"]),
+        deposit: IDL.Func([IDL.Nat], [IDL.Variant({ ok: IDL.Nat, err: IDL.Text })], []),
         requote_market: IDL.Func([IDL.Text, IDL.Vec(IDL.Record({ outcome: IDL.Text, price: IDL.Float64, size: IDL.Nat }))], [IDL.Variant({
                 ok: IDL.Record({ cancelled: IDL.Nat, placed: IDL.Nat, escrowed: IDL.Int }),
                 err: IDL.Text,
             })], []),
         my_orders: IDL.Func([IDL.Opt(IDL.Text), IDL.Opt(IDL.Text)], [IDL.Vec(OrderRecord)], ["query"]),
         // Market data
-        debug_list_markets: IDL.Func([IDL.Opt(IDL.Text), IDL.Nat, IDL.Nat], [ListMarketsResult], ["query"]),
+        debug_list_markets: IDL.Func([IDL.Opt(IDL.Text), IDL.Nat, IDL.Nat, IDL.Opt(IDL.Text)], [ListMarketsResult], ["query"]),
         debug_get_order_book: IDL.Func([IDL.Text, IDL.Nat], [OrderBookResult], ["query"]),
+    });
+};
+const tokenLedgerIdlFactory = ({ IDL }) => {
+    return IDL.Service({
+        icrc2_approve: IDL.Func([IDL.Record({
+                spender: IDL.Record({ owner: IDL.Principal, subaccount: IDL.Opt(IDL.Vec(IDL.Nat8)) }),
+                amount: IDL.Nat,
+                fee: IDL.Opt(IDL.Nat),
+                memo: IDL.Opt(IDL.Vec(IDL.Nat8)),
+                from_subaccount: IDL.Opt(IDL.Vec(IDL.Nat8)),
+                created_at_time: IDL.Opt(IDL.Nat64),
+                expected_allowance: IDL.Opt(IDL.Nat),
+                expires_at: IDL.Opt(IDL.Nat64),
+            })], [IDL.Variant({
+                Ok: IDL.Nat,
+                Err: IDL.Variant({
+                    GenericError: IDL.Record({ error_code: IDL.Nat, message: IDL.Text }),
+                    TemporarilyUnavailable: IDL.Null,
+                    Duplicate: IDL.Record({ duplicate_of: IDL.Nat }),
+                    BadFee: IDL.Record({ expected_fee: IDL.Nat }),
+                    AllowanceChanged: IDL.Record({ current_allowance: IDL.Nat }),
+                    CreatedInFuture: IDL.Record({ ledger_time: IDL.Nat64 }),
+                    TooOld: IDL.Null,
+                    Expired: IDL.Record({ ledger_time: IDL.Nat64 }),
+                    InsufficientFunds: IDL.Record({ balance: IDL.Nat }),
+                }),
+            })], []),
+        icrc1_balance_of: IDL.Func([IDL.Record({ owner: IDL.Principal, subaccount: IDL.Opt(IDL.Vec(IDL.Nat8)) })], [IDL.Nat], ["query"]),
     });
 };
 // ─── Actor factory ───────────────────────────────────────────
@@ -104,9 +140,13 @@ export async function getActor() {
 }
 // Maker actor (separate identity — for place_order, cancel_order, my_orders)
 let cachedMakerActor = null;
-export async function getMakerActor() {
-    if (cachedMakerActor)
-        return cachedMakerActor;
+let cachedMakerTokenActor = null;
+let cachedMakerIdentity = null;
+let cachedMakerAgent = null;
+async function getMakerIdentityAndAgent() {
+    if (cachedMakerIdentity && cachedMakerAgent) {
+        return { identity: cachedMakerIdentity, agent: cachedMakerAgent };
+    }
     if (!CONFIG.MAKER_IDENTITY_PEM) {
         throw new Error("MAKER_IDENTITY_PEM not set");
     }
@@ -114,10 +154,27 @@ export async function getMakerActor() {
     const identity = Secp256k1KeyIdentity.fromPem(pem);
     console.log(`   Maker identity: ${identity.getPrincipal().toText()}`);
     const agent = await HttpAgent.create({ host: CONFIG.IC_HOST, identity });
+    cachedMakerIdentity = identity;
+    cachedMakerAgent = agent;
+    return { identity, agent };
+}
+export async function getMakerActor() {
+    if (cachedMakerActor)
+        return cachedMakerActor;
+    const { agent } = await getMakerIdentityAndAgent();
     cachedMakerActor = Actor.createActor(idlFactory, {
         agent, canisterId: CONFIG.CANISTER_ID,
     });
     return cachedMakerActor;
+}
+async function getMakerTokenActor() {
+    if (cachedMakerTokenActor)
+        return cachedMakerTokenActor;
+    const { agent } = await getMakerIdentityAndAgent();
+    cachedMakerTokenActor = Actor.createActor(tokenLedgerIdlFactory, {
+        agent, canisterId: CONFIG.TOKEN_LEDGER,
+    });
+    return cachedMakerTokenActor;
 }
 // ─── Exported helpers (sync/resolve — use admin actor) ───────
 export async function createMarket(question, eventTitle, sport, slug, conditionId, endDateSeconds, yesPrice, noPrice) {
@@ -173,6 +230,61 @@ export async function cancelOrder(orderId) {
         return { ok: false, message: String(e).slice(0, 200) };
     }
 }
+export async function getMakerAccountBalance() {
+    const actor = await getMakerActor();
+    return actor.get_my_account_balance();
+}
+async function approveMakerDeposit(amount) {
+    const tokenActor = await getMakerTokenActor();
+    const result = await tokenActor.icrc2_approve({
+        spender: { owner: Principal.fromText(CONFIG.CANISTER_ID), subaccount: [] },
+        amount,
+        fee: [],
+        memo: [],
+        from_subaccount: [],
+        created_at_time: [],
+        expected_allowance: [],
+        expires_at: [],
+    });
+    if ("Err" in result) {
+        throw new Error(`maker icrc2_approve failed: ${JSON.stringify(result.Err)}`);
+    }
+}
+export async function depositMakerWalletBalance() {
+    const { identity } = await getMakerIdentityAndAgent();
+    const tokenActor = await getMakerTokenActor();
+    const actor = await getMakerActor();
+    const walletBalance = await tokenActor.icrc1_balance_of({ owner: identity.getPrincipal(), subaccount: [] });
+    const feeReserve = 20000n; // approve fee + deposit transfer_from fee
+    if (walletBalance <= feeReserve) {
+        const balance = await actor.get_my_account_balance();
+        return { ok: false, message: `maker wallet has no depositable funds (${walletBalance})`, balance };
+    }
+    const amount = walletBalance - feeReserve;
+    await approveMakerDeposit(amount);
+    const result = await actor.deposit(amount);
+    if ("err" in result)
+        return { ok: false, message: result.err };
+    const balance = await actor.get_my_account_balance();
+    return { ok: true, message: "ok", deposited: amount, balance };
+}
+export async function ensureMakerAccountBalance(minAvailable) {
+    const actor = await getMakerActor();
+    let balance = await actor.get_my_account_balance();
+    if (balance.available >= minAvailable)
+        return { ok: true, message: "ok", balance };
+    const deposited = await depositMakerWalletBalance();
+    if (!deposited.ok)
+        return deposited;
+    balance = deposited.balance ?? await actor.get_my_account_balance();
+    if (balance.available >= minAvailable)
+        return { ok: true, message: "ok", balance };
+    return {
+        ok: false,
+        message: `maker account balance ${balance.available} below required ${minAvailable}`,
+        balance,
+    };
+}
 export async function requoteMarketBatch(marketId, orders) {
     const actor = await getMakerActor();
     try {
@@ -199,10 +311,10 @@ export async function getMyOrders(statusFilter, marketFilter) {
     const actor = await getMakerActor();
     return actor.my_orders(statusFilter ? [statusFilter] : [], marketFilter ? [marketFilter] : []);
 }
-export async function listMarkets(sportFilter, offset = 0, limit = 100) {
+export async function listMarkets(sportFilter, offset = 0, limit = 100, status) {
     // Use admin actor (query, no auth needed — either works)
     const actor = await getActor();
-    return actor.debug_list_markets(sportFilter ? [sportFilter] : [], BigInt(offset), BigInt(limit));
+    return actor.debug_list_markets(sportFilter ? [sportFilter] : [], BigInt(offset), BigInt(limit), status ? [status] : []);
 }
 export async function getOrderBook(marketId, maxLevels = 10) {
     const actor = await getActor();

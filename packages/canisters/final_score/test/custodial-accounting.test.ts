@@ -1,0 +1,62 @@
+import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const mainMo = readFileSync(resolve(__dirname, '../src/main.mo'), 'utf8');
+const toolContextMo = readFileSync(resolve(__dirname, '../src/tools/ToolContext.mo'), 'utf8');
+
+function bodyBetween(start: string, end: string): string {
+  const startIndex = mainMo.indexOf(start);
+  expect(startIndex).toBeGreaterThanOrEqual(0);
+  const endIndex = mainMo.indexOf(end, startIndex);
+  expect(endIndex).toBeGreaterThan(startIndex);
+  return mainMo.slice(startIndex, endIndex);
+}
+
+describe('custodial accounting model', () => {
+  it('has explicit deposit, withdraw, and account balance endpoints backed by userBalances', () => {
+    expect(mainMo).toContain('public shared (msg) func deposit');
+    expect(mainMo).toContain('public shared (msg) func withdraw_balance');
+    expect(mainMo).toContain('public query (msg) func get_my_account_balance');
+    expect(toolContextMo).toContain('userBalances : Map.Map<Principal, Nat>');
+    expect(toolContextMo).toContain('public func creditBalance');
+    expect(toolContextMo).toContain('public func debitBalance');
+  });
+
+  it('places orders by debiting internal balance, not by transfer_from per order', () => {
+    const placeOrderBody = bodyBetween(
+      'public shared (msg) func place_order',
+      '/// Cancel an order',
+    );
+
+    expect(placeOrderBody).toContain('ToolContext.debitBalance(toolContext, caller, cost)');
+    expect(placeOrderBody).not.toContain('icrc2_transfer_from');
+    expect(placeOrderBody).not.toContain('PRE-FUND: Escrow full order cost into market subaccount');
+  });
+
+  it('cancels orders by crediting internal balance, not by transferring a refund', () => {
+    const cancelOrderBody = bodyBetween(
+      'public shared (msg) func cancel_order',
+      '/// Batch requote',
+    );
+
+    expect(cancelOrderBody).toContain('ToolContext.creditBalance(toolContext, caller, refundAmount)');
+    expect(cancelOrderBody).not.toContain('icrc1_transfer');
+    expect(cancelOrderBody).not.toContain('marketSubaccount(order.marketId)');
+  });
+
+  it('settlement and netting credit canister balances instead of transferring to wallets', () => {
+    const resolveBody = bodyBetween(
+      'func admin_resolve_market_internal',
+      '// ═══════════════════════════════════════════════════════════\n  // MCP Tool Configuration',
+    );
+    const placeOrderBody = bodyBetween(
+      'public shared (msg) func place_order',
+      '/// Cancel an order',
+    );
+
+    expect(resolveBody).toContain('ToolContext.creditBalance(toolContext, position.user, payout)');
+    expect(placeOrderBody).toContain('ToolContext.creditBalance(toolContext, user, payout)');
+    expect(resolveBody).not.toContain('from_subaccount = ?ToolContext.marketSubaccount(marketId)');
+  });
+});

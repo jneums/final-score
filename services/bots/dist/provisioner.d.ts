@@ -1,7 +1,7 @@
 /**
  * Bot provisioner — creates new bot identities at runtime.
  *
- * Handles: identity generation, token approval, API key creation,
+ * Handles: identity generation, API key creation,
  * identity pool for reuse, and encrypted persistence to disk.
  */
 import { CandidClient } from "./candid-client.js";
@@ -37,11 +37,10 @@ export declare function persistToDisk(): void;
  * Provision a single bot. Steps:
  * 1. Check idle pool first (reuse funded identity)
  * 2. Otherwise generate new identity
- * 3. Approve tokens for the canister
- * 4. Create API key (for MCP tier bots)
- * 5. Create CandidClient + McpClient
+ * 3. Create API key (for MCP tier bots)
+ * 4. Create CandidClient + McpClient
  *
- * NOTE: Funding happens via the payday system — first cycle = payday.
+ * NOTE: Funding and custodial deposits happen lazily in BotWallet on each bot cycle.
  */
 export declare function provisionBot(botName: string, needsMcp: boolean): Promise<ProvisionedBot>;
 /**

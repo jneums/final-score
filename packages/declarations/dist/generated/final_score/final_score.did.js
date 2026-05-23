@@ -1,5 +1,6 @@
 export const idlFactory = ({ IDL }) => {
-  const Result_1 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
+  const Result_2 = IDL.Variant({ 'ok' : IDL.Text, 'err' : IDL.Text });
+  const Result = IDL.Variant({ 'ok' : IDL.Nat, 'err' : IDL.Text });
   const UserStats = IDL.Record({
     'totalTrades' : IDL.Nat,
     'marketsWon' : IDL.Nat,
@@ -61,7 +62,7 @@ export const idlFactory = ({ IDL }) => {
     'info' : ApiKeyInfo,
     'hashed_key' : HashedApiKey,
   });
-  const Result_4 = IDL.Variant({
+  const Result_5 = IDL.Variant({
     'ok' : IDL.Record({
       'fills' : IDL.Vec(
         IDL.Record({
@@ -77,7 +78,7 @@ export const idlFactory = ({ IDL }) => {
     }),
     'err' : IDL.Text,
   });
-  const Result_3 = IDL.Variant({
+  const Result_4 = IDL.Variant({
     'ok' : IDL.Record({
       'cancelled' : IDL.Nat,
       'placed' : IDL.Nat,
@@ -104,7 +105,7 @@ export const idlFactory = ({ IDL }) => {
     'NotOwner' : IDL.Null,
     'TransferFailed' : TransferError,
   });
-  const Result_2 = IDL.Variant({ 'ok' : IDL.Null, 'err' : TreasuryError });
+  const Result_3 = IDL.Variant({ 'ok' : IDL.Null, 'err' : TreasuryError });
   const HttpHeader = IDL.Record({ 'value' : IDL.Text, 'name' : IDL.Text });
   const HttpRequestResult = IDL.Record({
     'status' : IDL.Nat,
@@ -116,14 +117,14 @@ export const idlFactory = ({ IDL }) => {
     'owner' : IDL.Principal,
     'subaccount' : IDL.Opt(Subaccount),
   });
-  const Result = IDL.Variant({ 'ok' : IDL.Nat, 'err' : TreasuryError });
+  const Result_1 = IDL.Variant({ 'ok' : IDL.Nat, 'err' : TreasuryError });
   const McpServer = IDL.Service({
-    'admin_cancel_all_orders' : IDL.Func([], [Result_1], []),
-    'admin_cancel_market' : IDL.Func([IDL.Text], [Result_1], []),
-    'admin_clear_markets' : IDL.Func([], [Result_1], []),
+    'admin_cancel_all_orders' : IDL.Func([], [Result_2], []),
+    'admin_cancel_market' : IDL.Func([IDL.Text], [Result_2], []),
+    'admin_clear_markets' : IDL.Func([], [Result_2], []),
     'admin_create_api_key' : IDL.Func(
         [IDL.Principal, IDL.Text, IDL.Vec(IDL.Text)],
-        [Result_1],
+        [Result_2],
         [],
       ),
     'admin_create_market' : IDL.Func(
@@ -137,15 +138,15 @@ export const idlFactory = ({ IDL }) => {
           IDL.Nat,
           IDL.Nat,
         ],
-        [Result_1],
+        [Result_2],
         [],
       ),
-    'admin_delete_market' : IDL.Func([IDL.Text], [Result_1], []),
-    'admin_drain_market_subaccount' : IDL.Func([IDL.Text], [Result_1], []),
-    'admin_reopen_market' : IDL.Func([IDL.Text], [Result_1], []),
-    'admin_resolve_market' : IDL.Func([IDL.Text, IDL.Text], [Result_1], []),
-    'admin_trigger_sync' : IDL.Func([], [Result_1], []),
-    'cancel_order' : IDL.Func([IDL.Text], [Result_1], []),
+    'admin_delete_market' : IDL.Func([IDL.Text], [Result_2], []),
+    'admin_drain_market_subaccount' : IDL.Func([IDL.Text], [Result_2], []),
+    'admin_reopen_market' : IDL.Func([IDL.Text], [Result_2], []),
+    'admin_resolve_market' : IDL.Func([IDL.Text, IDL.Text], [Result_2], []),
+    'admin_trigger_sync' : IDL.Func([], [Result_2], []),
+    'cancel_order' : IDL.Func([IDL.Text], [Result_2], []),
     'create_my_api_key' : IDL.Func(
         [IDL.Text, IDL.Vec(IDL.Text)],
         [IDL.Text],
@@ -274,6 +275,7 @@ export const idlFactory = ({ IDL }) => {
         ],
         ['query'],
       ),
+    'deposit' : IDL.Func([IDL.Nat], [Result], []),
     'get_event_markets' : IDL.Func(
         [IDL.Text],
         [
@@ -308,6 +310,17 @@ export const idlFactory = ({ IDL }) => {
             'total' : IDL.Nat,
             'cancelled' : IDL.Nat,
             'open' : IDL.Nat,
+          }),
+        ],
+        ['query'],
+      ),
+    'get_my_account_balance' : IDL.Func(
+        [],
+        [
+          IDL.Record({
+            'total' : IDL.Nat,
+            'available' : IDL.Nat,
+            'lockedInOrders' : IDL.Nat,
           }),
         ],
         ['query'],
@@ -429,7 +442,7 @@ export const idlFactory = ({ IDL }) => {
       ),
     'place_order' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Float64, IDL.Nat],
-        [Result_4],
+        [Result_5],
         [],
       ),
     'requote_market' : IDL.Func(
@@ -443,11 +456,11 @@ export const idlFactory = ({ IDL }) => {
             })
           ),
         ],
-        [Result_3],
+        [Result_4],
         [],
       ),
     'revoke_my_api_key' : IDL.Func([IDL.Text], [], []),
-    'set_owner' : IDL.Func([IDL.Principal], [Result_2], []),
+    'set_owner' : IDL.Func([IDL.Principal], [Result_3], []),
     'transformJwksResponse' : IDL.Func(
         [
           IDL.Record({
@@ -468,8 +481,13 @@ export const idlFactory = ({ IDL }) => {
         [HttpRequestResult],
         ['query'],
       ),
-    'try_resolve_market' : IDL.Func([IDL.Text], [Result_1], []),
-    'withdraw' : IDL.Func([IDL.Principal, IDL.Nat, Destination], [Result], []),
+    'try_resolve_market' : IDL.Func([IDL.Text], [Result_2], []),
+    'withdraw' : IDL.Func(
+        [IDL.Principal, IDL.Nat, Destination],
+        [Result_1],
+        [],
+      ),
+    'withdraw_balance' : IDL.Func([IDL.Nat], [Result], []),
   });
   return McpServer;
 };

@@ -212,6 +212,7 @@ module ToolContext {
     positions : Map.Map<Text, Position>;
     userPositionIds : Map.Map<Principal, [Text]>;
     userOrderIds : Map.Map<Principal, [Text]>;
+    userBalances : Map.Map<Principal, Nat>;
     userStats : Map.Map<Principal, UserStats>;
     positionHistory : Map.Map<Principal, [HistoricalPosition]>;
 
@@ -256,6 +257,25 @@ module ToolContext {
   // ═══════════════════════════════════════════════════════════
   // Balance Helpers
   // ═══════════════════════════════════════════════════════════
+
+  public func getBalance(context : ToolContext, user : Principal) : Nat {
+    switch (Map.get(context.userBalances, Map.phash, user)) {
+      case (?balance) balance;
+      case null 0;
+    };
+  };
+
+  public func creditBalance(context : ToolContext, user : Principal, amount : Nat) {
+    if (amount == 0) return;
+    Map.set(context.userBalances, Map.phash, user, getBalance(context, user) + amount);
+  };
+
+  public func debitBalance(context : ToolContext, user : Principal, amount : Nat) : Bool {
+    let current = getBalance(context, user);
+    if (current < amount) return false;
+    Map.set(context.userBalances, Map.phash, user, current - amount);
+    true;
+  };
 
   /// Track an order ID under the user for O(1) lookup
   public func trackUserOrder(context : ToolContext, user : Principal, orderId : Text) {
@@ -396,17 +416,28 @@ module ToolContext {
     };
   };
 
+  /// Result of netting opposing positions
+  public type NettingResult = {
+    overlap : Nat;
+    yesCostReduction : Nat;
+    noCostReduction : Nat;
+  };
+
   /// Net opposing positions: if user holds both Yes and No in the same market,
-  /// redeem the overlap (1 Yes + 1 No = $1.00). Returns the number of complete
-  /// sets redeemed (0 if no overlap).
-  public func netPositions(context : ToolContext, user : Principal, marketId : Text) : Nat {
+  /// redeem the overlap (1 Yes + 1 No = $1.00). Returns the netting details
+  /// including cost basis reductions for P&L tracking.
+  public func netPositions(context : ToolContext, user : Principal, marketId : Text) : NettingResult {
     let yesPos = findPosition(context, user, marketId, #Yes);
     let noPos = findPosition(context, user, marketId, #No);
 
     switch (yesPos, noPos) {
       case (?yes, ?no) {
         let overlap = Nat.min(yes.shares, no.shares);
-        if (overlap == 0) return 0;
+        if (overlap == 0) return { overlap = 0; yesCostReduction = 0; noCostReduction = 0 };
+
+        // Calculate cost reductions BEFORE modifying state
+        let yesCostReduction = (overlap * yes.costBasis) / yes.shares;
+        let noCostReduction = (overlap * no.costBasis) / no.shares;
 
         // Reduce Yes position
         let newYesShares = yes.shares - overlap;
@@ -419,11 +450,10 @@ module ToolContext {
           };
           Map.set(context.userPositionIds, Map.phash, user, ids);
         } else {
-          let costReduction = (overlap * yes.costBasis) / yes.shares;
           Map.set(context.positions, Map.thash, yes.positionId, {
             yes with
             shares = newYesShares;
-            costBasis = yes.costBasis - costReduction;
+            costBasis = yes.costBasis - yesCostReduction;
           });
         };
 
@@ -437,17 +467,16 @@ module ToolContext {
           };
           Map.set(context.userPositionIds, Map.phash, user, ids);
         } else {
-          let costReduction = (overlap * no.costBasis) / no.shares;
           Map.set(context.positions, Map.thash, no.positionId, {
             no with
             shares = newNoShares;
-            costBasis = no.costBasis - costReduction;
+            costBasis = no.costBasis - noCostReduction;
           });
         };
 
-        overlap;
+        { overlap; yesCostReduction; noCostReduction };
       };
-      case _ 0;
+      case _ ({ overlap = 0; yesCostReduction = 0; noCostReduction = 0 });
     };
   };
 
@@ -539,6 +568,29 @@ module ToolContext {
           stats with
           totalTrades = stats.totalTrades + 1;
           totalVolume = stats.totalVolume + volume;
+        });
+      };
+      case null {};
+    };
+  };
+
+  /// Update stats after netting (Yes+No pair redeemed for $1.00)
+  /// profit = payout - (yesCostReduction + noCostReduction)
+  public func recordNetting(
+    context : ToolContext,
+    user : Principal,
+    payout : Nat,
+    costBasis : Nat,
+  ) {
+    initUserStats(context, user);
+    switch (Map.get(context.userStats, Map.phash, user)) {
+      case (?stats) {
+        let payoutInt : Int = payout;
+        let costInt : Int = costBasis;
+        Map.set(context.userStats, Map.phash, user, {
+          stats with
+          totalPayout = stats.totalPayout + payout;
+          netProfit = stats.netProfit + (payoutInt - costInt);
         });
       };
       case null {};

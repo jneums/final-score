@@ -10,6 +10,7 @@ import {
   getEventMarkets,
   getSportCounts,
   getTopMarketsByVolume,
+  getMyAccountBalance,
   type MarketCount,
   type PlatformStats,
   type MarketInfo,
@@ -19,6 +20,7 @@ import {
   type UserOrder,
   type UserPosition,
   type SportCount,
+  type AccountBalance,
 } from '@final-score/ic-js';
 
 /**
@@ -71,60 +73,36 @@ export function useMarketsList(sport?: string, offset = 0, limit = 50) {
   });
 }
 
-/**
- * Fetch the count of markets for a single sport code.
- * Uses limit=0 so no market data is transferred — just the total.
- */
-async function fetchSportCount(sportCode: string): Promise<number> {
-  const result = await queryMarkets(sportCode, 0, 1, 'Open');
-  return result.total;
-}
-
-/**
- * Fetch counts for a set of sport codes grouped by category.
- * Returns a map of category slug → total market count.
- */
 export interface SportCategory {
   slug: string;
   codes: string[];
 }
 
-async function fetchSportCounts(
-  categories: SportCategory[],
-): Promise<Record<string, number>> {
-  // Collect all unique sport codes
-  const allCodes = categories.flatMap((c) => c.codes);
-
-  // Fetch counts sequentially to avoid IC boundary node rate limiting
-  const codeCountMap: Record<string, number> = {};
-  for (const code of allCodes) {
-    try {
-      codeCountMap[code] = await fetchSportCount(code);
-    } catch {
-      codeCountMap[code] = 0;
-    }
-  }
-
-  // Aggregate by category
-  const result: Record<string, number> = {};
-  for (const cat of categories) {
-    result[cat.slug] = cat.codes.reduce(
-      (sum, code) => sum + (codeCountMap[code] || 0),
-      0,
-    );
-  }
-  return result;
-}
-
 /**
  * Hook to fetch per-sport-category market counts efficiently.
- * Instead of downloading all 460+ markets, it queries each sport code
- * with limit=1 and reads the `total` field.
+ * Uses the dedicated get_sport_counts() canister endpoint — single query
+ * instead of N concurrent requests per sport code.
  */
 export function useSportCounts(categories: SportCategory[]) {
   return useQuery<Record<string, number>>({
     queryKey: ['sport-counts', categories.map((c) => c.slug).join(',')],
-    queryFn: () => fetchSportCounts(categories),
+    queryFn: async () => {
+      const raw = await getSportCounts();
+      // Build a sport-code → count map from the canister response
+      const codeCountMap: Record<string, number> = {};
+      for (const entry of raw) {
+        codeCountMap[entry.sport] = entry.count;
+      }
+      // Aggregate by category (each category may contain multiple sport codes)
+      const result: Record<string, number> = {};
+      for (const cat of categories) {
+        result[cat.slug] = cat.codes.reduce(
+          (sum, code) => sum + (codeCountMap[code] || 0),
+          0,
+        );
+      }
+      return result;
+    },
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
     refetchInterval: 5 * 60 * 1000,
@@ -192,6 +170,16 @@ export function useMyPositions(identity: any, marketFilter?: string) {
   return useQuery<UserPosition[]>({
     queryKey: ['my-positions', marketFilter],
     queryFn: () => getMyPositions(identity, marketFilter),
+    enabled: !!identity,
+    staleTime: 10 * 1000,
+    refetchInterval: 15 * 1000,
+  });
+}
+
+export function useMyAccountBalance(identity: any) {
+  return useQuery<AccountBalance>({
+    queryKey: ['my-account-balance'],
+    queryFn: () => getMyAccountBalance(identity),
     enabled: !!identity,
     staleTime: 10 * 1000,
     refetchInterval: 15 * 1000,

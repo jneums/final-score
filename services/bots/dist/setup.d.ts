@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Setup script: generates bot identities, funds them, approves tokens, creates API keys.
+ * Setup script: generates bot identities, funds them, deposits tokens into Final Score, creates API keys.
  *
  * Usage:
  *   export ADMIN_IDENTITY_PEM=$(cat ~/.config/dfx/identity/pp_owner/identity.pem | base64 -w0)

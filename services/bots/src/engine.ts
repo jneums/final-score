@@ -64,8 +64,6 @@ interface BotState {
   stats: { runs: number; errors: number; ordersPlaced: number; skippedInactive: number };
   /** Original index used for strategy/persona assignment */
   botIndex: number;
-  /** Whether token approval has been verified/set */
-  approved: boolean;
 }
 
 // ─── State ──────────────────────────────────────────────────
@@ -185,23 +183,13 @@ async function runBot(state: BotState): Promise<void> {
   if (!state.running) return;
 
   try {
-    // 0. Lazy refill — top up from faucet if balance is low
+    // 0. Lazy refill — top up wallet from faucet and deposit into custodial account if low
     await state.wallet.refreshBalance();
     await state.wallet.refillIfNeeded(
       () => state.candid.callFaucet(),
+      (amount) => state.candid.approveAndDeposit(amount),
       (msg) => addLog(state.identity.name, "refill", "success", msg),
     );
-
-    // 0b. Ensure token approval is set (re-approves if allowance runs out)
-    if (!state.approved) {
-      try {
-        await state.candid.approve(CONFIG.CANISTER_ID, CONFIG.APPROVE_AMOUNT);
-        state.approved = true;
-        addLog(state.identity.name, "approve", "success", "Token approval set");
-      } catch (e) {
-        addLog(state.identity.name, "approve", "error", `Token approval failed: ${String(e).slice(0, 150)}`);
-      }
-    }
 
     // 1. Activity window check — skip if bot is "asleep"
     if (!shouldTradeThisCycle(state.activity)) {
@@ -225,7 +213,7 @@ async function runBot(state: BotState): Promise<void> {
     // 3. Balance check — skip if can't afford anything
     if (!state.wallet.canAfford(0.10)) {
       addLog(state.identity.name, "balance-check", "skip",
-        `Low balance ($${state.wallet.balanceUsd.toFixed(2)}), waiting for refill`);
+        `Low account balance ($${state.wallet.balanceUsd.toFixed(2)}), waiting for refill/deposit`);
       state.stats.runs++;
       state.lastRun = new Date();
       return;
@@ -252,11 +240,9 @@ async function runBot(state: BotState): Promise<void> {
             saw401 = true;
           }
         }
-        // Reset approval flag if allowance ran out — will re-approve next cycle
-        // Check ALL results, not just errors — escrow failures come back as structured
-        // responses that strategies may log as "success"
-        if (message.includes("InsufficientAllowance")) {
-          state.approved = false;
+        // If the custodial account was drained, refresh next cycle so lazy refill can deposit.
+        if (message.includes("Insufficient available balance")) {
+          state.wallet.refreshBalance(true).catch(() => undefined);
         }
       },
     };
@@ -377,7 +363,6 @@ async function createBotState(
     lastRun: null,
     stats: { runs: 0, errors: 0, ordersPlaced: 0, skippedInactive: 0 },
     botIndex: index,
-    approved: false,
   };
 }
 

@@ -1,5 +1,6 @@
 export declare const CONFIG: {
     CANISTER_ID: string;
+    TOKEN_LEDGER: string;
     IC_HOST: string;
     DFX_IDENTITY_PEM: string;
     MAKER_IDENTITY_PEM: string;

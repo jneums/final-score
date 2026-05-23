@@ -1,7 +1,7 @@
 /**
  * Bot provisioner — creates new bot identities at runtime.
  *
- * Handles: identity generation, token approval, API key creation,
+ * Handles: identity generation, API key creation,
  * identity pool for reuse, and encrypted persistence to disk.
  */
 
@@ -131,11 +131,10 @@ export function persistToDisk(): void {
  * Provision a single bot. Steps:
  * 1. Check idle pool first (reuse funded identity)
  * 2. Otherwise generate new identity
- * 3. Approve tokens for the canister
- * 4. Create API key (for MCP tier bots)
- * 5. Create CandidClient + McpClient
+ * 3. Create API key (for MCP tier bots)
+ * 4. Create CandidClient + McpClient
  *
- * NOTE: Funding happens via the payday system — first cycle = payday.
+ * NOTE: Funding and custodial deposits happen lazily in BotWallet on each bot cycle.
  */
 export async function provisionBot(
   botName: string,
@@ -157,17 +156,7 @@ export async function provisionBot(
   // 3. Create CandidClient
   const candid = await CandidClient.create(gen.identity);
 
-  // 4. Approve tokens (bot approves the canister to spend its tokens)
-  try {
-    await candid.approve(CONFIG.CANISTER_ID, CONFIG.APPROVE_AMOUNT);
-    addLog("provisioner", "approve", "success", `${botName}: token approval set`);
-  } catch (e) {
-    addLog("provisioner", "approve", "error", `${botName}: token approval failed: ${String(e).slice(0, 150)}`);
-  }
-
-  await sleep(1000);
-
-  // 5. Create API key for MCP bots (self-serve — bot creates its own key)
+  // 4. Create API key for MCP bots (self-serve — bot creates its own key)
   let apiKey = "";
   if (needsMcp) {
     try {

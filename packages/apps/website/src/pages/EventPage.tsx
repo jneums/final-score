@@ -5,11 +5,9 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { useMarket, useOrderBook, useMyPositions, useEventMarkets } from '../hooks/useMarkets';
+import { useMarket, useOrderBook, useMyPositions, useEventMarkets, useMyAccountBalance } from '../hooks/useMarkets';
 import { useAuth } from '../hooks/useAuth';
-import { useUsdcBalance } from '../hooks/useLedger';
 import { positionCurrentValue, formatPnl, atomicToDollars } from '../lib/tokenUtils';
-import { useAllowance } from '../hooks/useAllowance';
 import { placeOrderCandid, type MarketInfo } from '@final-score/ic-js';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
@@ -199,14 +197,13 @@ function OrderForm({
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<'form' | 'review'>('form');
   const queryClient = useQueryClient();
-  const { user } = useAuth();
 
   // Order book for live prices
   const { data: formBook } = useOrderBook(selection?.market.marketId);
 
-  // Pre-flight balance + allowance
-  const { data: balance } = useUsdcBalance(user?.principal);
-  const { data: allowance } = useAllowance(user?.principal);
+  // Pre-flight custodial account balance
+  const { data: accountBalance } = useMyAccountBalance(identity);
+  const availableBalance = accountBalance ? atomicToDollars(Number(accountBalance.available)) : undefined;
 
   const activeMarket = selection?.market;
 
@@ -250,15 +247,9 @@ function OrderForm({
     if (!isValid) return;
     setError(null);
 
-    // Pre-flight balance check
-    if (balance !== undefined && Number(balance) < totalCost) {
-      setError(`Insufficient balance ($${Number(balance).toFixed(2)}).`);
-      return;
-    }
-
-    // Pre-flight allowance check
-    if (allowance !== undefined && Number(allowance) < totalCost) {
-      setError(`Insufficient allowance ($${Number(allowance).toFixed(2)}). Set in Wallet.`);
+    // Pre-flight custodial account balance check
+    if (availableBalance !== undefined && availableBalance < totalCost) {
+      setError(`Insufficient account balance ($${availableBalance.toFixed(2)}). Deposit funds before trading.`);
       return;
     }
 
@@ -285,8 +276,7 @@ function OrderForm({
       queryClient.invalidateQueries({ queryKey: ['event-markets'] });
       queryClient.invalidateQueries({ queryKey: ['my-orders'] });
       queryClient.invalidateQueries({ queryKey: ['my-positions'] });
-      queryClient.invalidateQueries({ queryKey: ['usdc-balance'] });
-      queryClient.invalidateQueries({ queryKey: ['allowance'] });
+      queryClient.invalidateQueries({ queryKey: ['my-account-balance'] });
       setStep('form');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to place order';
@@ -525,15 +515,15 @@ function OrderForm({
               </Button>
             ))}
             <Button
-              variant={balance !== undefined && dollars === String(Math.floor(Number(balance))) ? 'default' : 'outline'}
+              variant={availableBalance !== undefined && dollars === String(Math.floor(availableBalance)) ? 'default' : 'outline'}
               size="sm"
               className="flex-1 text-xs h-7"
               onClick={() => {
-                if (balance !== undefined) {
-                  setDollars(String(Math.floor(Number(balance))));
+                if (availableBalance !== undefined) {
+                  setDollars(String(Math.floor(availableBalance)));
                 }
               }}
-              disabled={balance === undefined}
+              disabled={availableBalance === undefined}
             >
               Max
             </Button>

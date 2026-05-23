@@ -80,6 +80,7 @@ module {
 
       let remaining = order.size - order.filledSize;
       let refunded = ToolContext.orderCost(context, order.price, remaining);
+      ToolContext.creditBalance(context, userPrincipal, refunded);
 
       ToolContext.makeSuccess(Json.obj([
         ("order_id", Json.str(orderId)),

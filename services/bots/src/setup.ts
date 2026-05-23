@@ -1,6 +1,6 @@
 #!/usr/bin/env tsx
 /**
- * Setup script: generates bot identities, funds them, approves tokens, creates API keys.
+ * Setup script: generates bot identities, funds them, deposits tokens into Final Score, creates API keys.
  *
  * Usage:
  *   export ADMIN_IDENTITY_PEM=$(cat ~/.config/dfx/identity/pp_owner/identity.pem | base64 -w0)
@@ -12,7 +12,7 @@
 
 import { CONFIG } from "./config.js";
 import { generateIdentity, loadAdminIdentity } from "./identity.js";
-import { AdminClient, TokenClient } from "./candid-client.js";
+import { AdminClient, CandidClient } from "./candid-client.js";
 
 // ─── Helpers ──────────────────────────────────────────────────
 
@@ -36,11 +36,8 @@ interface BotRecord {
 async function main(): Promise<void> {
   const numBots = CONFIG.NUM_BOTS;
   const faucetCalls = CONFIG.FAUCET_CALLS_PER_BOT;
-  const approveAmount = CONFIG.APPROVE_AMOUNT;
-
   log(`Setting up ${numBots} bots`);
   log(`Faucet calls per bot: ${faucetCalls}`);
-  log(`Approve amount: ${approveAmount}`);
   log(`Canister ID: ${CONFIG.CANISTER_ID}`);
   log(`Token ledger: ${CONFIG.TOKEN_LEDGER}`);
   log(`Faucet canister: ${CONFIG.FAUCET_CANISTER}`);
@@ -81,16 +78,20 @@ async function main(): Promise<void> {
       }
       log(`  Funded: ${fundedCount}/${faucetCalls} calls succeeded`);
 
-      // 3c. Approve tokens (bot's own identity)
+      // 3c. Deposit funded tokens into the custodial account (bot's own identity)
       try {
-        log(`  Approving tokens for canister ${CONFIG.CANISTER_ID}...`);
-        const tokenClient = await TokenClient.create(gen.identity);
-        await sleep(2500);
-        await tokenClient.approve(CONFIG.CANISTER_ID, approveAmount);
-        log(`  ✓ Approved ${approveAmount} tokens`);
-        await sleep(2500);
+        const grossAmount = BigInt(fundedCount) * 1_000_000_000n; // faucet gives ~$10, 8 decimals
+        const depositAmount = grossAmount > 20_000n ? grossAmount - 20_000n : 0n; // leave fees for approve + deposit
+        if (depositAmount > 0n) {
+          log(`  Depositing ${depositAmount} token units into Final Score account...`);
+          const candidClient = await CandidClient.create(gen.identity);
+          await sleep(2500);
+          const newBalance = await candidClient.approveAndDeposit(depositAmount);
+          log(`  ✓ Deposited. Account balance: ${newBalance}`);
+          await sleep(2500);
+        }
       } catch (e) {
-        log(`  ⚠ Approve failed: ${String(e).slice(0, 150)}`);
+        log(`  ⚠ Deposit failed: ${String(e).slice(0, 150)}`);
         await sleep(2500);
       }
 

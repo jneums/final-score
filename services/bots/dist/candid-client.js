@@ -63,6 +63,11 @@ const idlFactory = ({ IDL }) => {
         impliedNoAsk: IDL.Nat,
         spread: IDL.Nat,
     });
+    const AccountBalance = IDL.Record({
+        available: IDL.Nat,
+        lockedInOrders: IDL.Nat,
+        total: IDL.Nat,
+    });
     const PositionRecord = IDL.Record({
         positionId: IDL.Text,
         marketId: IDL.Text,
@@ -84,6 +89,9 @@ const idlFactory = ({ IDL }) => {
         place_order: IDL.Func([IDL.Text, IDL.Text, IDL.Float64, IDL.Nat], [PlaceOrderResult], []),
         cancel_order: IDL.Func([IDL.Text], [Result], []),
         create_my_api_key: IDL.Func([IDL.Text, IDL.Vec(IDL.Text)], [IDL.Text], []),
+        get_my_account_balance: IDL.Func([], [AccountBalance], ["query"]),
+        deposit: IDL.Func([IDL.Nat], [IDL.Variant({ ok: IDL.Nat, err: IDL.Text })], []),
+        withdraw_balance: IDL.Func([IDL.Nat], [IDL.Variant({ ok: IDL.Nat, err: IDL.Text })], []),
         requote_market: IDL.Func([IDL.Text, IDL.Vec(IDL.Record({ outcome: IDL.Text, price: IDL.Float64, size: IDL.Nat }))], [IDL.Variant({
                 ok: IDL.Record({ cancelled: IDL.Nat, placed: IDL.Nat, escrowed: IDL.Int }),
                 err: IDL.Text,
@@ -220,6 +228,19 @@ export class CandidClient {
             owner: this.identity.getPrincipal(),
             subaccount: [],
         });
+    }
+    async getAccountBalance() {
+        return this.actor.get_my_account_balance();
+    }
+    async deposit(amount) {
+        const result = await this.actor.deposit(amount);
+        if ("ok" in result)
+            return result.ok;
+        throw new Error(`deposit failed: ${result.err}`);
+    }
+    async approveAndDeposit(amount) {
+        await this.approve(CONFIG.CANISTER_ID, amount);
+        return this.deposit(amount);
     }
     async createMyApiKey(name, scopes = ["all"]) {
         return this.actor.create_my_api_key(name, scopes);

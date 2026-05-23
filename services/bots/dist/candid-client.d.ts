@@ -45,6 +45,11 @@ interface OrderBookResult {
     impliedNoAsk: bigint;
     spread: bigint;
 }
+interface AccountBalance {
+    available: bigint;
+    lockedInOrders: bigint;
+    total: bigint;
+}
 interface PositionRecord {
     positionId: string;
     marketId: string;
@@ -84,6 +89,9 @@ export declare class CandidClient {
     getOrderBook(marketId: string, depth?: number): Promise<OrderBookResult>;
     approve(spenderCanisterId: string, amount: bigint): Promise<void>;
     getBalance(): Promise<bigint>;
+    getAccountBalance(): Promise<AccountBalance>;
+    deposit(amount: bigint): Promise<bigint>;
+    approveAndDeposit(amount: bigint): Promise<bigint>;
     createMyApiKey(name: string, scopes?: string[]): Promise<string>;
     callFaucet(): Promise<void>;
 }
@@ -103,4 +111,4 @@ export declare class TokenClient {
     approve(spenderCanisterId: string, amount: bigint): Promise<void>;
     getBalance(): Promise<bigint>;
 }
-export type { OrderRecord, MarketRecord, PlaceOrderOk, OrderBookResult, DepthLevel, PositionRecord, PlaceOrderFill, };
+export type { OrderRecord, MarketRecord, PlaceOrderOk, OrderBookResult, DepthLevel, PositionRecord, PlaceOrderFill, AccountBalance, };

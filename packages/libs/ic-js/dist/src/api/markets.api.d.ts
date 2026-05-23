@@ -30,6 +30,14 @@ export interface MarketInfo {
  */
 export declare const getMarketCount: () => Promise<MarketCount>;
 /**
+ * Count of open markets per sport code — single canister query.
+ */
+export interface SportCount {
+    sport: string;
+    count: number;
+}
+export declare const getSportCounts: () => Promise<SportCount[]>;
+/**
  * Gets platform-wide statistics.
  */
 export declare const getPlatformStats: () => Promise<PlatformStats>;
@@ -87,6 +95,14 @@ export interface PlaceOrderResult {
 }
 export declare const placeOrderCandid: (identity: Identity, marketId: string, outcome: string, price: number, size: number) => Promise<PlaceOrderResult>;
 export declare const cancelOrderCandid: (identity: Identity, orderId: string) => Promise<string>;
+export interface AccountBalance {
+    available: bigint;
+    lockedInOrders: bigint;
+    total: bigint;
+}
+export declare const getMyAccountBalance: (identity: Identity) => Promise<AccountBalance>;
+export declare const deposit: (identity: Identity, amount: bigint) => Promise<bigint>;
+export declare const withdrawBalance: (identity: Identity, amount: bigint) => Promise<bigint>;
 export interface UserOrder {
     orderId: string;
     marketId: string;

@@ -8,7 +8,7 @@
  * from admin actions.
  */
 import { CONFIG } from "./config.js";
-import { requoteMarketBatch, getMyOrders, listMarkets, getUnresolvedMarkets, } from "./agent.js";
+import { requoteMarketBatch, ensureMakerAccountBalance, getMyOrders, listMarkets, getUnresolvedMarkets, } from "./agent.js";
 import { getPrice, isStale, cacheSize } from "./priceCache.js";
 // ─── Logging ─────────────────────────────────────────────────
 const makerLogs = [];
@@ -65,6 +65,22 @@ function calculateDesiredOrders(yesPriceBps, noPriceBps) {
         }
     }
     return orders;
+}
+function estimateOrderCostUnits(order) {
+    const priceBps = Math.round(order.price * 10000);
+    return BigInt(priceBps) * BigInt(order.size) * 10000n; // priceBps / 10_000 * 1e8
+}
+function estimateBatchCostUnits(orders) {
+    return orders.reduce((sum, order) => sum + estimateOrderCostUnits(order), 0n);
+}
+function estimateOpenOrderCostUnits(order) {
+    const remaining = order.size > order.filledSize ? order.size - order.filledSize : 0n;
+    return BigInt(order.price) * remaining * 10000n; // priceBps / 10_000 * 1e8
+}
+function estimateAdditionalAccountBalanceNeeded(desired, existingOrders) {
+    const desiredCost = estimateBatchCostUnits(desired);
+    const reusableLocked = existingOrders.reduce((sum, order) => sum + estimateOpenOrderCostUnits(order), 0n);
+    return desiredCost > reusableLocked ? desiredCost - reusableLocked : 0n;
 }
 /** Check if an existing order matches a desired order within tolerance. */
 function orderMatches(existing, desired, thresholdBps) {
@@ -155,7 +171,13 @@ async function requoteMarket(marketId, conditionId, myMarketOrders) {
     let cancelled = 0;
     let placed = 0;
     let errors = 0;
-    // Single batch call: cancel all + place all with delta escrow
+    // Single batch call: cancel all + place all using custodial account balance
+    const balanceCheck = await ensureMakerAccountBalance(estimateAdditionalAccountBalanceNeeded(desired, myMarketOrders));
+    if (!balanceCheck.ok) {
+        log("requote", "error", `${marketId}: ${balanceCheck.message}`);
+        await sleep(mc.ORDER_DELAY_MS);
+        return { cancelled, placed, kept: 0, errors: 1 };
+    }
     const batchOrders = desired.map(o => ({
         outcome: o.outcome,
         price: o.price,
@@ -290,6 +312,13 @@ export async function seedUnquotedMarkets() {
                 price: o.price,
                 size: o.size,
             }));
+            const balanceCheck = await ensureMakerAccountBalance(estimateBatchCostUnits(desired));
+            if (!balanceCheck.ok) {
+                log("seed", "error", `${market.marketId}: ${balanceCheck.message}`);
+                result.errors++;
+                await sleep(CONFIG.MAKER.ORDER_DELAY_MS);
+                continue;
+            }
             const res = await requoteMarketBatch(market.marketId, batchOrders);
             if (res.ok) {
                 result.marketsSeeded++;
@@ -413,6 +442,13 @@ export async function replenishDepleted() {
                 price: o.price,
                 size: o.size,
             }));
+            const balanceCheck = await ensureMakerAccountBalance(estimateAdditionalAccountBalanceNeeded(desired, ordersByMarket.get(marketId) || []));
+            if (!balanceCheck.ok) {
+                log("replenish", "error", `${marketId}: ${balanceCheck.message}`);
+                result.errors++;
+                await sleep(mc.ORDER_DELAY_MS);
+                continue;
+            }
             const res = await requoteMarketBatch(marketId, batchOrders);
             if (res.ok) {
                 result.marketsReplenished++;

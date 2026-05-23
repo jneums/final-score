@@ -125,20 +125,9 @@ async function runBot(state) {
     if (!state.running)
         return;
     try {
-        // 0. Lazy refill — top up from faucet if balance is low
+        // 0. Lazy refill — top up wallet from faucet and deposit into custodial account if low
         await state.wallet.refreshBalance();
-        await state.wallet.refillIfNeeded(() => state.candid.callFaucet(), (msg) => addLog(state.identity.name, "refill", "success", msg));
-        // 0b. Ensure token approval is set (re-approves if allowance runs out)
-        if (!state.approved) {
-            try {
-                await state.candid.approve(CONFIG.CANISTER_ID, CONFIG.APPROVE_AMOUNT);
-                state.approved = true;
-                addLog(state.identity.name, "approve", "success", "Token approval set");
-            }
-            catch (e) {
-                addLog(state.identity.name, "approve", "error", `Token approval failed: ${String(e).slice(0, 150)}`);
-            }
-        }
+        await state.wallet.refillIfNeeded(() => state.candid.callFaucet(), (amount) => state.candid.approveAndDeposit(amount), (msg) => addLog(state.identity.name, "refill", "success", msg));
         // 1. Activity window check — skip if bot is "asleep"
         if (!shouldTradeThisCycle(state.activity)) {
             // Silent skip — don't log every 30s cycle when sleeping.
@@ -158,7 +147,7 @@ async function runBot(state) {
         await state.wallet.refreshBalance();
         // 3. Balance check — skip if can't afford anything
         if (!state.wallet.canAfford(0.10)) {
-            addLog(state.identity.name, "balance-check", "skip", `Low balance ($${state.wallet.balanceUsd.toFixed(2)}), waiting for refill`);
+            addLog(state.identity.name, "balance-check", "skip", `Low account balance ($${state.wallet.balanceUsd.toFixed(2)}), waiting for refill/deposit`);
             state.stats.runs++;
             state.lastRun = new Date();
             return;
@@ -178,15 +167,15 @@ async function runBot(state) {
                 if (result === "error") {
                     state.stats.errors++;
                     incrementStat("totalErrors");
-                    // Reset approval flag if allowance ran out — will re-approve next cycle
-                    if (message.includes("InsufficientAllowance")) {
-                        state.approved = false;
-                    }
                     // Flag 401/503 for auto-rekey after strategy completes
                     // 503 = boundary node returns this when canister traps validating an invalid API key
                     if (message.includes("401") || message.includes("503")) {
                         saw401 = true;
                     }
+                }
+                // If the custodial account was drained, refresh next cycle so lazy refill can deposit.
+                if (message.includes("Insufficient available balance")) {
+                    state.wallet.refreshBalance(true).catch(() => undefined);
                 }
             },
         };
@@ -297,7 +286,6 @@ async function createBotState(id, index, candid, mcp, profile) {
         lastRun: null,
         stats: { runs: 0, errors: 0, ordersPlaced: 0, skippedInactive: 0 },
         botIndex: index,
-        approved: false,
     };
 }
 function startBotState(state) {

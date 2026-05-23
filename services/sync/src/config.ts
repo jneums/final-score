@@ -1,6 +1,7 @@
 export const CONFIG = {
   // ICP canister
   CANISTER_ID: "ilyol-uqaaa-aaaai-q34kq-cai",
+  TOKEN_LEDGER: process.env.TOKEN_LEDGER || "3jkp5-oyaaa-aaaaj-azwqa-cai",
   IC_HOST: "https://ic0.app",
 
   // DFX identity PEM — admin (base64-encoded in env var)

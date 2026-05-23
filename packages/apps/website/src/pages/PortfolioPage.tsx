@@ -4,8 +4,7 @@ import { Button } from '../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { useAuth } from '../hooks/useAuth';
 import { useUsdcBalance } from '../hooks/useLedger';
-import { useAllowance } from '../hooks/useAllowance';
-import { useMyOrders, useMyPositions } from '../hooks/useMarkets';
+import { useMyOrders, useMyPositions, useMyAccountBalance } from '../hooks/useMarkets';
 import { cancelOrderCandid } from '@final-score/ic-js';
 import { toast } from 'sonner';
 import { positionCurrentValue, formatPnl, atomicToDollars } from '../lib/tokenUtils';
@@ -30,7 +29,7 @@ function bpsToDollar(bps: number): string {
 export default function PortfolioPage() {
   const { isAuthenticated, user } = useAuth();
   const { data: balance, isLoading: balanceLoading } = useUsdcBalance(user?.principal);
-  const { data: allowance, isLoading: allowanceLoading } = useAllowance(user?.principal);
+  const { data: accountBalance, isLoading: accountBalanceLoading } = useMyAccountBalance(user?.agent);
   const { data: positions, isLoading: positionsLoading } = useMyPositions(user?.agent);
   const { data: orders, isLoading: ordersLoading } = useMyOrders(user?.agent);
   const { data: allOrders, isLoading: historyLoading } = useMyOrders(user?.agent, 'all');
@@ -59,6 +58,7 @@ export default function PortfolioPage() {
       await cancelOrderCandid(user?.agent, orderId);
       toast.success('Order cancelled');
       queryClient.invalidateQueries({ queryKey: ['my-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['my-account-balance'] });
       queryClient.invalidateQueries({ queryKey: ['order-book'] });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to cancel order';
@@ -115,7 +115,7 @@ export default function PortfolioPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
                 <CircleDollarSign className="w-4 h-4" />
-                USDC Balance
+                Wallet Balance
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -130,16 +130,18 @@ export default function PortfolioPage() {
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
                 <Lock className="w-4 h-4" />
-                Allowance
+                Available Balance
               </CardTitle>
             </CardHeader>
             <CardContent>
-              {allowanceLoading ? (
+              {accountBalanceLoading ? (
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               ) : (
-                <p className="text-3xl font-bold text-primary">${allowance ?? '0'}</p>
+                <p className="text-3xl font-bold text-primary">
+                  ${accountBalance ? atomicToDollars(Number(accountBalance.available)).toFixed(2) : '0'}
+                </p>
               )}
-              <p className="text-xs text-muted-foreground mt-1">Approved for trading</p>
+              <p className="text-xs text-muted-foreground mt-1">Deposited for trading</p>
             </CardContent>
           </Card>
           <Card>

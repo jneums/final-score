@@ -10,10 +10,7 @@ import Time "mo:base/Time";
 import Map "mo:map/Map";
 import Text "mo:base/Text";
 import Principal "mo:base/Principal";
-import Debug "mo:base/Debug";
-import Error "mo:base/Error";
 import Nat64 "mo:base/Nat64";
-import ICRC2 "mo:icrc2-types";
 
 import ToolContext "ToolContext";
 import OrderBook "OrderBook";
@@ -28,7 +25,7 @@ module {
       "Specify the market, outcome (yes/no), price (0.01-0.99), and number of shares. " #
       "Price is in dollars (e.g., 0.60 means $0.60 per share). " #
       "If your order matches resting orders, it fills immediately. Otherwise it rests on the book. " #
-      "Funds are escrowed from your balance when placing an order. " #
+      "Funds are reserved from your account balance when placing an order. " #
       "Winning shares pay out $1.00 each when the market resolves."
     );
     payment = null;
@@ -126,38 +123,15 @@ module {
       };
 
       // ═══════════════════════════════════════════════════════════
-      // PRE-FUND: Escrow full order cost BEFORE matching.
+      // RESERVE: debit full order cost from custodial balance BEFORE matching.
       // Same pattern as Candid place_order — guarantees all resting
-      // orders are backed by real funds.
+      // orders are backed by internal account funds.
       // ═══════════════════════════════════════════════════════════
-      let ledger = actor (Principal.toText(context.tokenLedger)) : actor {
-        icrc2_transfer_from : (ICRC2.TransferFromArgs) -> async ICRC2.TransferFromResult;
-        icrc1_transfer : (ICRC2.TransferArgs) -> async ICRC2.TransferResult;
+      if (not ToolContext.debitBalance(context, userPrincipal, cost)) {
+        return ToolContext.makeError("Insufficient available account balance. Deposit funds before trading.", cb);
       };
 
-      let marketAccount = ToolContext.getMarketAccount(context.canisterPrincipal, marketId);
-
-      let _escrowOk = try {
-        let escrowResult = await ledger.icrc2_transfer_from({
-          spender_subaccount = null;
-          from = { owner = userPrincipal; subaccount = null };
-          to = marketAccount;
-          amount = cost;
-          fee = ?ToolContext.TRANSFER_FEE(ctx.toolContext);
-          memo = null;
-          created_at_time = null;
-        });
-        switch (escrowResult) {
-          case (#Err(err)) {
-            return ToolContext.makeError("Escrow transfer failed: " # debug_show(err), cb);
-          };
-          case (#Ok(_)) true;
-        };
-      } catch (e) {
-        return ToolContext.makeError("Escrow transfer exception: " # Error.message(e), cb);
-      };
-
-      // Funds are now in the market subaccount — order is guaranteed backed
+      // Funds are now reserved in canister accounting — order is guaranteed backed
       let orderId = ToolContext.getNextOrderId(context);
 
       let order : ToolContext.Order = {
@@ -186,7 +160,7 @@ module {
       let result = OrderBook.matchOrder(book, order);
 
       // ═══════════════════════════════════════════════════════════
-      // Process fills — funds are ALREADY ESCROWED for both sides.
+      // Process fills — funds are already reserved for both sides.
       // No inter-canister calls needed! Pure accounting.
       // (Same pattern as Candid place_order in main.mo)
       // ═══════════════════════════════════════════════════════════
@@ -202,7 +176,7 @@ module {
         let makerCostPerShare = (fill.price * ToolContext.SHARE_VALUE(ctx.toolContext)) / ToolContext.BPS_DENOM;
         let makerCost = makerCostPerShare * fill.size;
 
-        // Both sides already have funds in the market subaccount — just commit
+        // Both sides already have reserved account funds — just commit
         let trade : ToolContext.Trade = {
           tradeId; marketId;
           makerOrderId = fill.makerOrderId;
@@ -214,9 +188,8 @@ module {
         };
         Map.set(context.trades, Map.thash, tradeId, trade);
 
-        // Create/update positions
-        let fee = ToolContext.takerFee(ctx.toolContext, order.price, fill.size);
-        ignore ToolContext.upsertPosition(context, fill.taker, marketId, outcome, fill.size, takerCost + fee, order.price);
+        // Create/update positions (costBasis = actual reserved amount, no phantom fee)
+        ignore ToolContext.upsertPosition(context, fill.taker, marketId, outcome, fill.size, takerCost, order.price);
         let makerOutcome : ToolContext.Outcome = switch (outcome) { case (#Yes) #No; case (#No) #Yes };
         ignore ToolContext.upsertPosition(context, fill.maker, marketId, makerOutcome, fill.size, makerCost, fill.price);
 
@@ -259,27 +232,10 @@ module {
         let overlap = ToolContext.getNetOverlap(context, user, marketId);
         if (overlap > 0) {
           let payout = overlap * ToolContext.SHARE_VALUE(ctx.toolContext);
-          if (payout > ToolContext.TRANSFER_FEE(ctx.toolContext)) {
-            let refundOk = try {
-              let refundResult = await ledger.icrc1_transfer({
-                from_subaccount = ?ToolContext.marketSubaccount(marketId);
-                to = { owner = user; subaccount = null };
-                amount = payout - ToolContext.TRANSFER_FEE(ctx.toolContext);
-                fee = ?ToolContext.TRANSFER_FEE(ctx.toolContext);
-                memo = null;
-                created_at_time = null;
-              });
-              switch (refundResult) {
-                case (#Ok(_)) true;
-                case (#Err(_)) false;
-              };
-            } catch (_e) { false };
-
-            if (refundOk) {
-              ignore ToolContext.netPositions(context, user, marketId);
-            } else {
-              Debug.print("MCP netting refund failed — positions preserved for retry");
-            };
+          if (payout > 0) {
+            ToolContext.creditBalance(context, user, payout);
+            let nettingResult = ToolContext.netPositions(context, user, marketId);
+            ToolContext.recordNetting(context, user, payout, nettingResult.yesCostReduction + nettingResult.noCostReduction);
           };
         };
       };
@@ -295,13 +251,13 @@ module {
         Map.set(context.orders, Map.thash, orderId, filled);
         filled;
       } else if (actualFilledSize > 0) {
-        // Partially filled — rest stays on the book (already escrowed)
+        // Partially filled — rest stays on the book (already reserved)
         let partial = { order with filledSize = actualFilledSize; status = #PartiallyFilled };
         finalBook := OrderBook.insertOrder(finalBook, partial);
         Map.set(context.orders, Map.thash, orderId, partial);
         partial;
       } else {
-        // No fills — entire order rests on the book (already escrowed)
+        // No fills — entire order rests on the book (already reserved)
         switch (result.remainingOrder) {
           case (?remaining) {
             finalBook := OrderBook.insertOrder(finalBook, remaining);

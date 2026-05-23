@@ -76,6 +76,12 @@ const idlFactory = ({ IDL }: { IDL: any }) => {
     spread: IDL.Nat,
   });
 
+  const AccountBalance = IDL.Record({
+    available: IDL.Nat,
+    lockedInOrders: IDL.Nat,
+    total: IDL.Nat,
+  });
+
   const PositionRecord = IDL.Record({
     positionId: IDL.Text,
     marketId: IDL.Text,
@@ -111,6 +117,9 @@ const idlFactory = ({ IDL }: { IDL: any }) => {
     ),
     cancel_order: IDL.Func([IDL.Text], [Result], []),
     create_my_api_key: IDL.Func([IDL.Text, IDL.Vec(IDL.Text)], [IDL.Text], []),
+    get_my_account_balance: IDL.Func([], [AccountBalance], ["query"]),
+    deposit: IDL.Func([IDL.Nat], [IDL.Variant({ ok: IDL.Nat, err: IDL.Text })], []),
+    withdraw_balance: IDL.Func([IDL.Nat], [IDL.Variant({ ok: IDL.Nat, err: IDL.Text })], []),
     requote_market: IDL.Func(
       [IDL.Text, IDL.Vec(IDL.Record({ outcome: IDL.Text, price: IDL.Float64, size: IDL.Nat }))],
       [IDL.Variant({
@@ -251,6 +260,12 @@ interface OrderBookResult {
   spread: bigint;
 }
 
+interface AccountBalance {
+  available: bigint;
+  lockedInOrders: bigint;
+  total: bigint;
+}
+
 interface PositionRecord {
   positionId: string;
   marketId: string;
@@ -376,6 +391,21 @@ export class CandidClient {
     });
   }
 
+  async getAccountBalance(): Promise<AccountBalance> {
+    return this.actor.get_my_account_balance();
+  }
+
+  async deposit(amount: bigint): Promise<bigint> {
+    const result = await this.actor.deposit(amount);
+    if ("ok" in result) return result.ok;
+    throw new Error(`deposit failed: ${result.err}`);
+  }
+
+  async approveAndDeposit(amount: bigint): Promise<bigint> {
+    await this.approve(CONFIG.CANISTER_ID, amount);
+    return this.deposit(amount);
+  }
+
   async createMyApiKey(name: string, scopes: string[] = ["all"]): Promise<string> {
     return this.actor.create_my_api_key(name, scopes);
   }
@@ -480,5 +510,5 @@ export class TokenClient {
 // Re-export types
 export type {
   OrderRecord, MarketRecord, PlaceOrderOk, OrderBookResult,
-  DepthLevel, PositionRecord, PlaceOrderFill,
+  DepthLevel, PositionRecord, PlaceOrderFill, AccountBalance,
 };

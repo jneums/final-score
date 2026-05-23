@@ -99,7 +99,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   var positions = Map.new<Text, ToolContext.Position>();
   var userPositionIds = Map.new<Principal, [Text]>();
   var userOrderIds = Map.new<Principal, [Text]>();
-  var userBalances = Map.new<Principal, Nat>(); // Legacy — kept for stable memory compat
+  var userBalances = Map.new<Principal, Nat>(); // Custodial account balances (token base units)
   var userStats = Map.new<Principal, ToolContext.UserStats>();
   var positionHistory = Map.new<Principal, [ToolContext.HistoricalPosition]>();
 
@@ -212,8 +212,9 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         // We need to look in a window around this conditionId
         // The conditionId field might be before or after closed in the JSON object
         // Search backward in the original text or forward in current segment
-        let closed = if (textContains(seg, "\"closed\":true")) { true }
-                     else { false };
+        let closed = if (textContains(seg, "\"closed\":true")) { true } else {
+          false;
+        };
 
         // Extract outcomePrices — find "outcomePrices":"..." in segment
         let prices = extractField(seg, "outcomePrices");
@@ -222,8 +223,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           if (not first) { result #= "," };
           first := false;
           result #= "{\"conditionId\":\"" # cid # "\",\"closed\":" #
-            (if closed "true" else "false") # ",\"outcomePrices\":\"" #
-            prices # "\"}";
+          (if closed "true" else "false") # ",\"outcomePrices\":\"" #
+          prices # "\"}";
         };
       };
       segIdx += 1;
@@ -471,11 +472,21 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       // Update this list periodically as seasons change
       let whitelist : [Text] = [
         // Football/Soccer — top 5 leagues + UCL
-        "epl", "lal", "bun", "fl1", "sea", "ucl",
+        "epl",
+        "lal",
+        "bun",
+        "fl1",
+        "sea",
+        "ucl",
         // Cricket
-        "cricipl", "ipl",
+        "cricipl",
+        "ipl",
         // US Sports
-        "nba", "wnba", "mlb", "nfl", "nhl",
+        "nba",
+        "wnba",
+        "mlb",
+        "nfl",
+        "nhl",
         // Other
         "kbo",
       ];
@@ -501,7 +512,10 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         for (part in Text.split(sTags, #char ',')) {
           let t = Text.trimStart(part, #char ' ');
           if (t != "") {
-            let prev = switch (Map.get(tagFreq, thash, t)) { case (?n) n; case null 0 };
+            let prev = switch (Map.get(tagFreq, thash, t)) {
+              case (?n) n;
+              case null 0;
+            };
             Map.set(tagFreq, thash, t, prev + 1);
           };
         };
@@ -518,7 +532,10 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         for (part in Text.split(tags, #char ',')) {
           let trimmed = Text.trimStart(part, #char ' ');
           if (trimmed != "" and trimmed != "1") {
-            let freq = switch (Map.get(tagFreq, thash, trimmed)) { case (?n) n; case null 0 };
+            let freq = switch (Map.get(tagFreq, thash, trimmed)) {
+              case (?n) n;
+              case null 0;
+            };
             if (freq < bestFreq) {
               bestFreq := freq;
               sportTag := trimmed;
@@ -526,8 +543,9 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           };
         };
 
-        if (sportTag != "" and sportTag != "TBD" and sportTag != "test"
-            and Map.has(whitelistSet, thash, sportSlug)) {
+        if (
+          sportTag != "" and sportTag != "TBD" and sportTag != "test" and Map.has(whitelistSet, thash, sportSlug)
+        ) {
           Map.set(sportTagMap, thash, sportSlug, sportTag);
           queue := Array.append(queue, [sportSlug]);
         };
@@ -573,9 +591,9 @@ shared ({ caller = deployer }) persistent actor class McpServer(
             if (page >= maxPages) break pagination;
 
             let eventsUrl = "https://gamma-api.polymarket.com/events"
-              # "?tag_id=" # sportTag
-              # "&active=true&closed=false&limit=" # Nat.toText(pageLimit)
-              # "&offset=" # Nat.toText(offset);
+            # "?tag_id=" # sportTag
+            # "&active=true&closed=false&limit=" # Nat.toText(pageLimit)
+            # "&offset=" # Nat.toText(offset);
 
             let eventsJson = await httpGet(eventsUrl);
             let eventsResult = Json.parse(eventsJson);
@@ -602,85 +620,87 @@ shared ({ caller = deployer }) persistent actor class McpServer(
                   if (marketsProcessed >= maxMarketsPerEvent) {
                     // Skip remaining markets in this event
                   } else {
-                  let question = jsonGetText(pm, "question");
-                  let conditionId = jsonGetText(pm, "conditionId");
-                  let closed = jsonGetBool(pm, "closed");
+                    let question = jsonGetText(pm, "question");
+                    let conditionId = jsonGetText(pm, "conditionId");
+                    let closed = jsonGetBool(pm, "closed");
 
-                  if (not closed and
+                    if (
+                      not closed and
                       not Text.contains(question, #text "Spread") and
                       not Text.contains(question, #text "O/U") and
-                      conditionId != "") {
+                      conditionId != ""
+                    ) {
 
-                    let outcomesStr = jsonGetText(pm, "outcomes");
-                    let pricesStr = jsonGetText(pm, "outcomePrices");
+                      let outcomesStr = jsonGetText(pm, "outcomes");
+                      let pricesStr = jsonGetText(pm, "outcomePrices");
 
-                    let pricesResult = Json.parse(pricesStr);
-                    let prices = switch (pricesResult) {
-                      case (#ok(#array(arr))) arr;
-                      case _ { [] };
-                    };
-
-                    let yesPrice = if (prices.size() >= 1) {
-                      switch (prices[0]) {
-                        case (#string(s)) parsePriceToBps(s);
-                        case _ 5000;
+                      let pricesResult = Json.parse(pricesStr);
+                      let prices = switch (pricesResult) {
+                        case (#ok(#array(arr))) arr;
+                        case _ { [] };
                       };
-                    } else { 5000 };
 
-                    let noPrice = if (prices.size() >= 2) {
-                      switch (prices[1]) {
-                        case (#string(s)) parsePriceToBps(s);
-                        case _ 5000;
+                      let yesPrice = if (prices.size() >= 1) {
+                        switch (prices[0]) {
+                          case (#string(s)) parsePriceToBps(s);
+                          case _ 5000;
+                        };
+                      } else { 5000 };
+
+                      let noPrice = if (prices.size() >= 2) {
+                        switch (prices[1]) {
+                          case (#string(s)) parsePriceToBps(s);
+                          case _ 5000;
+                        };
+                      } else { 5000 };
+
+                      let tokenIdsStr = jsonGetText(pm, "clobTokenIds");
+                      let tokenIdsResult = Json.parse(tokenIdsStr);
+                      let tokenIds = switch (tokenIdsResult) {
+                        case (#ok(#array(arr))) arr;
+                        case _ { [] };
                       };
-                    } else { 5000 };
+                      let yesTokenId = if (tokenIds.size() >= 1) {
+                        switch (tokenIds[0]) { case (#string(s)) s; case _ "" };
+                      } else { "" };
+                      let noTokenId = if (tokenIds.size() >= 2) {
+                        switch (tokenIds[1]) { case (#string(s)) s; case _ "" };
+                      } else { "" };
 
-                    let tokenIdsStr = jsonGetText(pm, "clobTokenIds");
-                    let tokenIdsResult = Json.parse(tokenIdsStr);
-                    let tokenIds = switch (tokenIdsResult) {
-                      case (#ok(#array(arr))) arr;
-                      case _ { [] };
+                      let endDateNanos = parseIsoDateToNanos(endDateStr);
+                      let marketId = Nat.toText(nextMarketId);
+                      nextMarketId += 1;
+
+                      let deadlineNanos = if (endDateNanos > 300_000_000_000) {
+                        endDateNanos - 300_000_000_000;
+                      } else { endDateNanos };
+
+                      let market : ToolContext.Market = {
+                        marketId;
+                        question;
+                        eventTitle;
+                        sport = sportSlug;
+                        marketType = #Moneyline;
+                        outcomes = ("Yes", "No");
+                        polymarketSlug = slug;
+                        polymarketConditionId = conditionId;
+                        polymarketTokenIds = (yesTokenId, noTokenId);
+                        endDate = endDateNanos;
+                        bettingDeadline = deadlineNanos;
+                        status = #Open;
+                        lastYesPrice = yesPrice;
+                        lastNoPrice = noPrice;
+                        totalVolume = 0;
+                        polymarketYesPrice = yesPrice;
+                        polymarketNoPrice = noPrice;
+                      };
+
+                      Map.set(markets, thash, marketId, market);
+                      Map.set(orderBooks, thash, marketId, OrderBook.emptyBook());
+                      marketIds := Array.append(marketIds, [marketId]);
+                      newMarkets += 1;
+                      marketsProcessed += 1;
                     };
-                    let yesTokenId = if (tokenIds.size() >= 1) {
-                      switch (tokenIds[0]) { case (#string(s)) s; case _ "" };
-                    } else { "" };
-                    let noTokenId = if (tokenIds.size() >= 2) {
-                      switch (tokenIds[1]) { case (#string(s)) s; case _ "" };
-                    } else { "" };
-
-                    let endDateNanos = parseIsoDateToNanos(endDateStr);
-                    let marketId = Nat.toText(nextMarketId);
-                    nextMarketId += 1;
-
-                    let deadlineNanos = if (endDateNanos > 300_000_000_000) {
-                      endDateNanos - 300_000_000_000;
-                    } else { endDateNanos };
-
-                    let market : ToolContext.Market = {
-                      marketId;
-                      question;
-                      eventTitle;
-                      sport = sportSlug;
-                      marketType = #Moneyline;
-                      outcomes = ("Yes", "No");
-                      polymarketSlug = slug;
-                      polymarketConditionId = conditionId;
-                      polymarketTokenIds = (yesTokenId, noTokenId);
-                      endDate = endDateNanos;
-                      bettingDeadline = deadlineNanos;
-                      status = #Open;
-                      lastYesPrice = yesPrice;
-                      lastNoPrice = noPrice;
-                      totalVolume = 0;
-                      polymarketYesPrice = yesPrice;
-                      polymarketNoPrice = noPrice;
-                    };
-
-                    Map.set(markets, thash, marketId, market);
-                    Map.set(orderBooks, thash, marketId, OrderBook.emptyBook());
-                    marketIds := Array.append(marketIds, [marketId]);
-                    newMarkets += 1;
-                    marketsProcessed += 1;
-                  };
                   }; // else (marketsProcessed < max)
                 };
 
@@ -744,7 +764,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
     // Fetch from Polymarket
     let url = "https://gamma-api.polymarket.com/events/slug/"
-      # market.polymarketSlug;
+    # market.polymarketSlug;
     let responseText = try {
       await httpGet(url);
     } catch (e) {
@@ -832,6 +852,32 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
   };
 
+  /// Release the unfilled balance reserved behind orders that were cancelled by
+  /// market-level resolution/cancellation. `cancel_order` releases one user order;
+  /// this covers the bulk `OrderBook.cancelAllOrders` path used by try_resolve_market.
+  func refundCancelledOrderEscrow(cancelled : [ToolContext.Order], _reason : Text) : async {
+    refundedOrders : Nat;
+    failedOrders : Nat;
+    totalTransferred : Nat;
+  } {
+    var refundedOrders : Nat = 0;
+    var failedOrders : Nat = 0;
+    var totalTransferred : Nat = 0;
+
+    for (order in cancelled.vals()) {
+      let remaining = if (order.size > order.filledSize) {
+        order.size - order.filledSize;
+      } else { 0 };
+      let refundAmount = ToolContext.orderCost(toolContext, order.price, remaining);
+      if (refundAmount > 0) {
+        ToolContext.creditBalance(toolContext, order.user, refundAmount);
+        refundedOrders += 1;
+        totalTransferred += refundAmount;
+      };
+    };
+
+    { refundedOrders; failedOrders; totalTransferred };
+  };
 
   /// Internal resolution (shared by admin and auto-resolution)
   func admin_resolve_market_internal(marketId : Text, winner : ToolContext.Outcome) : async Result.Result<Text, Text> {
@@ -845,10 +891,12 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         // Update status
         Map.set(markets, thash, marketId, { market with status = #Resolved(winner) });
 
-        // Cancel all remaining open orders
+        // Cancel all remaining open orders and refund their unfilled escrow.
+        var cancelledOrders : [ToolContext.Order] = [];
         switch (Map.get(orderBooks, thash, marketId)) {
           case (?book) {
             let cancelled = OrderBook.cancelAllOrders(book);
+            cancelledOrders := cancelled;
             for (order in cancelled.vals()) {
               Map.set(orders, thash, order.orderId, order);
             };
@@ -856,12 +904,9 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           };
           case null {};
         };
+        let escrowRefunds = await refundCancelledOrderEscrow(cancelledOrders, "resolve " # marketId);
 
-        // Process payouts
-        let ledger = actor (Principal.toText(tokenLedger)) : actor {
-          icrc1_transfer : (ICRC2.TransferArgs) -> async ICRC2.TransferResult;
-        };
-
+        // Process payouts into custodial account balances.
         var totalPaid : Nat = 0;
         var payoutCount : Nat = 0;
 
@@ -869,50 +914,36 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           if (position.marketId == marketId) {
             let payout = ToolContext.calculatePayout(toolContext, position, winner);
 
-            if (payout > ToolContext.TRANSFER_FEE(toolContext)) {
-              try {
-                let result = await ledger.icrc1_transfer({
-                  from_subaccount = ?ToolContext.marketSubaccount(marketId);
-                  to = { owner = position.user; subaccount = null };
-                  amount = payout - ToolContext.TRANSFER_FEE(toolContext);
-                  fee = ?ToolContext.TRANSFER_FEE(toolContext);
-                  memo = null;
-                  created_at_time = null;
-                });
-                switch (result) {
-                  case (#Ok(_)) {
-                    totalPaid += payout;
-                    payoutCount += 1;
-                  };
-                  case (#Err(err)) {
-                    Debug.print("Payout failed for " # posId # ": " # debug_show(err));
-                  };
-                };
-              } catch (e) {
-                Debug.print("Payout exception for " # posId # ": " # Error.message(e));
-              };
+            if (payout > 0) {
+              ToolContext.creditBalance(toolContext, position.user, payout);
+              totalPaid += payout;
+              payoutCount += 1;
             };
 
             // Record settlement
             let won = position.outcome == winner;
             ToolContext.recordSettlement(toolContext, position.user, position.costBasis, payout, won);
-            ToolContext.addHistoricalPosition(toolContext, position.user, {
-              marketId;
-              eventTitle = market.eventTitle;
-              question = market.question;
-              outcome = position.outcome;
-              shares = position.shares;
-              costBasis = position.costBasis;
-              payout;
-              resolvedAt = Int.abs(Time.now() / 1_000_000_000);
-            });
+            ToolContext.addHistoricalPosition(
+              toolContext,
+              position.user,
+              {
+                marketId;
+                eventTitle = market.eventTitle;
+                question = market.question;
+                outcome = position.outcome;
+                shares = position.shares;
+                costBasis = position.costBasis;
+                payout;
+                resolvedAt = Int.abs(Time.now() / 1_000_000_000);
+              },
+            );
 
             // Zero out resolved position to prevent unbounded growth in queries
             Map.set(positions, thash, posId, { position with shares = 0; costBasis = 0 });
           };
         };
 
-        #ok("Resolved market " # marketId # ". Paid " # Nat.toText(totalPaid) # " to " # Nat.toText(payoutCount) # " winners.");
+        #ok("Resolved market " # marketId # ". Paid " # Nat.toText(totalPaid) # " to " # Nat.toText(payoutCount) # " winners. Refunded " # Nat.toText(escrowRefunds.refundedOrders) # " cancelled orders.");
       };
       case null #err("Market not found");
     };
@@ -951,6 +982,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     positions;
     userPositionIds;
     userOrderIds;
+    userBalances;
     userStats;
     positionHistory;
     knownPolySlugs;
@@ -1157,19 +1189,105 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   // Direct Candid Trading Endpoints (for frontend wallet auth)
   // ═══════════════════════════════════════════════════════════
 
+  /// Get caller's custodial account balance held inside Final Score.
+  public query (msg) func get_my_account_balance() : async {
+    available : Nat;
+    lockedInOrders : Nat;
+    total : Nat;
+  } {
+    let available = ToolContext.getBalance(toolContext, msg.caller);
+    let lockedInOrders = ToolContext.getLockedBalance(toolContext, msg.caller);
+    { available; lockedInOrders; total = available + lockedInOrders };
+  };
+
+  /// Deposit tokens into the canister account once, then trade against internal balance.
+  /// Requires a one-time/current ICRC2 allowance, but order placement no longer pays
+  /// approve/transfer_from fees per order.
+  public shared (msg) func deposit(amount : Nat) : async Result.Result<Nat, Text> {
+    let caller = msg.caller;
+    if (Principal.isAnonymous(caller)) return #err("Authentication required");
+    if (amount == 0) return #err("Deposit amount must be greater than zero");
+
+    let ledger = actor (Principal.toText(tokenLedger)) : actor {
+      icrc2_transfer_from : (ICRC2.TransferFromArgs) -> async ICRC2.TransferFromResult;
+    };
+
+    let transferResult = try {
+      await ledger.icrc2_transfer_from({
+        spender_subaccount = null;
+        from = { owner = caller; subaccount = null };
+        to = { owner = Principal.fromActor(self); subaccount = null };
+        amount;
+        fee = ?ToolContext.TRANSFER_FEE(toolContext);
+        memo = null;
+        created_at_time = null;
+      });
+    } catch (e) {
+      return #err("Deposit transfer exception: " # Error.message(e));
+    };
+
+    switch (transferResult) {
+      case (#Err(err)) #err("Deposit transfer failed: " # debug_show (err));
+      case (#Ok(_)) {
+        ToolContext.creditBalance(toolContext, caller, amount);
+        #ok(ToolContext.getBalance(toolContext, caller));
+      };
+    };
+  };
+
+  /// Withdraw available custodial balance to caller's wallet.
+  /// Debits amount + ledger fee before the inter-canister call and restores it on failure.
+  public shared (msg) func withdraw_balance(amount : Nat) : async Result.Result<Nat, Text> {
+    let caller = msg.caller;
+    if (Principal.isAnonymous(caller)) return #err("Authentication required");
+    if (amount == 0) return #err("Withdraw amount must be greater than zero");
+
+    let fee = ToolContext.TRANSFER_FEE(toolContext);
+    let totalDebit = amount + fee;
+    if (not ToolContext.debitBalance(toolContext, caller, totalDebit)) {
+      return #err("Insufficient available balance");
+    };
+
+    let ledger = actor (Principal.toText(tokenLedger)) : actor {
+      icrc1_transfer : (ICRC2.TransferArgs) -> async ICRC2.TransferResult;
+    };
+
+    let transferOk = try {
+      let result = await ledger.icrc1_transfer({
+        from_subaccount = null;
+        to = { owner = caller; subaccount = null };
+        amount;
+        fee = ?fee;
+        memo = null;
+        created_at_time = null;
+      });
+      switch (result) {
+        case (#Ok(_)) true;
+        case (#Err(err)) {
+          Debug.print("Withdrawal failed: " # debug_show (err));
+          false;
+        };
+      };
+    } catch (e) {
+      Debug.print("Withdrawal exception: " # Error.message(e));
+      false;
+    };
+
+    if (transferOk) {
+      #ok(ToolContext.getBalance(toolContext, caller));
+    } else {
+      ToolContext.creditBalance(toolContext, caller, totalDebit);
+      #err("Withdrawal transfer failed; balance restored")
+    };
+  };
+
   /// Place a limit order (authenticated by wallet — msg.caller is the user)
   public shared (msg) func place_order(
     marketId : Text,
     outcomeText : Text,
     price : Float,
     size : Nat,
-  ) : async Result.Result<{
-    orderId : Text;
-    status : Text;
-    filled : Nat;
-    remaining : Nat;
-    fills : [{ tradeId : Text; price : Nat; size : Nat }];
-  }, Text> {
+  ) : async Result.Result<{ orderId : Text; status : Text; filled : Nat; remaining : Nat; fills : [{ tradeId : Text; price : Nat; size : Nat }] }, Text> {
     let caller = msg.caller;
     if (Principal.isAnonymous(caller)) return #err("Authentication required");
 
@@ -1203,11 +1321,6 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
 
     // Check market exists and is open
-    let ledger = actor (Principal.toText(tokenLedger)) : actor {
-      icrc2_transfer_from : (ICRC2.TransferFromArgs) -> async ICRC2.TransferFromResult;
-      icrc1_transfer : (ICRC2.TransferArgs) -> async ICRC2.TransferResult;
-    };
-
     let market = switch (Map.get(markets, thash, marketId)) {
       case (?m) m;
       case null return #err("Market not found: " # marketId);
@@ -1218,33 +1331,11 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       case _ return #err("Market is not open for trading");
     };
 
-    let marketAccount = ToolContext.getMarketAccount(Principal.fromActor(self), marketId);
-
-    // ═══════════════════════════════════════════════════════════
-    // PRE-FUND: Escrow full order cost into market subaccount
-    // This guarantees all resting orders are backed by real funds.
-    // ═══════════════════════════════════════════════════════════
-    let _escrowOk = try {
-      let escrowResult = await ledger.icrc2_transfer_from({
-        spender_subaccount = null;
-        from = { owner = caller; subaccount = null };
-        to = marketAccount;
-        amount = cost;
-        fee = ?ToolContext.TRANSFER_FEE(toolContext);
-        memo = null;
-        created_at_time = null;
-      });
-      switch (escrowResult) {
-        case (#Err(err)) {
-          return #err("Escrow transfer failed: " # debug_show(err));
-        };
-        case (#Ok(_)) true;
-      };
-    } catch (e) {
-      return #err("Escrow transfer exception: " # Error.message(e));
+    if (not ToolContext.debitBalance(toolContext, caller, cost)) {
+      return #err("Insufficient available account balance. Deposit funds before trading.");
     };
 
-    // Funds are now in the market subaccount — order is guaranteed backed
+    // Funds are now reserved in canister accounting — order is guaranteed backed.
     let orderId = ToolContext.getNextOrderId(toolContext);
 
     let order : ToolContext.Order = {
@@ -1271,8 +1362,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     let result = OrderBook.matchOrder(book, order);
 
     // ═══════════════════════════════════════════════════════════
-    // Process fills — funds are ALREADY ESCROWED for both sides
-    // No inter-canister calls needed! Pure accounting.
+    // Process fills — both sides are already reserved in canister accounting.
+    // No inter-canister calls needed.
     // ═══════════════════════════════════════════════════════════
     var fillsResult : [{ tradeId : Text; price : Nat; size : Nat }] = [];
     var currentBook = result.updatedBook;
@@ -1286,7 +1377,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       let makerCostPerShare = (fill.price * ToolContext.SHARE_VALUE(toolContext)) / ToolContext.BPS_DENOM;
       let makerCost = makerCostPerShare * fill.size;
 
-      // Both sides already have funds in the market subaccount — just commit the fill
+      // Both sides already have reserved account funds — just commit the fill
       let trade : ToolContext.Trade = {
         tradeId;
         marketId;
@@ -1317,20 +1408,22 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         case (?makerOrder) {
           let newFilled = makerOrder.filledSize + fill.size;
           let newStatus = if (newFilled >= makerOrder.size) #Filled else #PartiallyFilled;
-          Map.set(toolContext.orders, Map.thash, fill.makerOrderId, {
-            makerOrder with filledSize = newFilled; status = newStatus;
-          });
+          Map.set(
+            toolContext.orders,
+            Map.thash,
+            fill.makerOrderId,
+            {
+              makerOrder with filledSize = newFilled;
+              status = newStatus;
+            },
+          );
         };
         case null {};
       };
 
       Map.set(orderBooks, thash, marketId, currentBook);
 
-      fillsResult := Array.append(fillsResult, [{
-        tradeId;
-        price = fill.price;
-        size = fill.size;
-      }]);
+      fillsResult := Array.append(fillsResult, [{ tradeId; price = fill.price; size = fill.size }]);
 
       actualFilledSize += fill.size;
     };
@@ -1346,13 +1439,16 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       Map.set(toolContext.orders, Map.thash, orderId, filled);
       filled;
     } else if (actualFilledSize > 0) {
-      // Partially filled — rest stays on the book (already escrowed)
-      let partial = { order with filledSize = actualFilledSize; status = #PartiallyFilled };
+      // Partially filled — rest stays on the book (already reserved)
+      let partial = {
+        order with filledSize = actualFilledSize;
+        status = #PartiallyFilled;
+      };
       finalBook := OrderBook.insertOrder(finalBook, partial);
       Map.set(toolContext.orders, Map.thash, orderId, partial);
       partial;
     } else {
-      // No fills — entire order rests on the book (already escrowed)
+      // No fills — entire order rests on the book (already reserved)
       switch (result.remainingOrder) {
         case (?remaining) {
           finalBook := OrderBook.insertOrder(finalBook, remaining);
@@ -1378,15 +1474,29 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       switch (outcome) {
         case (#Yes) {
           let yesPrice = ToolContext.BPS_DENOM - lastFill.price;
-          Map.set(markets, thash, marketId, {
-            market with lastYesPrice = yesPrice; lastNoPrice = lastFill.price; totalVolume = market.totalVolume + filledCost;
-          });
+          Map.set(
+            markets,
+            thash,
+            marketId,
+            {
+              market with lastYesPrice = yesPrice;
+              lastNoPrice = lastFill.price;
+              totalVolume = market.totalVolume + filledCost;
+            },
+          );
         };
         case (#No) {
           let noPrice = ToolContext.BPS_DENOM - lastFill.price;
-          Map.set(markets, thash, marketId, {
-            market with lastYesPrice = lastFill.price; lastNoPrice = noPrice; totalVolume = market.totalVolume + filledCost;
-          });
+          Map.set(
+            markets,
+            thash,
+            marketId,
+            {
+              market with lastYesPrice = lastFill.price;
+              lastNoPrice = noPrice;
+              totalVolume = market.totalVolume + filledCost;
+            },
+          );
         };
       };
     };
@@ -1401,36 +1511,12 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       let overlap = ToolContext.getNetOverlap(toolContext, user, marketId);
       if (overlap > 0) {
         let payout = overlap * ToolContext.SHARE_VALUE(toolContext);
-        if (payout > ToolContext.TRANSFER_FEE(toolContext)) {
-          let refundOk = try {
-            let refundResult = await ledger.icrc1_transfer({
-              from_subaccount = ?ToolContext.marketSubaccount(marketId);
-              to = { owner = user; subaccount = null };
-              amount = payout - ToolContext.TRANSFER_FEE(toolContext);
-              fee = ?ToolContext.TRANSFER_FEE(toolContext);
-              memo = null;
-              created_at_time = null;
-            });
-            switch (refundResult) {
-              case (#Ok(_)) true;
-              case (#Err(_)) false;
-            };
-          } catch (_e) { false };
-
-          if (refundOk) {
-            // Only NOW delete the positions
-            ignore ToolContext.netPositions(toolContext, user, marketId);
-          } else {
-            debugLog("Netting refund failed for " # Principal.toText(user) # " — positions preserved for retry");
-          };
-        };
+        ToolContext.creditBalance(toolContext, user, payout);
+        ignore ToolContext.netPositions(toolContext, user, marketId);
       };
     };
 
-    // Refund taker's excess escrow if partially filled or unfilled but taker fee was included
-    // With pre-funded: taker escrowed full cost at order price. On fills, actual cost may differ.
-    // Since there's no taker fee on escrow (just the raw cost), and fills use the taker's price,
-    // there's no surplus to refund — the unfilled portion stays escrowed for the resting order.
+    // Unfilled portion remains reserved in the resting order until cancel/resolve.
 
     #ok({
       orderId;
@@ -1451,55 +1537,10 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         if (not Principal.equal(order.user, caller)) return #err("Not your order");
         if (order.status != #Open and order.status != #PartiallyFilled) return #err("Order is not open");
 
-        // Calculate refund: unfilled portion's escrowed cost
+        // Calculate refund: unfilled portion's reserved cost
         let remaining = order.size - order.filledSize;
         let refundAmount = ToolContext.orderCost(toolContext, order.price, remaining);
-
-        // Refund escrowed funds from market subaccount → user wallet
-        if (refundAmount > ToolContext.TRANSFER_FEE(toolContext)) {
-          let ledger = actor (Principal.toText(tokenLedger)) : actor {
-            icrc1_transfer : (ICRC2.TransferArgs) -> async ICRC2.TransferResult;
-            icrc1_balance_of : ({ owner : Principal; subaccount : ?Blob }) -> async Nat;
-          };
-
-          // Check subaccount balance first — pre-escrow orders have empty subaccounts
-          let subBal = try {
-            await ledger.icrc1_balance_of({
-              owner = Principal.fromActor(self);
-              subaccount = ?ToolContext.marketSubaccount(order.marketId);
-            });
-          } catch (_e) { 0 };
-
-          // Only attempt refund if subaccount actually has funds
-          if (subBal > ToolContext.TRANSFER_FEE(toolContext)) {
-            let actualRefund = Nat.min(refundAmount - ToolContext.TRANSFER_FEE(toolContext), subBal - ToolContext.TRANSFER_FEE(toolContext));
-            let refundOk = try {
-              let result = await ledger.icrc1_transfer({
-                from_subaccount = ?ToolContext.marketSubaccount(order.marketId);
-                to = { owner = caller; subaccount = null };
-                amount = actualRefund;
-                fee = ?ToolContext.TRANSFER_FEE(toolContext);
-                memo = null;
-                created_at_time = null;
-              });
-              switch (result) {
-                case (#Ok(_)) true;
-                case (#Err(err)) {
-                  Debug.print("Cancel refund failed: " # debug_show(err));
-                  false;
-                };
-              };
-            } catch (e) {
-              Debug.print("Cancel refund exception: " # Error.message(e));
-              false;
-            };
-
-            if (not refundOk) {
-              return #err("Refund failed — order kept open. Try again later.");
-            };
-          };
-          // else: subaccount empty (pre-escrow order) — skip refund, proceed with cancel
-        };
+        ToolContext.creditBalance(toolContext, caller, refundAmount);
 
         Map.set(toolContext.orders, Map.thash, orderId, { order with status = #Cancelled });
 
@@ -1509,7 +1550,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         };
         Map.set(orderBooks, thash, order.marketId, OrderBook.removeOrder(book, orderId, order.outcome));
 
-        #ok("Order " # orderId # " cancelled");
+        #ok("Order " # orderId # " cancelled. Refunded " # Nat.toText(refundAmount) # " to account balance.");
       };
       case null #err("Order not found: " # orderId);
     };
@@ -1560,9 +1601,13 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       oldEscrow += ToolContext.orderCost(toolContext, order.price, remaining);
     };
 
-    // Validate and calculate new escrow
+    // Validate and calculate new reservation
     var newEscrow : Nat = 0;
     for (newOrd in newOrders.vals()) {
+      switch (ToolContext.parseOutcome(newOrd.outcome)) {
+        case (?_) {};
+        case null return #err("Invalid outcome. Use 'yes' or 'no'.");
+      };
       let priceBps : Nat = Int.abs(Float.toInt(newOrd.price * 10000.0 + 0.5));
       if (not ToolContext.isValidPrice(priceBps)) {
         return #err("Invalid price. Must be 0.01 to 0.99 in $0.01 increments.");
@@ -1579,79 +1624,17 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     let newEscrowInt : Int = newEscrow;
     let oldEscrowInt : Int = oldEscrow;
     let delta : Int = newEscrowInt - oldEscrowInt;
-    let fee = ToolContext.TRANSFER_FEE(toolContext);
-
-    let ledger = actor (Principal.toText(tokenLedger)) : actor {
-      icrc2_transfer_from : (ICRC2.TransferFromArgs) -> async ICRC2.TransferFromResult;
-      icrc1_transfer : (ICRC2.TransferArgs) -> async ICRC2.TransferResult;
-      icrc1_balance_of : ({ owner : Principal; subaccount : ?Blob }) -> async Nat;
-    };
-
-    let marketAccount = ToolContext.getMarketAccount(Principal.fromActor(self), marketId);
-
-    // Handle escrow delta
+    // Handle reservation delta in custodial accounting.
     if (delta > 0) {
-      // Need more funds from caller
       let amount = Int.abs(delta);
-      let escrowResult = try {
-        await ledger.icrc2_transfer_from({
-          spender_subaccount = null;
-          from = { owner = caller; subaccount = null };
-          to = marketAccount;
-          amount;
-          fee = ?fee;
-          memo = null;
-          created_at_time = null;
-        });
-      } catch (e) {
-        return #err("Escrow transfer exception: " # Error.message(e));
-      };
-      switch (escrowResult) {
-        case (#Err(err)) return #err("Escrow transfer failed: " # debug_show(err));
-        case (#Ok(_)) {};
+      if (not ToolContext.debitBalance(toolContext, caller, amount)) {
+        return #err("Insufficient available account balance. Deposit funds before trading.");
       };
     } else if (delta < 0) {
       let refundAmount = Int.abs(delta);
-      if (refundAmount > fee) {
-        // Check subaccount balance first (pre-escrow safety)
-        let subBal = try {
-          await ledger.icrc1_balance_of({
-            owner = Principal.fromActor(self);
-            subaccount = ?ToolContext.marketSubaccount(marketId);
-          });
-        } catch (_e) { 0 };
-
-        if (subBal > fee) {
-          let actualRefund = Nat.min(refundAmount - fee, subBal - fee);
-          if (actualRefund > 0) {
-            let refundOk = try {
-              let result = await ledger.icrc1_transfer({
-                from_subaccount = ?ToolContext.marketSubaccount(marketId);
-                to = { owner = caller; subaccount = null };
-                amount = actualRefund;
-                fee = ?fee;
-                memo = null;
-                created_at_time = null;
-              });
-              switch (result) {
-                case (#Ok(_)) true;
-                case (#Err(err)) {
-                  Debug.print("Requote refund failed: " # debug_show(err));
-                  false;
-                };
-              };
-            } catch (e) {
-              Debug.print("Requote refund exception: " # Error.message(e));
-              false;
-            };
-            if (not refundOk) {
-              return #err("Refund failed — orders kept. Try again later.");
-            };
-          };
-        };
-      };
+      ToolContext.creditBalance(toolContext, caller, refundAmount);
     };
-    // delta == 0 or |delta| <= fee: no transfer needed
+    // delta == 0: no balance movement needed.
 
     // Cancel all old orders
     var book = switch (Map.get(orderBooks, thash, marketId)) {
@@ -1730,9 +1713,15 @@ shared ({ caller = deployer }) persistent actor class McpServer(
               case (?makerOrder) {
                 let newFilled = makerOrder.filledSize + fill.size;
                 let newStatus = if (newFilled >= makerOrder.size) #Filled else #PartiallyFilled;
-                Map.set(toolContext.orders, Map.thash, fill.makerOrderId, {
-                  makerOrder with filledSize = newFilled; status = newStatus;
-                });
+                Map.set(
+                  toolContext.orders,
+                  Map.thash,
+                  fill.makerOrderId,
+                  {
+                    makerOrder with filledSize = newFilled;
+                    status = newStatus;
+                  },
+                );
               };
               case null {};
             };
@@ -1748,7 +1737,10 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           if (actualFilledSize >= order.size) {
             Map.set(toolContext.orders, Map.thash, orderId, { order with filledSize = order.size; status = #Filled });
           } else if (actualFilledSize > 0) {
-            let partial = { order with filledSize = actualFilledSize; status = #PartiallyFilled };
+            let partial = {
+              order with filledSize = actualFilledSize;
+              status = #PartiallyFilled;
+            };
             currentBook := OrderBook.insertOrder(currentBook, partial);
             Map.set(toolContext.orders, Map.thash, orderId, partial);
           } else {
@@ -1775,6 +1767,19 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
 
     Map.set(orderBooks, thash, marketId, book);
+
+    // Net opposing positions for all users involved in fills
+    for ((user, _) in Map.entries(nettedUsers)) {
+      let overlap = ToolContext.getNetOverlap(toolContext, user, marketId);
+      if (overlap > 0) {
+        let payout = overlap * ToolContext.SHARE_VALUE(toolContext);
+        if (payout > 0) {
+          ToolContext.creditBalance(toolContext, user, payout);
+          let nettingResult = ToolContext.netPositions(toolContext, user, marketId);
+          ToolContext.recordNetting(toolContext, user, payout, nettingResult.yesCostReduction + nettingResult.noCostReduction);
+        };
+      };
+    };
 
     // Update market last price if fills occurred
     if (totalFills > 0) {
@@ -1825,17 +1830,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
             case (?m) m.question;
             case null "Unknown";
           };
-          result := Array.append(result, [{
-            orderId = order.orderId;
-            marketId = order.marketId;
-            question = question;
-            outcome = ToolContext.outcomeToText(order.outcome);
-            price = order.price;
-            size = order.size;
-            filledSize = order.filledSize;
-            status = statusText;
-            timestamp = order.timestamp;
-          }]);
+          result := Array.append(result, [{ orderId = order.orderId; marketId = order.marketId; question = question; outcome = ToolContext.outcomeToText(order.outcome); price = order.price; size = order.size; filledSize = order.filledSize; status = statusText; timestamp = order.timestamp }]);
         };
       };
     };
@@ -1893,17 +1888,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
               };
               case null ("Unknown", 5000, "Unknown");
             };
-            result := Array.append(result, [{
-              positionId = pos.positionId;
-              marketId = pos.marketId;
-              question = question;
-              outcome = ToolContext.outcomeToText(pos.outcome);
-              shares = pos.shares;
-              costBasis = pos.costBasis;
-              averagePrice = pos.averagePrice;
-              currentPrice = currentPrice;
-              marketStatus = status;
-            }]);
+            result := Array.append(result, [{ positionId = pos.positionId; marketId = pos.marketId; question = question; outcome = ToolContext.outcomeToText(pos.outcome); shares = pos.shares; costBasis = pos.costBasis; averagePrice = pos.averagePrice; currentPrice = currentPrice; marketStatus = status }]);
           };
         };
         case null {};
@@ -2117,10 +2102,12 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       case (?market) {
         Map.set(markets, thash, marketId, { market with status = #Cancelled });
 
-        // Cancel all orders
+        // Cancel all orders and refund their unfilled escrow.
+        var cancelledOrders : [ToolContext.Order] = [];
         switch (Map.get(orderBooks, thash, marketId)) {
           case (?book) {
             let cancelled = OrderBook.cancelAllOrders(book);
+            cancelledOrders := cancelled;
             for (order in cancelled.vals()) {
               Map.set(orders, thash, order.orderId, order);
             };
@@ -2128,32 +2115,18 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           };
           case null {};
         };
+        let escrowRefunds = await refundCancelledOrderEscrow(cancelledOrders, "cancel " # marketId);
 
-        // Refund positions — credit cost basis back
-        let ledger = actor (Principal.toText(tokenLedger)) : actor {
-          icrc1_transfer : (ICRC2.TransferArgs) -> async ICRC2.TransferResult;
-        };
-
+        // Refund positions — credit cost basis back to custodial balance.
         var refunded : Nat = 0;
         for ((_, position) in Map.entries(positions)) {
-          if (position.marketId == marketId and position.costBasis > ToolContext.TRANSFER_FEE(toolContext)) {
-            try {
-              ignore await ledger.icrc1_transfer({
-                from_subaccount = ?ToolContext.marketSubaccount(marketId);
-                to = { owner = position.user; subaccount = null };
-                amount = position.costBasis - ToolContext.TRANSFER_FEE(toolContext);
-                fee = ?ToolContext.TRANSFER_FEE(toolContext);
-                memo = null;
-                created_at_time = null;
-              });
-              refunded += 1;
-            } catch (e) {
-              Debug.print("Refund failed: " # Error.message(e));
-            };
+          if (position.marketId == marketId and position.costBasis > 0) {
+            ToolContext.creditBalance(toolContext, position.user, position.costBasis);
+            refunded += 1;
           };
         };
 
-        #ok("Cancelled market " # marketId # ". Refunded " # Nat.toText(refunded) # " positions.");
+        #ok("Cancelled market " # marketId # ". Refunded " # Nat.toText(refunded) # " positions and " # Nat.toText(escrowRefunds.refundedOrders) # " cancelled orders.");
       };
       case null #err("Market not found");
     };
@@ -2168,7 +2141,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       case (?market) {
         switch (market.status) {
           case (#Resolved(_)) {}; // OK
-          case (#Cancelled) {};   // OK
+          case (#Cancelled) {}; // OK
           case _ return #err("Cannot drain active market. Status: " # ToolContext.marketStatusToText(market.status));
         };
       };
@@ -2198,8 +2171,8 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         created_at_time = null;
       });
       switch (result) {
-        case (#Ok(block)) #ok("Drained " # Nat.toText(balance) # " (block: " # debug_show(block) # ")");
-        case (#Err(err)) #err("Transfer failed: " # debug_show(err));
+        case (#Ok(block)) #ok("Drained " # Nat.toText(balance) # " (block: " # debug_show (block) # ")");
+        case (#Err(err)) #err("Transfer failed: " # debug_show (err));
       };
     } catch (e) {
       #err("Exception: " # Error.message(e));
@@ -2217,10 +2190,12 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
     let sorted = Array.sort(
       entries,
-      func(a : ToolContext.UserStats, b : ToolContext.UserStats) : { #less; #equal; #greater } {
-        if (a.netProfit > b.netProfit) #less
-        else if (a.netProfit < b.netProfit) #greater
-        else #equal;
+      func(a : ToolContext.UserStats, b : ToolContext.UserStats) : {
+        #less;
+        #equal;
+        #greater;
+      } {
+        if (a.netProfit > b.netProfit) #less else if (a.netProfit < b.netProfit) #greater else #equal;
       },
     );
 
@@ -2330,18 +2305,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
     for ((_, m) in Map.entries(markets)) {
       if (m.polymarketSlug == polymarketSlug and m.status != #Cancelled) {
-        result := Array.append(result, [{
-          marketId = m.marketId;
-          question = m.question;
-          eventTitle = m.eventTitle;
-          sport = m.sport;
-          status = ToolContext.marketStatusToText(m.status);
-          lastYesPrice = m.lastYesPrice;
-          lastNoPrice = m.lastNoPrice;
-          totalVolume = m.totalVolume;
-          endDate = m.endDate;
-          polymarketSlug = m.polymarketSlug;
-        }]);
+        result := Array.append(result, [{ marketId = m.marketId; question = m.question; eventTitle = m.eventTitle; sport = m.sport; status = ToolContext.marketStatusToText(m.status); lastYesPrice = m.lastYesPrice; lastNoPrice = m.lastNoPrice; totalVolume = m.totalVolume; endDate = m.endDate; polymarketSlug = m.polymarketSlug }]);
       };
     };
     result;
@@ -2355,7 +2319,6 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     let remaining = syncQueue.size();
     #ok("Sync step complete. Total markets: " # Nat.toText(count) # ". Queue remaining: " # Nat.toText(remaining) # ". Call again to process more.");
   };
-
 
   /// Admin: clear all markets and reset sync state (nuclear option for re-sync)
   /// Admin: delete a specific market (only if it has zero volume and no open orders)
@@ -2417,12 +2380,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       switch (m.status) {
         case (#Open or #Closed) {
           if (m.polymarketSlug != "" and m.polymarketConditionId != "") {
-            result := Array.append(result, [{
-              marketId = m.marketId;
-              polymarketSlug = m.polymarketSlug;
-              polymarketConditionId = m.polymarketConditionId;
-              status = ToolContext.marketStatusToText(m.status);
-            }]);
+            result := Array.append(result, [{ marketId = m.marketId; polymarketSlug = m.polymarketSlug; polymarketConditionId = m.polymarketConditionId; status = ToolContext.marketStatusToText(m.status) }]);
           };
         };
         case _ {};
@@ -2501,20 +2459,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
                 spread = 0;
               });
             };
-            all := Array.append(all, [{
-              marketId = m.marketId;
-              question = m.question;
-              eventTitle = m.eventTitle;
-              sport = m.sport;
-              status = "Open";
-              yesPrice = m.lastYesPrice;
-              noPrice = m.lastNoPrice;
-              impliedYesAsk = bp.impliedYesAsk;
-              impliedNoAsk = bp.impliedNoAsk;
-              polymarketSlug = m.polymarketSlug;
-              endDate = m.endDate;
-              totalVolume = m.totalVolume;
-            }]);
+            all := Array.append(all, [{ marketId = m.marketId; question = m.question; eventTitle = m.eventTitle; sport = m.sport; status = "Open"; yesPrice = m.lastYesPrice; noPrice = m.lastNoPrice; impliedYesAsk = bp.impliedYesAsk; impliedNoAsk = bp.impliedNoAsk; polymarketSlug = m.polymarketSlug; endDate = m.endDate; totalVolume = m.totalVolume }]);
           };
         };
         case _ {};
@@ -2522,14 +2467,41 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     };
 
     // Sort by volume descending
-    let sorted = Array.sort(all, func(
-      a : { marketId : Text; question : Text; eventTitle : Text; sport : Text; status : Text; yesPrice : Nat; noPrice : Nat; impliedYesAsk : Nat; impliedNoAsk : Nat; polymarketSlug : Text; endDate : Int; totalVolume : Nat },
-      b : { marketId : Text; question : Text; eventTitle : Text; sport : Text; status : Text; yesPrice : Nat; noPrice : Nat; impliedYesAsk : Nat; impliedNoAsk : Nat; polymarketSlug : Text; endDate : Int; totalVolume : Nat },
-    ) : { #less; #equal; #greater } {
-      if (a.totalVolume > b.totalVolume) #less
-      else if (a.totalVolume < b.totalVolume) #greater
-      else #equal;
-    });
+    let sorted = Array.sort(
+      all,
+      func(
+        a : {
+          marketId : Text;
+          question : Text;
+          eventTitle : Text;
+          sport : Text;
+          status : Text;
+          yesPrice : Nat;
+          noPrice : Nat;
+          impliedYesAsk : Nat;
+          impliedNoAsk : Nat;
+          polymarketSlug : Text;
+          endDate : Int;
+          totalVolume : Nat;
+        },
+        b : {
+          marketId : Text;
+          question : Text;
+          eventTitle : Text;
+          sport : Text;
+          status : Text;
+          yesPrice : Nat;
+          noPrice : Nat;
+          impliedYesAsk : Nat;
+          impliedNoAsk : Nat;
+          polymarketSlug : Text;
+          endDate : Int;
+          totalVolume : Nat;
+        },
+      ) : { #less; #equal; #greater } {
+        if (a.totalVolume > b.totalVolume) #less else if (a.totalVolume < b.totalVolume) #greater else #equal;
+      },
+    );
 
     // Take top N
     let n = Nat.min(maxLimit, sorted.size());
@@ -2597,20 +2569,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
             spread = 0;
           });
         };
-        all := Array.append(all, [{
-          marketId = m.marketId;
-          question = m.question;
-          eventTitle = m.eventTitle;
-          sport = m.sport;
-          status = statusText;
-          yesPrice = m.lastYesPrice;
-          noPrice = m.lastNoPrice;
-          impliedYesAsk = bp.impliedYesAsk;
-          impliedNoAsk = bp.impliedNoAsk;
-          polymarketSlug = m.polymarketSlug;
-          endDate = m.endDate;
-          totalVolume = m.totalVolume;
-        }]);
+        all := Array.append(all, [{ marketId = m.marketId; question = m.question; eventTitle = m.eventTitle; sport = m.sport; status = statusText; yesPrice = m.lastYesPrice; noPrice = m.lastNoPrice; impliedYesAsk = bp.impliedYesAsk; impliedNoAsk = bp.impliedNoAsk; polymarketSlug = m.polymarketSlug; endDate = m.endDate; totalVolume = m.totalVolume }]);
       };
     };
 
@@ -2633,20 +2592,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         totalVolume : Nat;
       }];
     } else {
-      Array.tabulate<{
-        marketId : Text;
-        question : Text;
-        eventTitle : Text;
-        sport : Text;
-        status : Text;
-        yesPrice : Nat;
-        noPrice : Nat;
-        impliedYesAsk : Nat;
-        impliedNoAsk : Nat;
-        polymarketSlug : Text;
-        endDate : Int;
-        totalVolume : Nat;
-      }>(end - start, func(i) { all[start + i] });
+      Array.tabulate<{ marketId : Text; question : Text; eventTitle : Text; sport : Text; status : Text; yesPrice : Nat; noPrice : Nat; impliedYesAsk : Nat; impliedNoAsk : Nat; polymarketSlug : Text; endDate : Int; totalVolume : Nat }>(end - start, func(i) { all[start + i] });
     };
 
     { total; returned = page.size(); markets = page };
@@ -2663,7 +2609,10 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   } {
     let sportCounts = Map.new<Text, Nat>();
     for ((_, m) in Map.entries(markets)) {
-      let prev = switch (Map.get(sportCounts, thash, m.sport)) { case (?n) n; case null 0 };
+      let prev = switch (Map.get(sportCounts, thash, m.sport)) {
+        case (?n) n;
+        case null 0;
+      };
       Map.set(sportCounts, thash, m.sport, prev + 1);
     };
 
@@ -2715,14 +2664,32 @@ shared ({ caller = deployer }) persistent actor class McpServer(
         let bp = OrderBook.bestPrices(book);
         {
           yesBids = Array.map<OrderBook.DepthLevel, { price : Nat; totalSize : Nat; orderCount : Nat }>(
-            d.yesBids, func(l : OrderBook.DepthLevel) : { price : Nat; totalSize : Nat; orderCount : Nat } {
-              { price = l.price; totalSize = l.totalSize; orderCount = l.orderCount }
-            }
+            d.yesBids,
+            func(l : OrderBook.DepthLevel) : {
+              price : Nat;
+              totalSize : Nat;
+              orderCount : Nat;
+            } {
+              {
+                price = l.price;
+                totalSize = l.totalSize;
+                orderCount = l.orderCount;
+              };
+            },
           );
           noBids = Array.map<OrderBook.DepthLevel, { price : Nat; totalSize : Nat; orderCount : Nat }>(
-            d.noBids, func(l : OrderBook.DepthLevel) : { price : Nat; totalSize : Nat; orderCount : Nat } {
-              { price = l.price; totalSize = l.totalSize; orderCount = l.orderCount }
-            }
+            d.noBids,
+            func(l : OrderBook.DepthLevel) : {
+              price : Nat;
+              totalSize : Nat;
+              orderCount : Nat;
+            } {
+              {
+                price = l.price;
+                totalSize = l.totalSize;
+                orderCount = l.orderCount;
+              };
+            },
           );
           bestYesBid = bp.bestYesBid;
           bestNoBid = bp.bestNoBid;
@@ -2759,7 +2726,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     status : Text;
     timestamp : Int;
   }] {
-    assert(caller == owner);
+    assert (caller == owner);
     let target = Principal.fromText(userPrincipal);
     var result : [{
       orderId : Text;
@@ -2773,16 +2740,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     }] = [];
     for ((_, order) in Map.entries(orders)) {
       if (Principal.equal(order.user, target)) {
-        result := Array.append(result, [{
-          orderId = order.orderId;
-          marketId = order.marketId;
-          outcome = ToolContext.outcomeToText(order.outcome);
-          price = order.price;
-          size = order.size;
-          filledSize = order.filledSize;
-          status = ToolContext.orderStatusToText(order.status);
-          timestamp = order.timestamp;
-        }]);
+        result := Array.append(result, [{ orderId = order.orderId; marketId = order.marketId; outcome = ToolContext.outcomeToText(order.outcome); price = order.price; size = order.size; filledSize = order.filledSize; status = ToolContext.orderStatusToText(order.status); timestamp = order.timestamp }]);
       };
     };
     result;
@@ -2800,7 +2758,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     shares : Nat;
     costBasis : Nat;
   }] {
-    assert(caller == owner);
+    assert (caller == owner);
     var result : [{
       positionId : Text;
       user : Text;
@@ -2811,14 +2769,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     }] = [];
     for ((_, pos) in Map.entries(positions)) {
       if (pos.shares > 0) {
-        result := Array.append(result, [{
-          positionId = pos.positionId;
-          user = Principal.toText(pos.user);
-          marketId = pos.marketId;
-          outcome = ToolContext.outcomeToText(pos.outcome);
-          shares = pos.shares;
-          costBasis = pos.costBasis;
-        }]);
+        result := Array.append(result, [{ positionId = pos.positionId; user = Principal.toText(pos.user); marketId = pos.marketId; outcome = ToolContext.outcomeToText(pos.outcome); shares = pos.shares; costBasis = pos.costBasis }]);
       };
     };
     result;

@@ -45,51 +45,51 @@ export interface McpServer {
    * / Used for migration (e.g., pre-escrow → escrowed orders). No refunds attempted
    * / since pre-escrow orders have empty subaccounts.
    */
-  'admin_cancel_all_orders' : ActorMethod<[], Result_1>,
+  'admin_cancel_all_orders' : ActorMethod<[], Result_2>,
   /**
    * / Admin: cancel a market and refund all
    */
-  'admin_cancel_market' : ActorMethod<[string], Result_1>,
-  'admin_clear_markets' : ActorMethod<[], Result_1>,
+  'admin_cancel_market' : ActorMethod<[string], Result_2>,
+  'admin_clear_markets' : ActorMethod<[], Result_2>,
   /**
    * / Admin: create an API key for any principal (for testing / market maker)
    */
   'admin_create_api_key' : ActorMethod<
     [Principal, string, Array<string>],
-    Result_1
+    Result_2
   >,
   /**
    * / Admin: create a market (called by off-chain sync script)
    */
   'admin_create_market' : ActorMethod<
     [string, string, string, string, string, bigint, bigint, bigint],
-    Result_1
+    Result_2
   >,
   /**
    * / Admin: clear all markets and reset sync state (nuclear option for re-sync)
    * / Admin: delete a specific market (only if it has zero volume and no open orders)
    */
-  'admin_delete_market' : ActorMethod<[string], Result_1>,
+  'admin_delete_market' : ActorMethod<[string], Result_2>,
   /**
    * / Admin: drain stuck funds from a market subaccount
    */
-  'admin_drain_market_subaccount' : ActorMethod<[string], Result_1>,
+  'admin_drain_market_subaccount' : ActorMethod<[string], Result_2>,
   /**
    * / Admin: reopen a Closed market (e.g., premature deadline closure)
    */
-  'admin_reopen_market' : ActorMethod<[string], Result_1>,
+  'admin_reopen_market' : ActorMethod<[string], Result_2>,
   /**
    * / Admin: manually resolve a market
    */
-  'admin_resolve_market' : ActorMethod<[string, string], Result_1>,
+  'admin_resolve_market' : ActorMethod<[string, string], Result_2>,
   /**
    * / Admin: manually trigger Polymarket sync (bypasses timer)
    */
-  'admin_trigger_sync' : ActorMethod<[], Result_1>,
+  'admin_trigger_sync' : ActorMethod<[], Result_2>,
   /**
    * / Cancel an order (authenticated by wallet) — refunds escrowed funds
    */
-  'cancel_order' : ActorMethod<[string], Result_1>,
+  'cancel_order' : ActorMethod<[string], Result_2>,
   'create_my_api_key' : ActorMethod<[string, Array<string>], string>,
   'debug_all_positions' : ActorMethod<
     [],
@@ -199,6 +199,12 @@ export interface McpServer {
     >
   >,
   /**
+   * / Deposit tokens into the canister account once, then trade against internal balance.
+   * / Requires a one-time/current ICRC2 allowance, but order placement no longer pays
+   * / approve/transfer_from fees per order.
+   */
+  'deposit' : ActorMethod<[bigint], Result>,
+  /**
    * / Get all markets that belong to the same event (share polymarketSlug)
    */
   'get_event_markets' : ActorMethod<
@@ -237,6 +243,13 @@ export interface McpServer {
       'cancelled' : bigint,
       'open' : bigint,
     }
+  >,
+  /**
+   * / Get caller's custodial account balance held inside Final Score.
+   */
+  'get_my_account_balance' : ActorMethod<
+    [],
+    { 'total' : bigint, 'available' : bigint, 'lockedInOrders' : bigint }
   >,
   'get_owner' : ActorMethod<[], Principal>,
   /**
@@ -356,16 +369,16 @@ export interface McpServer {
   /**
    * / Place a limit order (authenticated by wallet — msg.caller is the user)
    */
-  'place_order' : ActorMethod<[string, string, number, bigint], Result_4>,
+  'place_order' : ActorMethod<[string, string, number, bigint], Result_5>,
   /**
    * / Batch requote: cancel all caller's orders in a market and place new ones with delta escrow
    */
   'requote_market' : ActorMethod<
     [string, Array<{ 'size' : bigint, 'price' : number, 'outcome' : string }>],
-    Result_3
+    Result_4
   >,
   'revoke_my_api_key' : ActorMethod<[string], undefined>,
-  'set_owner' : ActorMethod<[Principal], Result_2>,
+  'set_owner' : ActorMethod<[Principal], Result_3>,
   'transformJwksResponse' : ActorMethod<
     [{ 'context' : Uint8Array | number[], 'response' : HttpRequestResult }],
     HttpRequestResult
@@ -380,20 +393,27 @@ export interface McpServer {
    * / closed=true, reads final prices, and resolves/cancels accordingly.
    * / No caller trust required — the canister is the source of truth.
    */
-  'try_resolve_market' : ActorMethod<[string], Result_1>,
-  'withdraw' : ActorMethod<[Principal, bigint, Destination], Result>,
+  'try_resolve_market' : ActorMethod<[string], Result_2>,
+  'withdraw' : ActorMethod<[Principal, bigint, Destination], Result_1>,
+  /**
+   * / Withdraw available custodial balance to caller's wallet.
+   * / Debits amount + ledger fee before the inter-canister call and restores it on failure.
+   */
+  'withdraw_balance' : ActorMethod<[bigint], Result>,
 }
 export type Result = { 'ok' : bigint } |
-  { 'err' : TreasuryError };
-export type Result_1 = { 'ok' : string } |
   { 'err' : string };
-export type Result_2 = { 'ok' : null } |
+export type Result_1 = { 'ok' : bigint } |
   { 'err' : TreasuryError };
-export type Result_3 = {
+export type Result_2 = { 'ok' : string } |
+  { 'err' : string };
+export type Result_3 = { 'ok' : null } |
+  { 'err' : TreasuryError };
+export type Result_4 = {
     'ok' : { 'cancelled' : bigint, 'placed' : bigint, 'escrowed' : bigint }
   } |
   { 'err' : string };
-export type Result_4 = {
+export type Result_5 = {
     'ok' : {
       'fills' : Array<
         { 'size' : bigint, 'tradeId' : string, 'price' : bigint }

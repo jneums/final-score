@@ -50,6 +50,11 @@ interface OrderBookResult {
     impliedNoAsk: bigint;
     spread: bigint;
 }
+interface AccountBalance {
+    available: bigint;
+    lockedInOrders: bigint;
+    total: bigint;
+}
 interface CanisterActor {
     admin_create_market(question: string, eventTitle: string, sport: string, polymarketSlug: string, polymarketConditionId: string, endDateSeconds: bigint, yesPrice: bigint, noPrice: bigint): Promise<{
         ok: string;
@@ -72,6 +77,12 @@ interface CanisterActor {
     } | {
         err: string;
     }>;
+    get_my_account_balance(): Promise<AccountBalance>;
+    deposit(amount: bigint): Promise<{
+        ok: bigint;
+    } | {
+        err: string;
+    }>;
     requote_market(marketId: string, newOrders: Array<{
         outcome: string;
         price: number;
@@ -86,7 +97,7 @@ interface CanisterActor {
         err: string;
     }>;
     my_orders(statusFilter: [string] | [], marketFilter: [string] | []): Promise<OrderRecord[]>;
-    debug_list_markets(sportFilter: [string] | [], offset: bigint, limit: bigint): Promise<{
+    debug_list_markets(sportFilter: [string] | [], offset: bigint, limit: bigint, statusFilter: [string] | []): Promise<{
         total: bigint;
         returned: bigint;
         markets: MarketRecord[];
@@ -113,6 +124,18 @@ export declare function cancelOrder(orderId: string): Promise<{
     ok: boolean;
     message: string;
 }>;
+export declare function getMakerAccountBalance(): Promise<AccountBalance>;
+export declare function depositMakerWalletBalance(): Promise<{
+    ok: boolean;
+    message: string;
+    deposited?: bigint;
+    balance?: AccountBalance;
+}>;
+export declare function ensureMakerAccountBalance(minAvailable: bigint): Promise<{
+    ok: boolean;
+    message: string;
+    balance?: AccountBalance;
+}>;
 export declare function requoteMarketBatch(marketId: string, orders: {
     outcome: string;
     price: number;
@@ -127,10 +150,10 @@ export declare function requoteMarketBatch(marketId: string, orders: {
     };
 }>;
 export declare function getMyOrders(statusFilter?: string, marketFilter?: string): Promise<OrderRecord[]>;
-export declare function listMarkets(sportFilter?: string, offset?: number, limit?: number): Promise<{
+export declare function listMarkets(sportFilter?: string, offset?: number, limit?: number, status?: string): Promise<{
     total: bigint;
     returned: bigint;
     markets: MarketRecord[];
 }>;
 export declare function getOrderBook(marketId: string, maxLevels?: number): Promise<OrderBookResult>;
-export type { UnresolvedMarket, OrderRecord, MarketRecord, PlaceOrderOk, OrderBookResult, DepthLevel };
+export type { UnresolvedMarket, OrderRecord, MarketRecord, PlaceOrderOk, OrderBookResult, DepthLevel, AccountBalance };

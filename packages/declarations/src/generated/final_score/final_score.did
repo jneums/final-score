@@ -1,4 +1,4 @@
-type UserStats = 
+type UserStats =
  record {
    marketsLost: nat;
    marketsWon: nat;
@@ -8,7 +8,7 @@ type UserStats =
    totalVolume: nat;
    userPrincipal: principal;
  };
-type UpgradeFinishedResult = 
+type UpgradeFinishedResult =
  variant {
    Failed: record {
              nat;
@@ -17,13 +17,13 @@ type UpgradeFinishedResult =
    InProgress: nat;
    Success: nat;
  };
-type TreasuryError = 
+type TreasuryError =
  variant {
    LedgerTrap: text;
    NotOwner;
    TransferFailed: TransferError;
  };
-type TransferError = 
+type TransferError =
  variant {
    BadBurn: record {min_burn_amount: nat;};
    BadFee: record {expected_fee: nat;};
@@ -47,14 +47,14 @@ type StreamingStrategy = variant {
                               callback: StreamingCallback;
                               token: StreamingToken;
                             };};
-type StreamingCallbackResponse = 
+type StreamingCallbackResponse =
  record {
    body: blob;
    token: opt StreamingToken;
  };
 type StreamingCallback = func (StreamingToken) ->
                           (opt StreamingCallbackResponse) query;
-type Result_4 = 
+type Result_5 =
  variant {
    err: text;
    ok:
@@ -70,7 +70,7 @@ type Result_4 =
       status: text;
     };
  };
-type Result_3 = 
+type Result_4 =
  variant {
    err: text;
    ok: record {
@@ -79,50 +79,55 @@ type Result_3 =
          placed: nat;
        };
  };
-type Result_2 = 
+type Result_3 =
  variant {
    err: TreasuryError;
    ok;
  };
-type Result_1 = 
+type Result_2 =
  variant {
    err: text;
    ok: text;
  };
-type Result = 
+type Result_1 =
  variant {
    err: TreasuryError;
    ok: nat;
  };
-type McpServer = 
+type Result =
+ variant {
+   err: text;
+   ok: nat;
+ };
+type McpServer =
  service {
    /// Admin: cancel ALL open/partially-filled orders across all markets, empty all books.
    /// Used for migration (e.g., pre-escrow → escrowed orders). No refunds attempted
    /// since pre-escrow orders have empty subaccounts.
-   admin_cancel_all_orders: () -> (Result_1);
+   admin_cancel_all_orders: () -> (Result_2);
    /// Admin: cancel a market and refund all
-   admin_cancel_market: (marketId: text) -> (Result_1);
-   admin_clear_markets: () -> (Result_1);
+   admin_cancel_market: (marketId: text) -> (Result_2);
+   admin_clear_markets: () -> (Result_2);
    /// Admin: create an API key for any principal (for testing / market maker)
    admin_create_api_key: (user: principal, name: text, scopes: vec text) ->
-    (Result_1);
+    (Result_2);
    /// Admin: create a market (called by off-chain sync script)
    admin_create_market: (question: text, eventTitle: text, sport: text,
-    polymarketSlug: text, polymarketConditionId: text, endDateSeconds: 
-    int, yesPrice: nat, noPrice: nat) -> (Result_1);
+    polymarketSlug: text, polymarketConditionId: text, endDateSeconds:
+    int, yesPrice: nat, noPrice: nat) -> (Result_2);
    /// Admin: clear all markets and reset sync state (nuclear option for re-sync)
    /// Admin: delete a specific market (only if it has zero volume and no open orders)
-   admin_delete_market: (marketId: text) -> (Result_1);
+   admin_delete_market: (marketId: text) -> (Result_2);
    /// Admin: drain stuck funds from a market subaccount
-   admin_drain_market_subaccount: (marketId: text) -> (Result_1);
+   admin_drain_market_subaccount: (marketId: text) -> (Result_2);
    /// Admin: reopen a Closed market (e.g., premature deadline closure)
-   admin_reopen_market: (marketId: text) -> (Result_1);
+   admin_reopen_market: (marketId: text) -> (Result_2);
    /// Admin: manually resolve a market
-   admin_resolve_market: (marketId: text, winnerText: text) -> (Result_1);
+   admin_resolve_market: (marketId: text, winnerText: text) -> (Result_2);
    /// Admin: manually trigger Polymarket sync (bypasses timer)
-   admin_trigger_sync: () -> (Result_1);
+   admin_trigger_sync: () -> (Result_2);
    /// Cancel an order (authenticated by wallet) — refunds escrowed funds
-   cancel_order: (orderId: text) -> (Result_1);
+   cancel_order: (orderId: text) -> (Result_2);
    create_my_api_key: (name: text, scopes: vec text) -> (text);
    debug_all_positions: () ->
     (vec
@@ -216,6 +221,10 @@ type McpServer =
         status: text;
         timestamp: int;
       }) query;
+   /// Deposit tokens into the canister account once, then trade against internal balance.
+   /// Requires a one-time/current ICRC2 allowance, but order placement no longer pays
+   /// approve/transfer_from fees per order.
+   deposit: (amount: nat) -> (Result);
    /// Get all markets that belong to the same event (share polymarketSlug)
    get_event_markets: (polymarketSlug: text) ->
     (vec
@@ -241,6 +250,13 @@ type McpServer =
        closed: nat;
        open: nat;
        resolved: nat;
+       total: nat;
+     }) query;
+   /// Get caller's custodial account balance held inside Final Score.
+   get_my_account_balance: () ->
+    (record {
+       available: nat;
+       lockedInOrders: nat;
        total: nat;
      }) query;
    get_owner: () -> (principal) query;
@@ -330,16 +346,16 @@ type McpServer =
       }) query;
    /// Place a limit order (authenticated by wallet — msg.caller is the user)
    place_order: (marketId: text, outcomeText: text, price: float64, size:
-    nat) -> (Result_4);
+    nat) -> (Result_5);
    /// Batch requote: cancel all caller's orders in a market and place new ones with delta escrow
    requote_market: (marketId: text, newOrders:
     vec record {
           outcome: text;
           price: float64;
           size: nat;
-        }) -> (Result_3);
+        }) -> (Result_4);
    revoke_my_api_key: (key_id: text) -> ();
-   set_owner: (new_owner: principal) -> (Result_2);
+   set_owner: (new_owner: principal) -> (Result_3);
    transformJwksResponse:
     (record {
        context: blob;
@@ -354,16 +370,19 @@ type McpServer =
    /// The canister makes an HTTP outcall to Polymarket, verifies
    /// closed=true, reads final prices, and resolves/cancels accordingly.
    /// No caller trust required — the canister is the source of truth.
-   try_resolve_market: (marketId: text) -> (Result_1);
+   try_resolve_market: (marketId: text) -> (Result_2);
    withdraw: (ledger_id: principal, amount: nat, destination: Destination) ->
-    (Result);
+    (Result_1);
+   /// Withdraw available custodial balance to caller's wallet.
+   /// Debits amount + ledger fee before the inter-canister call and restores it on failure.
+   withdraw_balance: (amount: nat) -> (Result);
  };
-type LeaderboardEntry = 
+type LeaderboardEntry =
  record {
    rank: nat;
    stats: UserStats;
  };
-type HttpResponse = 
+type HttpResponse =
  record {
    body: blob;
    headers: vec Header;
@@ -371,13 +390,13 @@ type HttpResponse =
    streaming_strategy: opt StreamingStrategy;
    upgrade: opt bool;
  };
-type HttpRequestResult = 
+type HttpRequestResult =
  record {
    body: blob;
    headers: vec HttpHeader;
    status: nat;
  };
-type HttpRequest = 
+type HttpRequest =
  record {
    body: blob;
    certificate_version: opt nat16;
@@ -385,28 +404,28 @@ type HttpRequest =
    method: text;
    url: text;
  };
-type HttpHeader = 
+type HttpHeader =
  record {
    name: text;
    value: text;
  };
-type Header = 
+type Header =
  record {
    text;
    text;
  };
 type HashedApiKey = text;
-type Destination = 
+type Destination =
  record {
    owner: principal;
    subaccount: opt Subaccount;
  };
-type ApiKeyMetadata = 
+type ApiKeyMetadata =
  record {
    hashed_key: HashedApiKey;
    info: ApiKeyInfo;
  };
-type ApiKeyInfo = 
+type ApiKeyInfo =
  record {
    created: Time;
    name: text;
