@@ -9,6 +9,7 @@ import {
   transferUsdc,
   withdrawBalance,
 } from '@final-score/ic-js';
+import { calculateDepositAllowance } from '../lib/balanceUtils';
 import { useAuth } from './useAuth';
 
 /**
@@ -72,7 +73,9 @@ export function useDepositToAccount() {
     mutationFn: async ({ amount }: { amount: bigint }) => {
       if (!user?.agent) throw new Error('Not authenticated');
       const spender = getCanisterId('FINAL_SCORE');
-      await approveUsdc(user.agent, spender, amount);
+      const token = getToken();
+      const allowance = calculateDepositAllowance(amount, token.fee);
+      await approveUsdc(user.agent, spender, allowance);
       return deposit(user.agent, amount);
     },
     onSuccess: () => {

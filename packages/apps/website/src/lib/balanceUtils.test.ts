@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatTokenAmount, parseTokenAmount } from './balanceUtils';
+import { calculateDepositAllowance, formatTokenAmount, parseTokenAmount } from './balanceUtils';
 
 describe('balanceUtils', () => {
   it('formats atomic token balances with fixed cents', () => {
@@ -25,5 +25,9 @@ describe('balanceUtils', () => {
     expect(parseTokenAmount('0', 8)).toBeNull();
     expect(parseTokenAmount('-1', 8)).toBeNull();
     expect(parseTokenAmount('1.2.3', 8)).toBeNull();
+  });
+
+  it('adds one transfer fee to the requested deposit allowance', () => {
+    expect(calculateDepositAllowance(BigInt('1000000000'), 10_000)).toBe(BigInt('1000010000'));
   });
 });

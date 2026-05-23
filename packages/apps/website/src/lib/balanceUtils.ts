@@ -29,6 +29,10 @@ export function formatTokenAmount(atomic: bigint, decimals: number): string {
   return `$${displayWhole.toLocaleString()}.${displayCents.toString().padStart(2, '0')}`;
 }
 
+export function calculateDepositAllowance(amount: bigint, transferFee: number | bigint): bigint {
+  return amount + BigInt(transferFee);
+}
+
 export function formatTokenInputValue(atomic: bigint, decimals: number): string {
   const divisor = pow10(decimals);
   const whole = atomic / divisor;
