@@ -1,17 +1,14 @@
 import { useAuth } from '../hooks/useAuth';
 import { useWalletDrawer } from '../contexts/WalletDrawerContext';
-import { useUsdcBalance } from '../hooks/useLedger';
-import { getToken } from '@final-score/ic-js';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { AllowanceManager } from './AllowanceManager';
+import { AccountFundsManager } from './AccountFundsManager';
 import { ApiKeysManager } from './ApiKeysManager';
-import { Copy, RefreshCw, Check, LogOut, X } from 'lucide-react';
+import { Copy, Check, LogOut, X } from 'lucide-react';
 import { useState } from 'react';
 
 export function WalletDrawer() {
   const { user, logout } = useAuth();
-  const { data: balance, isLoading: balanceLoading, refetch: refetchBalance } = useUsdcBalance(user?.principal);
   const [copiedPrincipal, setCopiedPrincipal] = useState(false);
   const { isOpen, closeDrawer } = useWalletDrawer();
 
@@ -25,54 +22,7 @@ export function WalletDrawer() {
 
   const drawerContent = (
     <div className="space-y-6">
-      {/* USDC Balance Section */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>USDC Balance</CardTitle>
-              <CardDescription>Your wallet balance</CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="ghost" size="icon" onClick={() => refetchBalance()}>
-                <RefreshCw className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            <div className="text-3xl font-bold">
-              {balanceLoading ? '—' : `$${Number(balance ?? 0).toFixed(2)}`}{' '}
-              <span className="text-lg text-muted-foreground">USDC</span>
-            </div>
-            {!balanceLoading && (() => {
-              try {
-                const token = getToken();
-                const isTestToken = token.canisterId.toText() === '3jkp5-oyaaa-aaaaj-azwqa-cai';
-                if (!isTestToken) return null;
-                return (
-                  <div className="p-3 bg-blue-950/30 border border-blue-800/50 rounded-lg text-sm">
-                    <p className="font-medium text-blue-400">Test Token Faucet</p>
-                    <p className="text-muted-foreground mt-1">
-                      This platform uses test tokens. Visit the{' '}
-                      <a
-                        href="https://faucet.internetcomputer.org/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-400 underline"
-                      >
-                        DFINITY faucet
-                      </a>
-                      {' '}and request <span className="font-medium text-blue-400">TICRC1</span> tokens to top up your balance.
-                    </p>
-                  </div>
-                );
-              } catch { return null; }
-            })()}
-          </div>
-        </CardContent>
-      </Card>
+      <AccountFundsManager />
 
       {/* Account Details Section */}
       <Card>
@@ -106,9 +56,6 @@ export function WalletDrawer() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Allowance Manager */}
-      <AllowanceManager />
 
       {/* API Keys Manager */}
       <ApiKeysManager />

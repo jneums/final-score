@@ -8,6 +8,7 @@ import { useMyOrders, useMyPositions, useMyAccountBalance } from '../hooks/useMa
 import { cancelOrderCandid } from '@final-score/ic-js';
 import { toast } from 'sonner';
 import { positionCurrentValue, formatPnl, atomicToDollars } from '../lib/tokenUtils';
+import { formatTokenAmount } from '../lib/balanceUtils';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -110,7 +111,7 @@ export default function PortfolioPage() {
 
       {/* Balance Summary */}
       <section className="container mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
@@ -138,10 +139,28 @@ export default function PortfolioPage() {
                 <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
               ) : (
                 <p className="text-3xl font-bold text-primary">
-                  ${accountBalance ? atomicToDollars(Number(accountBalance.available)).toFixed(2) : '0'}
+                  {accountBalance ? formatTokenAmount(accountBalance.available, 8) : '$0.00'}
                 </p>
               )}
-              <p className="text-xs text-muted-foreground mt-1">Deposited for trading</p>
+              <p className="text-xs text-muted-foreground mt-1">Unlocked for trading or withdrawal</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+                <Lock className="w-4 h-4" />
+                Locked Balance
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {accountBalanceLoading ? (
+                <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              ) : (
+                <p className="text-3xl font-bold text-amber-400">
+                  {accountBalance ? formatTokenAmount(accountBalance.lockedInOrders, 8) : '$0.00'}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground mt-1">Backing open orders</p>
             </CardContent>
           </Card>
           <Card>

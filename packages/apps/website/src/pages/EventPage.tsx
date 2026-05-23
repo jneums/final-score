@@ -8,6 +8,7 @@ import { Tabs, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { useMarket, useOrderBook, useMyPositions, useEventMarkets, useMyAccountBalance } from '../hooks/useMarkets';
 import { useAuth } from '../hooks/useAuth';
 import { positionCurrentValue, formatPnl, atomicToDollars } from '../lib/tokenUtils';
+import { formatTokenAmount } from '../lib/balanceUtils';
 import { placeOrderCandid, type MarketInfo } from '@final-score/ic-js';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
@@ -204,6 +205,8 @@ function OrderForm({
   // Pre-flight custodial account balance
   const { data: accountBalance } = useMyAccountBalance(identity);
   const availableBalance = accountBalance ? atomicToDollars(Number(accountBalance.available)) : undefined;
+  const lockedBalance = accountBalance?.lockedInOrders ?? BigInt(0);
+  const totalAccountBalance = accountBalance?.total ?? BigInt(0);
 
   const activeMarket = selection?.market;
 
@@ -529,6 +532,24 @@ function OrderForm({
             </Button>
           </div>
         </div>
+
+        {/* Account balance */}
+        {accountBalance && (
+          <div className="grid grid-cols-3 gap-2 rounded-lg bg-muted/50 p-2 text-xs">
+            <div>
+              <div className="text-muted-foreground">Available</div>
+              <div className="font-mono font-semibold">{formatTokenAmount(accountBalance.available, 8)}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Locked</div>
+              <div className="font-mono font-semibold">{formatTokenAmount(lockedBalance, 8)}</div>
+            </div>
+            <div>
+              <div className="text-muted-foreground">Total</div>
+              <div className="font-mono font-semibold">{formatTokenAmount(totalAccountBalance, 8)}</div>
+            </div>
+          </div>
+        )}
 
         {/* Summary */}
         <div className="space-y-2 text-sm">
