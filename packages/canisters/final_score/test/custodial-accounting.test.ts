@@ -4,6 +4,8 @@ import { resolve } from 'node:path';
 
 const mainMo = readFileSync(resolve(__dirname, '../src/main.mo'), 'utf8');
 const toolContextMo = readFileSync(resolve(__dirname, '../src/tools/ToolContext.mo'), 'utf8');
+const mcpOrderPlaceMo = readFileSync(resolve(__dirname, '../src/tools/order_place.mo'), 'utf8');
+const mcpAccountGetInfoMo = readFileSync(resolve(__dirname, '../src/tools/account_get_info.mo'), 'utf8');
 
 function bodyBetween(start: string, end: string): string {
   const startIndex = mainMo.indexOf(start);
@@ -58,5 +60,19 @@ describe('custodial accounting model', () => {
     expect(resolveBody).toContain('ToolContext.creditBalance(toolContext, position.user, payout)');
     expect(placeOrderBody).toContain('ToolContext.creditBalance(toolContext, user, payout)');
     expect(resolveBody).not.toContain('from_subaccount = ?ToolContext.marketSubaccount(marketId)');
+  });
+
+  it('MCP tools use custodial account balances without ledger calls during normal trading/account reads', () => {
+    expect(mcpOrderPlaceMo).toContain('ToolContext.debitBalance(context, userPrincipal, cost)');
+    expect(mcpOrderPlaceMo).toContain('ToolContext.creditBalance(context, user, payout)');
+    expect(mcpOrderPlaceMo).not.toContain('icrc2_transfer_from');
+    expect(mcpOrderPlaceMo).not.toContain('icrc1_transfer');
+    expect(mcpOrderPlaceMo).not.toContain('actor (Principal.toText(context.tokenLedger))');
+
+    expect(mcpAccountGetInfoMo).toContain('ToolContext.getAvailableBalance(context, userPrincipal)');
+    expect(mcpAccountGetInfoMo).toContain('ToolContext.getLockedBalance(context, userPrincipal)');
+    expect(mcpAccountGetInfoMo).not.toContain('icrc1_balance_of');
+    expect(mcpAccountGetInfoMo).not.toContain('icrc2_allowance');
+    expect(mcpAccountGetInfoMo).not.toContain('actor (Principal.toText(context.tokenLedger))');
   });
 });

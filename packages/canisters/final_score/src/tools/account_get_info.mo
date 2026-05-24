@@ -5,10 +5,8 @@ import Principal "mo:base/Principal";
 import Json "mo:json";
 import Nat "mo:base/Nat";
 import Int "mo:base/Int";
-import Nat64 "mo:base/Nat64";
 import Array "mo:base/Array";
 import Map "mo:map/Map";
-import ICRC2 "mo:icrc2-types";
 
 import ToolContext "ToolContext";
 
@@ -18,8 +16,8 @@ module {
     name = "account_get_info";
     title = ?"Get Account Information";
     description = ?(
-      "Returns your account overview: wallet balance, spending allowance, " #
-      "available balance (after order escrow), open positions, and trading stats. " #
+      "Returns your custodial Final Score account overview: total internal balance, " #
+      "available balance, funds locked in open orders, open positions, and trading stats. " #
       "All amounts are in the token's base units (atomic). Query get_token_info for decimals."
     );
     payment = null;
@@ -38,25 +36,9 @@ module {
       let ?auth = _auth else return ToolContext.makeError("Authentication required", cb);
       let userPrincipal = auth.principal;
 
-      // Query wallet balance and allowance from ledger
-      let ledger = actor (Principal.toText(context.tokenLedger)) : actor {
-        icrc1_balance_of : (ICRC2.Account) -> async Nat;
-        icrc2_allowance : ({ account : ICRC2.Account; spender : ICRC2.Account }) -> async { allowance : Nat; expires_at : ?Nat64 };
-      };
-
-      let walletBalance = await ledger.icrc1_balance_of({
-        owner = userPrincipal;
-        subaccount = null;
-      });
-
-      let allowanceResult = await ledger.icrc2_allowance({
-        account = { owner = userPrincipal; subaccount = null };
-        spender = { owner = context.canisterPrincipal; subaccount = null };
-      });
-
+      let accountBalance = ToolContext.getBalance(context, userPrincipal);
       let lockedBalance = ToolContext.getLockedBalance(context, userPrincipal);
-      let usable = Nat.min(allowanceResult.allowance, walletBalance);
-      let availableBalance = if (usable > lockedBalance) { usable - lockedBalance } else { 0 };
+      let availableBalance = ToolContext.getAvailableBalance(context, userPrincipal);
 
       // Get positions
       let posIds = switch (Map.get(context.userPositionIds, Map.phash, userPrincipal)) {
@@ -103,8 +85,7 @@ module {
 
       ToolContext.makeSuccess(Json.obj([
         ("owner", Json.str(Principal.toText(userPrincipal))),
-        ("wallet_balance", Json.str(Nat.toText(walletBalance))),
-        ("allowance", Json.str(Nat.toText(allowanceResult.allowance))),
+        ("account_balance", Json.str(Nat.toText(accountBalance))),
         ("available_balance", Json.str(Nat.toText(availableBalance))),
         ("locked_in_orders", Json.str(Nat.toText(lockedBalance))),
         ("positions", Json.arr(positionsJson)),

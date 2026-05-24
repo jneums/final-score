@@ -277,6 +277,10 @@ module ToolContext {
     true;
   };
 
+  public func getAvailableBalance(context : ToolContext, user : Principal) : Nat {
+    getBalance(context, user);
+  };
+
   /// Track an order ID under the user for O(1) lookup
   public func trackUserOrder(context : ToolContext, user : Principal, orderId : Text) {
     let existing = switch (Map.get(context.userOrderIds, Map.phash, user)) {
