@@ -119,7 +119,7 @@ export async function runResolve(): Promise<ResolveResult> {
 
         if (result.ok) {
           const msg = result.message.toLowerCase();
-          if (msg.includes("cancel") || msg.includes("refund")) {
+          if (msg.startsWith("cancelled market")) {
             cancelled++;
             log("cancel", "success", `${market.marketId}: ${result.message}`);
           } else {

@@ -89,7 +89,7 @@ export async function runResolve() {
                 const result = await tryResolveMarket(market.marketId);
                 if (result.ok) {
                     const msg = result.message.toLowerCase();
-                    if (msg.includes("cancel") || msg.includes("refund")) {
+                    if (msg.startsWith("cancelled market")) {
                         cancelled++;
                         log("cancel", "success", `${market.marketId}: ${result.message}`);
                     }
