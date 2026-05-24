@@ -3,6 +3,8 @@ import { Principal } from "@dfinity/principal";
 import { Secp256k1KeyIdentity } from "@dfinity/identity-secp256k1";
 import { CONFIG } from "./config.js";
 
+const TOKEN_TRANSFER_FEE_UNITS = 10_000n;
+
 // ─── Candid IDL ──────────────────────────────────────────────
 const idlFactory = ({ IDL }: { IDL: any }) => {
   const Result = IDL.Variant({ ok: IDL.Text, err: IDL.Text });
@@ -417,9 +419,10 @@ export async function getMakerAccountBalance(): Promise<AccountBalance> {
 
 async function approveMakerDeposit(amount: bigint): Promise<void> {
   const tokenActor = await getMakerTokenActor();
+  const allowance = amount + TOKEN_TRANSFER_FEE_UNITS;
   const result = await tokenActor.icrc2_approve({
     spender: { owner: Principal.fromText(CONFIG.CANISTER_ID), subaccount: [] },
-    amount,
+    amount: allowance,
     fee: [],
     memo: [],
     from_subaccount: [],

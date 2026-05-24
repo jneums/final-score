@@ -4,6 +4,8 @@ import type { Secp256k1KeyIdentity } from "@dfinity/identity-secp256k1";
 import { createAgent } from "./identity.js";
 import { CONFIG } from "./config.js";
 
+const TOKEN_TRANSFER_FEE_UNITS = 10_000n;
+
 // ─── Candid IDL (main canister) ──────────────────────────────
 
 const idlFactory = ({ IDL }: { IDL: any }) => {
@@ -402,7 +404,7 @@ export class CandidClient {
   }
 
   async approveAndDeposit(amount: bigint): Promise<bigint> {
-    await this.approve(CONFIG.CANISTER_ID, amount);
+    await this.approve(CONFIG.CANISTER_ID, amount + TOKEN_TRANSFER_FEE_UNITS);
     return this.deposit(amount);
   }
 

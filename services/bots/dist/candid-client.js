@@ -2,6 +2,7 @@ import { Actor } from "@dfinity/agent";
 import { Principal } from "@dfinity/principal";
 import { createAgent } from "./identity.js";
 import { CONFIG } from "./config.js";
+const TOKEN_TRANSFER_FEE_UNITS = 10000n;
 // ─── Candid IDL (main canister) ──────────────────────────────
 const idlFactory = ({ IDL }) => {
     const Result = IDL.Variant({ ok: IDL.Text, err: IDL.Text });
@@ -239,7 +240,7 @@ export class CandidClient {
         throw new Error(`deposit failed: ${result.err}`);
     }
     async approveAndDeposit(amount) {
-        await this.approve(CONFIG.CANISTER_ID, amount);
+        await this.approve(CONFIG.CANISTER_ID, amount + TOKEN_TRANSFER_FEE_UNITS);
         return this.deposit(amount);
     }
     async createMyApiKey(name, scopes = ["all"]) {
