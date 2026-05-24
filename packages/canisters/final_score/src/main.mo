@@ -1042,6 +1042,48 @@ shared ({ caller = deployer }) persistent actor class McpServer(
 
   transient let mcpServer = Mcp.createServer(mcpConfig);
 
+  func nextNatKeyFromMap<V>(map : Map.Map<Text, V>) : Nat {
+    var next : Nat = 0;
+    for ((id, _) in Map.entries(map)) {
+      switch (Nat.fromText(id)) {
+        case (?n) {
+          if (n >= next) {
+            next := n + 1;
+          };
+        };
+        case null {};
+      };
+    };
+    next;
+  };
+
+  func repairAndSyncCounters() {
+    let repairedMarketId = nextNatKeyFromMap<ToolContext.Market>(markets);
+    if (repairedMarketId > nextMarketId) {
+      nextMarketId := repairedMarketId;
+    };
+
+    let repairedOrderId = nextNatKeyFromMap<ToolContext.Order>(orders);
+    if (repairedOrderId > nextOrderId) {
+      nextOrderId := repairedOrderId;
+    };
+
+    let repairedPositionId = nextNatKeyFromMap<ToolContext.Position>(positions);
+    if (repairedPositionId > nextPositionId) {
+      nextPositionId := repairedPositionId;
+    };
+
+    let repairedTradeId = nextNatKeyFromMap<ToolContext.Trade>(trades);
+    if (repairedTradeId > nextTradeId) {
+      nextTradeId := repairedTradeId;
+    };
+
+    toolContext.nextMarketId := nextMarketId;
+    toolContext.nextOrderId := nextOrderId;
+    toolContext.nextPositionId := nextPositionId;
+    toolContext.nextTradeId := nextTradeId;
+  };
+
   // ═══════════════════════════════════════════════════════════
   // Public Entry Points
   // ═══════════════════════════════════════════════════════════
@@ -1134,10 +1176,15 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   // ═══════════════════════════════════════════════════════════
 
   system func preupgrade() {
+    nextMarketId := toolContext.nextMarketId;
+    nextOrderId := toolContext.nextOrderId;
+    nextPositionId := toolContext.nextPositionId;
+    nextTradeId := toolContext.nextTradeId;
     stable_http_assets := HttpAssets.preupgrade(http_assets);
   };
 
   system func postupgrade() {
+    repairAndSyncCounters();
     HttpAssets.postupgrade(http_assets);
     // Refresh token metadata from ledger on every upgrade
     ignore Timer.setTimer<system>(#seconds 0, refreshTokenMetadata);

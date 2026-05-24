@@ -74,6 +74,26 @@ describe('custodial accounting model', () => {
     expect(resolveBody).not.toContain('staleEnough');
   });
 
+  it('syncs transient ID counters across upgrades to avoid overwriting history', () => {
+    const preupgradeBody = bodyBetween(
+      'system func preupgrade',
+      'system func postupgrade',
+    );
+    const postupgradeBody = bodyBetween(
+      'system func postupgrade',
+      '/// Query token metadata from the configured ledger and update vars',
+    );
+
+    expect(mainMo).toContain('func repairAndSyncCounters()');
+    expect(mainMo).toContain('func nextNatKeyFromMap<V>');
+    expect(preupgradeBody).toContain('nextOrderId := toolContext.nextOrderId');
+    expect(preupgradeBody).toContain('nextTradeId := toolContext.nextTradeId');
+    expect(preupgradeBody).toContain('nextPositionId := toolContext.nextPositionId');
+    expect(postupgradeBody).toContain('repairAndSyncCounters()');
+    expect(mainMo).toContain('let repairedOrderId = nextNatKeyFromMap<ToolContext.Order>(orders)');
+    expect(mainMo).toContain('toolContext.nextOrderId := nextOrderId');
+  });
+
   it('MCP tools use custodial account balances without ledger calls during normal trading/account reads', () => {
     expect(mcpOrderPlaceMo).toContain('ToolContext.debitBalance(context, userPrincipal, cost)');
     expect(mcpOrderPlaceMo).toContain('ToolContext.creditBalance(context, user, payout)');
