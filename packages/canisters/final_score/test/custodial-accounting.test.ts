@@ -62,21 +62,16 @@ describe('custodial accounting model', () => {
     expect(resolveBody).not.toContain('from_subaccount = ?ToolContext.marketSubaccount(marketId)');
   });
 
-  it('allows stale Polymarket events to resolve from post-match prices', () => {
+  it('only resolves markets after Polymarket explicitly closes the condition', () => {
     const resolveBody = bodyBetween(
       'public func try_resolve_market',
       '/// Release the unfilled balance reserved behind orders',
     );
-    const unresolvedBody = bodyBetween(
-      'public query func get_unresolved_markets',
-      '/// Get open market counts grouped by sport code',
-    );
 
-    expect(mainMo).toContain('STALE_RESOLUTION_GRACE_NS');
-    expect(resolveBody).toContain('let staleEnough = Time.now() >= market.endDate + STALE_RESOLUTION_GRACE_NS');
-    expect(resolveBody).toContain('if (not isClosed and not staleEnough)');
-    expect(unresolvedBody).toContain('endDate : Int');
-    expect(unresolvedBody).toContain('endDate = m.endDate');
+    expect(mainMo).toContain('Legacy stable interface compatibility only');
+    expect(resolveBody).toContain('if (not isClosed)');
+    expect(resolveBody).toContain('return #err("Polymarket not closed yet")');
+    expect(resolveBody).not.toContain('staleEnough');
   });
 
   it('MCP tools use custodial account balances without ledger calls during normal trading/account reads', () => {

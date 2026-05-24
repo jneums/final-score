@@ -110,7 +110,9 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   // Rate limiting: 2-second cooldown between orders per user
   var lastOrderTime = Map.new<Principal, Int>();
   let ORDER_COOLDOWN_NS : Int = 2_000_000_000; // 2 seconds in nanoseconds
-  let STALE_RESOLUTION_GRACE_NS : Int = 86_400_000_000_000; // 24 hours after scheduled end
+  // Legacy stable interface compatibility only. Do not use this as a resolution gate:
+  // Final Score must only resolve when Polymarket explicitly reports closed=true.
+  let STALE_RESOLUTION_GRACE_NS : Int = 86_400_000_000_000;
 
   // Polymarket sync tracking
   var knownPolySlugs = Map.new<Text, [Text]>();
@@ -797,15 +799,12 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           let condId = jsonGetText(pm, "conditionId");
           if (condId == baseCid) {
             let isClosed = jsonGetBool(pm, "closed");
-            let staleEnough = Time.now() >= market.endDate + STALE_RESOLUTION_GRACE_NS;
 
-            if (not isClosed and not staleEnough) {
+            if (not isClosed) {
               return #err("Polymarket not closed yet");
             };
 
-            // Parse final/current prices. Polymarket leaves some sports markets
-            // active long after the match ends; after the grace window, use the
-            // post-match price signal rather than leaving Final Score open forever.
+            // Parse final prices
             let pricesStr = jsonGetText(pm, "outcomePrices");
             let pricesResult = Json.parse(pricesStr);
 
