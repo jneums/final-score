@@ -318,6 +318,7 @@ export interface McpServer {
       {
         'status' : string,
         'polymarketSlug' : string,
+        'endDate' : bigint,
         'polymarketConditionId' : string,
         'marketId' : string,
       }

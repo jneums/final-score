@@ -306,6 +306,7 @@ type McpServer =
    get_unresolved_markets: () ->
     (vec
       record {
+        endDate: int;
         marketId: text;
         polymarketConditionId: text;
         polymarketSlug: text;

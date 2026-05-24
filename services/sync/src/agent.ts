@@ -14,6 +14,7 @@ const idlFactory = ({ IDL }: { IDL: any }) => {
     polymarketSlug: IDL.Text,
     polymarketConditionId: IDL.Text,
     status: IDL.Text,
+    endDate: IDL.Int,
   });
 
   const Fill = IDL.Record({
@@ -172,6 +173,7 @@ interface UnresolvedMarket {
   polymarketSlug: string;
   polymarketConditionId: string;
   status: string;
+  endDate: bigint;
 }
 
 interface PlaceOrderFill {

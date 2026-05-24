@@ -11,6 +11,7 @@ const idlFactory = ({ IDL }) => {
         polymarketSlug: IDL.Text,
         polymarketConditionId: IDL.Text,
         status: IDL.Text,
+        endDate: IDL.Int,
     });
     const Fill = IDL.Record({
         tradeId: IDL.Text,

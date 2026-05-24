@@ -110,6 +110,7 @@ shared ({ caller = deployer }) persistent actor class McpServer(
   // Rate limiting: 2-second cooldown between orders per user
   var lastOrderTime = Map.new<Principal, Int>();
   let ORDER_COOLDOWN_NS : Int = 2_000_000_000; // 2 seconds in nanoseconds
+  let STALE_RESOLUTION_GRACE_NS : Int = 86_400_000_000_000; // 24 hours after scheduled end
 
   // Polymarket sync tracking
   var knownPolySlugs = Map.new<Text, [Text]>();
@@ -796,12 +797,15 @@ shared ({ caller = deployer }) persistent actor class McpServer(
           let condId = jsonGetText(pm, "conditionId");
           if (condId == baseCid) {
             let isClosed = jsonGetBool(pm, "closed");
+            let staleEnough = Time.now() >= market.endDate + STALE_RESOLUTION_GRACE_NS;
 
-            if (not isClosed) {
+            if (not isClosed and not staleEnough) {
               return #err("Polymarket not closed yet");
             };
 
-            // Parse final prices
+            // Parse final/current prices. Polymarket leaves some sports markets
+            // active long after the match ends; after the grace window, use the
+            // post-match price signal rather than leaving Final Score open forever.
             let pricesStr = jsonGetText(pm, "outcomePrices");
             let pricesResult = Json.parse(pricesStr);
 
@@ -2369,18 +2373,20 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     polymarketSlug : Text;
     polymarketConditionId : Text;
     status : Text;
+    endDate : Int;
   }] {
     var result : [{
       marketId : Text;
       polymarketSlug : Text;
       polymarketConditionId : Text;
       status : Text;
+      endDate : Int;
     }] = [];
     for ((_, m) in Map.entries(markets)) {
       switch (m.status) {
         case (#Open or #Closed) {
           if (m.polymarketSlug != "" and m.polymarketConditionId != "") {
-            result := Array.append(result, [{ marketId = m.marketId; polymarketSlug = m.polymarketSlug; polymarketConditionId = m.polymarketConditionId; status = ToolContext.marketStatusToText(m.status) }]);
+            result := Array.append(result, [{ marketId = m.marketId; polymarketSlug = m.polymarketSlug; polymarketConditionId = m.polymarketConditionId; status = ToolContext.marketStatusToText(m.status); endDate = m.endDate }]);
           };
         };
         case _ {};

@@ -3,6 +3,7 @@ interface UnresolvedMarket {
     polymarketSlug: string;
     polymarketConditionId: string;
     status: string;
+    endDate: bigint;
 }
 interface PlaceOrderFill {
     tradeId: string;

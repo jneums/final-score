@@ -386,6 +386,7 @@ export const idlFactory = ({ IDL }) => {
             IDL.Record({
               'status' : IDL.Text,
               'polymarketSlug' : IDL.Text,
+              'endDate' : IDL.Int,
               'polymarketConditionId' : IDL.Text,
               'marketId' : IDL.Text,
             })

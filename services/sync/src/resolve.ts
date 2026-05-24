@@ -29,7 +29,10 @@ interface UnresolvedMarket {
   polymarketSlug: string;
   polymarketConditionId: string;
   status: string;
+  endDate: bigint;
 }
+
+const STALE_RESOLUTION_GRACE_NS = 86_400_000_000_000n;
 
 /**
  * Check Polymarket API (free HTTP) to see if any market in this event is closed.
@@ -58,6 +61,11 @@ async function getClosedConditionIds(slug: string): Promise<Set<string>> {
 function baseCid(cid: string): string {
   if (cid.endsWith("-a") || cid.endsWith("-b")) return cid.slice(0, -2);
   return cid;
+}
+
+function isPastStaleGrace(market: UnresolvedMarket): boolean {
+  const nowNs = BigInt(Date.now()) * 1_000_000n;
+  return nowNs >= market.endDate + STALE_RESOLUTION_GRACE_NS;
 }
 
 export async function runResolve(): Promise<ResolveResult> {
@@ -96,12 +104,16 @@ export async function runResolve(): Promise<ResolveResult> {
     // Step 2: Only call canister for markets whose conditionId is closed on Polymarket
     for (const market of slugMarkets) {
       const base = baseCid(market.polymarketConditionId);
-      if (!closedCids.has(base)) {
+      const staleEnough = isPastStaleGrace(market);
+      if (!closedCids.has(base) && !staleEnough) {
         waiting++;
         continue;
       }
 
-      // This market's Polymarket counterpart is closed — trigger trustless resolution
+      // This market is either closed on Polymarket, or Polymarket left it open
+      // past the grace window. The canister re-fetches Polymarket and resolves
+      // from the same condition's final/current prices, so the service remains
+      // only a cheap prefilter.
       try {
         const result = await tryResolveMarket(market.marketId);
 
