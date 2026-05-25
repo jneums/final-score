@@ -1636,11 +1636,26 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       case _ return #err("Market is not open for trading");
     };
 
-    // Find all caller's Open/PartiallyFilled orders in this market
+    // Find caller's currently resting orders in this market from the market's book.
+    // Do not scan toolContext.orders here: the maker requotes frequently and the global
+    // order history is append-only, so a full scan turns every requote into O(total orders).
+    var book = switch (Map.get(orderBooks, thash, marketId)) {
+      case (?b) b;
+      case null OrderBook.emptyBook();
+    };
     let oldOrders = Buffer.Buffer<ToolContext.Order>(8);
-    for ((oid, order) in Map.entries(toolContext.orders)) {
-      if (order.marketId == marketId and Principal.equal(order.user, caller) and (order.status == #Open or order.status == #PartiallyFilled)) {
-        oldOrders.add(order);
+    for (level in book.yesBids.levels.vals()) {
+      for (order in level.orders.vals()) {
+        if (Principal.equal(order.user, caller) and (order.status == #Open or order.status == #PartiallyFilled)) {
+          oldOrders.add(order);
+        };
+      };
+    };
+    for (level in book.noBids.levels.vals()) {
+      for (order in level.orders.vals()) {
+        if (Principal.equal(order.user, caller) and (order.status == #Open or order.status == #PartiallyFilled)) {
+          oldOrders.add(order);
+        };
       };
     };
 
@@ -1687,10 +1702,6 @@ shared ({ caller = deployer }) persistent actor class McpServer(
     // delta == 0: no balance movement needed.
 
     // Cancel all old orders
-    var book = switch (Map.get(orderBooks, thash, marketId)) {
-      case (?b) b;
-      case null OrderBook.emptyBook();
-    };
     let cancelledCount = oldOrders.size();
     for (order in oldOrders.vals()) {
       Map.set(toolContext.orders, Map.thash, order.orderId, { order with status = #Cancelled });
@@ -1864,24 +1875,32 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       timestamp : Int;
     }] = [];
 
-    for ((_, order) in Map.entries(toolContext.orders)) {
-      if (Principal.equal(order.user, caller)) {
-        let statusText = ToolContext.orderStatusToText(order.status);
-        let shouldInclude = switch (statusFilter) {
-          case (?f) f == statusText or f == "all";
-          case null statusText == "Open" or statusText == "PartiallyFilled";
-        };
-        let marketMatch = switch (marketFilter) {
-          case (?m) order.marketId == m;
-          case null true;
-        };
-        if (shouldInclude and marketMatch) {
-          let question = switch (Map.get(toolContext.markets, Map.thash, order.marketId)) {
-            case (?m) m.question;
-            case null "Unknown";
+    let orderIds = switch (Map.get(toolContext.userOrderIds, Map.phash, caller)) {
+      case (?ids) ids;
+      case null [];
+    };
+
+    for (orderId in orderIds.vals()) {
+      switch (Map.get(toolContext.orders, Map.thash, orderId)) {
+        case (?order) {
+          let statusText = ToolContext.orderStatusToText(order.status);
+          let shouldInclude = switch (statusFilter) {
+            case (?f) f == statusText or f == "all";
+            case null statusText == "Open" or statusText == "PartiallyFilled";
           };
-          result := Array.append(result, [{ orderId = order.orderId; marketId = order.marketId; question = question; outcome = ToolContext.outcomeToText(order.outcome); price = order.price; size = order.size; filledSize = order.filledSize; status = statusText; timestamp = order.timestamp }]);
+          let marketMatch = switch (marketFilter) {
+            case (?m) order.marketId == m;
+            case null true;
+          };
+          if (shouldInclude and marketMatch) {
+            let question = switch (Map.get(toolContext.markets, Map.thash, order.marketId)) {
+              case (?m) m.question;
+              case null "Unknown";
+            };
+            result := Array.append(result, [{ orderId = order.orderId; marketId = order.marketId; question = question; outcome = ToolContext.outcomeToText(order.outcome); price = order.price; size = order.size; filledSize = order.filledSize; status = statusText; timestamp = order.timestamp }]);
+          };
         };
+        case null {};
       };
     };
     result;

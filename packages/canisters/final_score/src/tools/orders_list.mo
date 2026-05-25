@@ -46,47 +46,57 @@ module {
 
       var userOrders : [Json.Json] = [];
 
-      for ((_, order) in Map.entries(context.orders)) {
-        if (Principal.equal(order.user, userPrincipal)) {
-          // Apply status filter
-          let shouldInclude = switch (statusFilter) {
-            case ("open") order.status == #Open or order.status == #PartiallyFilled;
-            case ("filled") order.status == #Filled;
-            case ("all") true;
-            case _ order.status == #Open or order.status == #PartiallyFilled;
-          };
-
-          // Apply market filter
-          let marketMatch = switch (marketFilter) {
-            case (?mid) order.marketId == mid;
-            case null true;
-          };
-
-          if (shouldInclude and marketMatch) {
-            let remaining = order.size - order.filledSize;
-            let lockedUsdc = ToolContext.orderCost(context, order.price, remaining);
-
-            // Look up market question for context
-            let question = switch (Map.get(context.markets, Map.thash, order.marketId)) {
-              case (?m) m.question;
-              case null "Unknown market";
+      // Use the per-user order index instead of scanning the append-only global order map.
+      // MCP portfolio/full-flow bots call this frequently; scanning all maker requote history
+      // made every orders_list query grow with total platform order count.
+      let orderIds = switch (Map.get(context.userOrderIds, Map.phash, userPrincipal)) {
+        case (?ids) ids;
+        case null [];
+      };
+      for (orderId in orderIds.vals()) {
+        switch (Map.get(context.orders, Map.thash, orderId)) {
+          case (?order) {
+            // Apply status filter
+            let shouldInclude = switch (statusFilter) {
+              case ("open") order.status == #Open or order.status == #PartiallyFilled;
+              case ("filled") order.status == #Filled;
+              case ("all") true;
+              case _ order.status == #Open or order.status == #PartiallyFilled;
             };
 
-            userOrders := Array.append(userOrders, [Json.obj([
-              ("order_id", Json.str(order.orderId)),
-              ("market_id", Json.str(order.marketId)),
-              ("question", Json.str(question)),
-              ("outcome", Json.str(ToolContext.outcomeToText(order.outcome))),
-              ("price", Json.str(Nat.toText(order.price))),
-              ("price_dollars", Json.str(priceToStr(order.price))),
-              ("size", #number(#int(order.size))),
-              ("filled_size", #number(#int(order.filledSize))),
-              ("remaining", #number(#int(remaining))),
-              ("locked_usdc", Json.str(Nat.toText(lockedUsdc))),
-              ("status", Json.str(ToolContext.orderStatusToText(order.status))),
-              ("timestamp", #number(#int(order.timestamp))),
-            ])]);
+            // Apply market filter
+            let marketMatch = switch (marketFilter) {
+              case (?mid) order.marketId == mid;
+              case null true;
+            };
+
+            if (shouldInclude and marketMatch) {
+              let remaining = order.size - order.filledSize;
+              let lockedUsdc = ToolContext.orderCost(context, order.price, remaining);
+
+              // Look up market question for context
+              let question = switch (Map.get(context.markets, Map.thash, order.marketId)) {
+                case (?m) m.question;
+                case null "Unknown market";
+              };
+
+              userOrders := Array.append(userOrders, [Json.obj([
+                ("order_id", Json.str(order.orderId)),
+                ("market_id", Json.str(order.marketId)),
+                ("question", Json.str(question)),
+                ("outcome", Json.str(ToolContext.outcomeToText(order.outcome))),
+                ("price", Json.str(Nat.toText(order.price))),
+                ("price_dollars", Json.str(priceToStr(order.price))),
+                ("size", #number(#int(order.size))),
+                ("filled_size", #number(#int(order.filledSize))),
+                ("remaining", #number(#int(remaining))),
+                ("locked_usdc", Json.str(Nat.toText(lockedUsdc))),
+                ("status", Json.str(ToolContext.orderStatusToText(order.status))),
+                ("timestamp", #number(#int(order.timestamp))),
+              ])]);
+            };
           };
+          case null {};
         };
       };
 
