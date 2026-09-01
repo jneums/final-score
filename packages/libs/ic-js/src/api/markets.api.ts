@@ -321,6 +321,18 @@ export interface UserPosition {
   marketStatus: string;
 }
 
+export interface UserHistoryEntry {
+  marketId: string;
+  question: string;
+  outcome: string;
+  resolvedOutcome: string;
+  shares: number;
+  costBasis: number;
+  payout: number;
+  netPnl: number;
+  resolvedAt: number;
+}
+
 export const getMyPositions = async (
   identity: Identity,
   marketFilter?: string,
@@ -339,6 +351,24 @@ export const getMyPositions = async (
     averagePrice: Number(p.averagePrice),
     currentPrice: Number(p.currentPrice),
     marketStatus: p.marketStatus,
+  }));
+};
+
+export const getMyHistory = async (
+  identity: Identity,
+): Promise<UserHistoryEntry[]> => {
+  const actor = await getFinalScoreActor(identity);
+  const result = await actor.my_history();
+  return result.map((h) => ({
+    marketId: h.marketId,
+    question: h.question,
+    outcome: h.outcome,
+    resolvedOutcome: h.resolvedOutcome,
+    shares: Number(h.shares),
+    costBasis: Number(h.costBasis),
+    payout: Number(h.payout),
+    netPnl: Number(h.netPnl),
+    resolvedAt: Number(h.resolvedAt),
   }));
 };
 

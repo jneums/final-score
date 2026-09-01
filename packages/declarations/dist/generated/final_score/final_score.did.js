@@ -386,6 +386,7 @@ export const idlFactory = ({ IDL }) => {
             IDL.Record({
               'status' : IDL.Text,
               'polymarketSlug' : IDL.Text,
+              'endDate' : IDL.Int,
               'polymarketConditionId' : IDL.Text,
               'marketId' : IDL.Text,
             })
@@ -402,6 +403,25 @@ export const idlFactory = ({ IDL }) => {
     'http_request_update' : IDL.Func([HttpRequest], [HttpResponse], []),
     'icrc120_upgrade_finished' : IDL.Func([], [UpgradeFinishedResult], []),
     'list_my_api_keys' : IDL.Func([], [IDL.Vec(ApiKeyMetadata)], ['query']),
+    'my_history' : IDL.Func(
+        [],
+        [
+          IDL.Vec(
+            IDL.Record({
+              'shares' : IDL.Nat,
+              'question' : IDL.Text,
+              'resolvedOutcome' : IDL.Text,
+              'netPnl' : IDL.Int,
+              'marketId' : IDL.Text,
+              'costBasis' : IDL.Nat,
+              'outcome' : IDL.Text,
+              'payout' : IDL.Nat,
+              'resolvedAt' : IDL.Nat,
+            })
+          ),
+        ],
+        ['query'],
+      ),
     'my_orders' : IDL.Func(
         [IDL.Opt(IDL.Text), IDL.Opt(IDL.Text)],
         [

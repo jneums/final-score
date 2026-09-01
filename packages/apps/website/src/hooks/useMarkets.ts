@@ -7,6 +7,7 @@ import {
   getOrderBook,
   getMyOrders,
   getMyPositions,
+  getMyHistory,
   getEventMarkets,
   getSportCounts,
   getTopMarketsByVolume,
@@ -19,6 +20,7 @@ import {
   type OrderBookData,
   type UserOrder,
   type UserPosition,
+  type UserHistoryEntry,
   type SportCount,
   type AccountBalance,
 } from '@final-score/ic-js';
@@ -170,6 +172,16 @@ export function useMyPositions(identity: any, marketFilter?: string) {
   return useQuery<UserPosition[]>({
     queryKey: ['my-positions', marketFilter],
     queryFn: () => getMyPositions(identity, marketFilter),
+    enabled: !!identity,
+    staleTime: 10 * 1000,
+    refetchInterval: 15 * 1000,
+  });
+}
+
+export function useMyHistory(identity: any) {
+  return useQuery<UserHistoryEntry[]>({
+    queryKey: ['my-history'],
+    queryFn: () => getMyHistory(identity),
     enabled: !!identity,
     staleTime: 10 * 1000,
     refetchInterval: 15 * 1000,

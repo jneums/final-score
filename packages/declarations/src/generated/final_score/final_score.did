@@ -318,6 +318,20 @@ type McpServer =
    http_request_update: (req: HttpRequest) -> (HttpResponse);
    icrc120_upgrade_finished: () -> (UpgradeFinishedResult);
    list_my_api_keys: () -> (vec ApiKeyMetadata) query;
+   /// List the caller's settled position history for the frontend.
+   my_history: () ->
+    (vec
+      record {
+        costBasis: nat;
+        marketId: text;
+        netPnl: int;
+        outcome: text;
+        payout: nat;
+        question: text;
+        resolvedAt: nat;
+        resolvedOutcome: text;
+        shares: nat;
+      }) query;
    /// List the caller's orders
    my_orders: (statusFilter: opt text, marketFilter: opt text) ->
     (vec

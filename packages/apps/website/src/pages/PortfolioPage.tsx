@@ -4,11 +4,12 @@ import { Button } from '../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { useAuth } from '../hooks/useAuth';
 import { useUsdcBalance } from '../hooks/useLedger';
-import { useMyOrders, useMyPositions, useMyAccountBalance } from '../hooks/useMarkets';
+import { useMyOrders, useMyPositions, useMyHistory, useMyAccountBalance } from '../hooks/useMarkets';
 import { cancelOrderCandid } from '@final-score/ic-js';
 import { toast } from 'sonner';
 import { positionCurrentValue, formatPnl, atomicToDollars } from '../lib/tokenUtils';
 import { formatTokenAmount } from '../lib/balanceUtils';
+import { formatHistoryPnl, historyOutcomeBadgeClass } from '../lib/historyUtils';
 import { useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import {
@@ -33,7 +34,7 @@ export default function PortfolioPage() {
   const { data: accountBalance, isLoading: accountBalanceLoading } = useMyAccountBalance(user?.agent);
   const { data: positions, isLoading: positionsLoading } = useMyPositions(user?.agent);
   const { data: orders, isLoading: ordersLoading } = useMyOrders(user?.agent);
-  const { data: allOrders, isLoading: historyLoading } = useMyOrders(user?.agent, 'all');
+  const { data: history, isLoading: historyLoading } = useMyHistory(user?.agent);
   const queryClient = useQueryClient();
 
   if (!isAuthenticated) {
@@ -359,59 +360,55 @@ export default function PortfolioPage() {
                       <tr className="border-b border-border">
                         <th className="text-left p-4 text-muted-foreground font-medium">Market</th>
                         <th className="text-left p-4 text-muted-foreground font-medium">Side</th>
-                        <th className="text-right p-4 text-muted-foreground font-medium">Price</th>
-                        <th className="text-right p-4 text-muted-foreground font-medium">Size</th>
-                        <th className="text-right p-4 text-muted-foreground font-medium">Filled</th>
-                        <th className="text-right p-4 text-muted-foreground font-medium">Status</th>
+                        <th className="text-left p-4 text-muted-foreground font-medium">Resolved</th>
+                        <th className="text-right p-4 text-muted-foreground font-medium">Shares</th>
+                        <th className="text-right p-4 text-muted-foreground font-medium">Cost</th>
+                        <th className="text-right p-4 text-muted-foreground font-medium">Payout</th>
+                        <th className="text-right p-4 text-muted-foreground font-medium">Gain/Loss</th>
                       </tr>
                     </thead>
                     <tbody>
                       {historyLoading ? (
                         <tr>
-                          <td colSpan={6} className="text-center py-12">
+                          <td colSpan={7} className="text-center py-12">
                             <Loader2 className="w-6 h-6 mx-auto animate-spin text-muted-foreground" />
                           </td>
                         </tr>
-                      ) : !allOrders || allOrders.length === 0 ? (
+                      ) : !history || history.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="text-center py-12 text-muted-foreground">
+                          <td colSpan={7} className="text-center py-12 text-muted-foreground">
                             <FileText className="w-8 h-8 mx-auto mb-2 opacity-30" />
                             No trade history
                           </td>
                         </tr>
                       ) : (
-                        allOrders.map((order) => (
-                          <tr key={order.orderId} className="border-b border-border/50 hover:bg-muted/30">
+                        history.map((entry) => (
+                          <tr key={`${entry.marketId}:${entry.outcome}:${entry.resolvedAt}`} className="border-b border-border/50 hover:bg-muted/30">
                             <td className="p-4">
-                              <Link to={`/event/${order.marketId}`} className="hover:text-primary transition-colors">
-                                {order.question.length > 50 ? order.question.slice(0, 50) + '…' : order.question}
+                              <Link to={`/event/${entry.marketId}`} className="hover:text-primary transition-colors">
+                                {entry.question.length > 50 ? entry.question.slice(0, 50) + '…' : entry.question}
                               </Link>
                             </td>
                             <td className="p-4">
                               <Badge
                                 variant="outline"
-                                className={order.outcome === 'Yes'
-                                  ? 'text-green-400 border-green-500/30'
-                                  : 'text-red-400 border-red-500/30'}
+                                className={historyOutcomeBadgeClass(entry.outcome, entry.resolvedOutcome)}
                               >
-                                {order.outcome}
+                                {entry.outcome}
                               </Badge>
                             </td>
-                            <td className="text-right p-4 font-mono">{bpsToDollar(order.price)}</td>
-                            <td className="text-right p-4 font-mono">{order.size}</td>
-                            <td className="text-right p-4 font-mono">{order.filledSize}/{order.size}</td>
-                            <td className="text-right p-4">
-                              <Badge
-                                variant="outline"
-                                className={
-                                  order.status === 'Filled' ? 'text-green-400 border-green-500/30'
-                                  : order.status === 'Cancelled' ? 'text-muted-foreground border-border'
-                                  : order.status === 'PartiallyFilled' ? 'text-yellow-400 border-yellow-500/30'
-                                  : 'text-blue-400 border-blue-500/30'
-                                }
-                              >
-                                {order.status}
+                            <td className="p-4">
+                              <Badge variant="outline" className="text-blue-400 border-blue-500/30">
+                                {entry.resolvedOutcome}
                               </Badge>
+                            </td>
+                            <td className="text-right p-4 font-mono">{entry.shares}</td>
+                            <td className="text-right p-4 font-mono">${atomicToDollars(entry.costBasis).toFixed(2)}</td>
+                            <td className="text-right p-4 font-mono">${atomicToDollars(entry.payout).toFixed(2)}</td>
+                            <td className="text-right p-4">
+                              <span className={`font-mono ${entry.netPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                {formatHistoryPnl(entry.payout, entry.costBasis)}
+                              </span>
                             </td>
                           </tr>
                         ))

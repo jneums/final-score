@@ -169,6 +169,21 @@ export const getMyPositions = async (identity, marketFilter) => {
         marketStatus: p.marketStatus,
     }));
 };
+export const getMyHistory = async (identity) => {
+    const actor = await getFinalScoreActor(identity);
+    const result = await actor.my_history();
+    return result.map((h) => ({
+        marketId: h.marketId,
+        question: h.question,
+        outcome: h.outcome,
+        resolvedOutcome: h.resolvedOutcome,
+        shares: Number(h.shares),
+        costBasis: Number(h.costBasis),
+        payout: Number(h.payout),
+        netPnl: Number(h.netPnl),
+        resolvedAt: Number(h.resolvedAt),
+    }));
+};
 // ─── Event Markets ────────────────────────────────────────────────────────────
 export const getEventMarkets = async (polymarketSlug) => {
     const actor = await getFinalScoreActor();

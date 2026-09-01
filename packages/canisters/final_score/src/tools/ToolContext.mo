@@ -637,6 +637,13 @@ module ToolContext {
     };
   };
 
+  public func oppositeOutcome(outcome : Outcome) : Outcome {
+    switch (outcome) {
+      case (#Yes) #No;
+      case (#No) #Yes;
+    };
+  };
+
   public func parseOutcome(text : Text) : ?Outcome {
     switch (text) {
       case ("yes" or "Yes" or "YES") ?#Yes;

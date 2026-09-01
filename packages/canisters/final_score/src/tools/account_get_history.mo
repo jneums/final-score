@@ -3,6 +3,7 @@ import AuthTypes "mo:mcp-motoko-sdk/auth/Types";
 import Result "mo:base/Result";
 import Json "mo:json";
 import Nat "mo:base/Nat";
+import Int "mo:base/Int";
 import Array "mo:base/Array";
 import Map "mo:map/Map";
 import Iter "mo:base/Iter";
@@ -72,14 +73,26 @@ module {
       let historyJson = Array.map<ToolContext.HistoricalPosition, Json.Json>(
         paged,
         func(e : ToolContext.HistoricalPosition) : Json.Json {
+          let resolvedOutcome = if (e.payout > 0) {
+            e.outcome;
+          } else {
+            ToolContext.oppositeOutcome(e.outcome);
+          };
+          let netPnl : Int = if (e.payout >= e.costBasis) {
+            e.payout - e.costBasis;
+          } else {
+            -1 * (e.costBasis - e.payout);
+          };
           Json.obj([
             ("market_id", Json.str(e.marketId)),
             ("event", Json.str(e.eventTitle)),
             ("question", Json.str(e.question)),
             ("outcome", Json.str(ToolContext.outcomeToText(e.outcome))),
+            ("resolved_outcome", Json.str(ToolContext.outcomeToText(resolvedOutcome))),
             ("shares", Json.str(Nat.toText(e.shares))),
             ("cost_basis", Json.str(Nat.toText(e.costBasis))),
             ("payout", Json.str(Nat.toText(e.payout))),
+            ("net_pnl", Json.str(Int.toText(netPnl))),
             ("result", Json.str(if (e.payout > e.costBasis) "profit" else if (e.payout > 0) "loss" else "total_loss")),
             ("resolved_at", Json.str(Nat.toText(e.resolvedAt))),
           ]);

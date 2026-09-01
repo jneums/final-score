@@ -126,6 +126,18 @@ export interface UserPosition {
     currentPrice: number;
     marketStatus: string;
 }
+export interface UserHistoryEntry {
+    marketId: string;
+    question: string;
+    outcome: string;
+    resolvedOutcome: string;
+    shares: number;
+    costBasis: number;
+    payout: number;
+    netPnl: number;
+    resolvedAt: number;
+}
 export declare const getMyPositions: (identity: Identity, marketFilter?: string) => Promise<UserPosition[]>;
+export declare const getMyHistory: (identity: Identity) => Promise<UserHistoryEntry[]>;
 export declare const getEventMarkets: (polymarketSlug: string) => Promise<MarketInfo[]>;
 export declare const getTopMarketsByVolume: (limit?: number) => Promise<MarketListItem[]>;

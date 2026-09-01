@@ -94,6 +94,18 @@ describe('custodial accounting model', () => {
     expect(mainMo).toContain('toolContext.nextOrderId := nextOrderId');
   });
 
+  it('exposes settled history to the frontend with resolved outcome and realized P&L fields', () => {
+    expect(mainMo).toContain('public query (msg) func my_history');
+    expect(mainMo).toContain('resolvedOutcome : Text;');
+    expect(mainMo).toContain('netPnl : Int;');
+    expect(mainMo).toContain('resolvedOutcome = ToolContext.outcomeToText(resolvedOutcome)');
+    expect(mainMo).toContain('let resolvedOutcome = if (e.payout > 0)');
+    expect(mainMo).toContain('ToolContext.oppositeOutcome(e.outcome)');
+    expect(mainMo).toContain('let netPnl : Int = if (e.payout >= e.costBasis)');
+    expect(mainMo).toContain('-1 * (e.costBasis - e.payout)');
+    expect(toolContextMo).not.toContain('resolvedOutcome : Outcome;');
+  });
+
   it('MCP tools use custodial account balances without ledger calls during normal trading/account reads', () => {
     expect(mcpOrderPlaceMo).toContain('ToolContext.debitBalance(context, userPrincipal, cost)');
     expect(mcpOrderPlaceMo).toContain('ToolContext.creditBalance(context, user, payout)');

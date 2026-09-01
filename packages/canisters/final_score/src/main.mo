@@ -17,6 +17,7 @@ import Nat8 "mo:base/Nat8";
 import Nat32 "mo:base/Nat32";
 import Char "mo:base/Char";
 import Buffer "mo:base/Buffer";
+import Order "mo:base/Order";
 
 import Json "mo:json";
 import ICCall "mo:ic/Call";
@@ -1964,6 +1965,71 @@ shared ({ caller = deployer }) persistent actor class McpServer(
       };
     };
     result;
+  };
+
+  /// List the caller's settled position history for the frontend.
+  public query (msg) func my_history() : async [{
+    marketId : Text;
+    question : Text;
+    outcome : Text;
+    resolvedOutcome : Text;
+    shares : Nat;
+    costBasis : Nat;
+    payout : Nat;
+    netPnl : Int;
+    resolvedAt : Nat;
+  }] {
+    let caller = msg.caller;
+    let history = switch (Map.get(toolContext.positionHistory, Map.phash, caller)) {
+      case (?h) h;
+      case null [];
+    };
+
+    let sorted = Array.sort<ToolContext.HistoricalPosition>(
+      history,
+      func(a : ToolContext.HistoricalPosition, b : ToolContext.HistoricalPosition) : Order.Order {
+        if (a.resolvedAt > b.resolvedAt) #less
+        else if (a.resolvedAt < b.resolvedAt) #greater
+        else #equal;
+      },
+    );
+
+    Array.map<ToolContext.HistoricalPosition, {
+      marketId : Text;
+      question : Text;
+      outcome : Text;
+      resolvedOutcome : Text;
+      shares : Nat;
+      costBasis : Nat;
+      payout : Nat;
+      netPnl : Int;
+      resolvedAt : Nat;
+    }>(
+      sorted,
+      func(e : ToolContext.HistoricalPosition) {
+        let resolvedOutcome = if (e.payout > 0) {
+          e.outcome;
+        } else {
+          ToolContext.oppositeOutcome(e.outcome);
+        };
+        let netPnl : Int = if (e.payout >= e.costBasis) {
+          e.payout - e.costBasis;
+        } else {
+          -1 * (e.costBasis - e.payout);
+        };
+        {
+          marketId = e.marketId;
+          question = e.question;
+          outcome = ToolContext.outcomeToText(e.outcome);
+          resolvedOutcome = ToolContext.outcomeToText(resolvedOutcome);
+          shares = e.shares;
+          costBasis = e.costBasis;
+          payout = e.payout;
+          netPnl;
+          resolvedAt = e.resolvedAt;
+        };
+      },
+    );
   };
 
   // ═══════════════════════════════════════════════════════════

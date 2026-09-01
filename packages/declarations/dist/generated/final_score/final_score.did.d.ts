@@ -318,6 +318,7 @@ export interface McpServer {
       {
         'status' : string,
         'polymarketSlug' : string,
+        'endDate' : bigint,
         'polymarketConditionId' : string,
         'marketId' : string,
       }
@@ -331,6 +332,25 @@ export interface McpServer {
   'http_request_update' : ActorMethod<[HttpRequest], HttpResponse>,
   'icrc120_upgrade_finished' : ActorMethod<[], UpgradeFinishedResult>,
   'list_my_api_keys' : ActorMethod<[], Array<ApiKeyMetadata>>,
+  /**
+   * / List the caller's settled position history for the frontend.
+   */
+  'my_history' : ActorMethod<
+    [],
+    Array<
+      {
+        'shares' : bigint,
+        'question' : string,
+        'resolvedOutcome' : string,
+        'netPnl' : bigint,
+        'marketId' : string,
+        'costBasis' : bigint,
+        'outcome' : string,
+        'payout' : bigint,
+        'resolvedAt' : bigint,
+      }
+    >
+  >,
   /**
    * / List the caller's orders
    */
